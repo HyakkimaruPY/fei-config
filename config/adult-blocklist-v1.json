@@ -1,0 +1,55 @@
+{
+  "schema": "aura.content-safety.blocklist.v1",
+  "version": 1,
+  "updated_utc": "2026-06-21T00:00:00Z",
+  "description": "Content safety blocklist for user-provided IPTV/M3U category, channel, movie and series names. Used to hide adult or explicit entries from the public app UI.",
+  "mode": "block",
+  "ttl_seconds": 86400,
+  "match": {
+    "case_sensitive": false,
+    "contains": true,
+    "fields": [
+      "category",
+      "group-title",
+      "name",
+      "title",
+      "stream_name",
+      "vod_name",
+      "series_name"
+    ]
+  },
+  "allow_terms": [
+    "adult swim",
+    "cartoon network adult swim"
+  ],
+  "block_terms": [
+    "18+",
+    "+18",
+    "adult",
+    "adulto",
+    "adultos",
+    "adults",
+    "xxx",
+    "porn",
+    "porno",
+    "pornografia",
+    "pornographic",
+    "erotic",
+    "erotico",
+    "erótico",
+    "erotica",
+    "erótica",
+    "erotique",
+    "sex",
+    "sexo",
+    "sexual",
+    "nude",
+    "nudes",
+    "naked",
+    "desnudo",
+    "desnuda",
+    "sensual",
+    "hentai",
+    "hardcore"
+  ]
+}

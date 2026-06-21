@@ -1,0 +1,23 @@
+{
+  "schema": "aura.fei.remote-config.v1",
+  "version": 1,
+  "updated_utc": "2026-06-21T00:00:00Z",
+  "app": {
+    "name": "Fei",
+    "store_deeplink_prefix": "aura-"
+  },
+  "content_safety": {
+    "enabled": true,
+    "blocklist_url": "https://hyakkmarupy.github.io/fei-blocklist/config/adult-blocklist-v1.json",
+    "fallback_mode": "use_local_minimal_blocklist"
+  },
+  "certification_samples": {
+    "deeplink_ids": [
+      "aura-live-sample",
+      "aura-movie-sample",
+      "aura-episode-sample",
+      "aura-series-sample",
+      "aura-season-sample"
+    ]
+  }
+}
