@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8" ?>
+<component name="ContentSafetyFilterTask" extends="Task">
+    <interface>
+        <field id="url" type="string" />
+        <field id="filter" type="assocarray" />
+        <field id="ok" type="boolean" />
+    </interface>
+    <script type="text/brightscript" uri="pkg:/components/tasks/ContentSafetyFilterTask.brs" />
+</component>
