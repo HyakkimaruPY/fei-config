@@ -1,0 +1,46 @@
+/* SRHELL Shorts R19 — lighter feed/player + Aura bottom sheet */
+@media (pointer:coarse){body{background-attachment:scroll!important}}
+.feed-spacer{contain:strict!important}
+.short-card{content-visibility:visible!important;contain:layout paint style!important;will-change:auto!important;transition:border-color .12s ease!important}
+.short-card__image{content-visibility:visible!important;opacity:0;transition:opacity .12s ease;background:var(--surface-2)!important}
+.short-card__image.is-loaded{opacity:1}
+.card-progress span{width:100%!important;transform-origin:0 50%;will-change:transform}
+body.srh-r19-playing .feed-spacer{visibility:hidden!important}
+body.srh-r19-playing .feed-shell{contain:strict}
+
+.srh-r19-stage-poster{position:absolute;inset:0;z-index:1;width:100%;height:100%;object-fit:cover;background:#000;opacity:0;transition:opacity .12s ease;pointer-events:none}
+.srh-r19-stage-poster.is-ready{opacity:1}
+.srh-r19-stage-poster.is-hidden{display:none!important}
+.short-player__frame.srh-fit-contain .srh-r19-stage-poster{object-fit:contain}
+.short-player__shade{z-index:2}
+.srh-r12-copy,.srh-r12-actions,.srh-r12-seek,.srh-r12-back,.srh-r12-progress{z-index:24}
+
+.srh-r12-actions{top:auto!important;bottom:max(112px,calc(env(safe-area-inset-bottom) + 100px))!important;transform:none!important;gap:9px!important}
+.srh-r12-actions .short-action,.srh-r12-action{min-height:52px!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+.srh-r12-actions .action-svg,.srh-r12-action svg{margin:0!important}
+.srh-r12-actions .short-action small,.srh-r12-action small{margin:0!important;padding:0!important;line-height:1.05!important}
+.top-actions .icon-button{padding:0!important}
+.top-actions .ui-svg{margin:0!important}
+
+.srh-r19-arc-backdrop{position:absolute;inset:0;z-index:39;background:rgba(0,0,0,.34);opacity:1;transition:opacity .16s ease}
+.srh-r19-arc-backdrop.is-hidden{display:none!important}
+.arc-drawer{position:absolute!important;left:0!important;right:0!important;bottom:0!important;top:auto!important;width:100%!important;max-height:min(56dvh,560px)!important;margin:0!important;padding:26px 14px max(16px,env(safe-area-inset-bottom))!important;border:1px solid var(--short-player-border)!important;border-bottom:0!important;border-radius:24px 24px 0 0!important;background:var(--short-player-surface)!important;box-shadow:0 -22px 64px rgba(0,0,0,.42)!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;overflow:auto!important;transform:none!important;overscroll-behavior:contain!important;contain:layout paint style}
+.arc-drawer:before{content:"";position:absolute;top:9px;left:50%;width:44px;height:4px;border-radius:999px;background:var(--short-player-muted);opacity:.55;transform:translateX(-50%)}
+.arc-head{position:sticky!important;top:-26px!important;z-index:2;margin:-6px -14px 10px!important;padding:22px 14px 11px!important;background:linear-gradient(180deg,var(--short-player-arc-head-top),var(--short-player-arc-head-bottom))!important}
+.arc-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:8px!important;content-visibility:visible!important;contain:layout paint!important}
+.arc-button{min-height:58px!important;touch-action:manipulation}
+body.srh-r19-arc-open .srh-r12-actions{opacity:.28!important;pointer-events:none!important}
+
+.short-player,.short-player__stage{contain:layout paint style}
+.srh-r12-copytext{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+.srh-r12-back,.srh-r12-seek button{backdrop-filter:none!important;-webkit-backdrop-filter:none!important}
+@media(max-width:520px){
+  .srh-r12-actions{right:5px!important;bottom:max(96px,calc(env(safe-area-inset-bottom) + 86px))!important;gap:7px!important}
+  .srh-r12-actions .short-action,.srh-r12-action{width:54px!important;min-height:50px!important}
+  .arc-grid{grid-template-columns:repeat(3,minmax(0,1fr))!important}
+}
+@media(max-height:720px){
+  .srh-r12-actions{bottom:max(72px,calc(env(safe-area-inset-bottom) + 64px))!important;gap:5px!important}
+  .srh-r12-actions .short-action,.srh-r12-action{min-height:46px!important}
+  .arc-drawer{max-height:62dvh!important}
+}
