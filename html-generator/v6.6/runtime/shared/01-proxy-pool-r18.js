@@ -35,7 +35,6 @@ function srhR18NormalizePool(raw){
       validatedAt:String(p.validatedAt||'')
     }))
     .sort((a,b)=>(a.latencyMs-b.latencyMs)||(b.successRate-a.successRate)||(a.priority-b.priority)||a.id.localeCompare(b.id));
-  if(!proxies.length)throw new Error('Pool validado sem proxies CORS disponíveis.');
   return {...raw,maxApiFallbacks:Math.max(1,Number(raw?.maxApiFallbacks||SRH_R18_DEFAULT_MAX_FALLBACKS)),proxies};
 }
 
@@ -67,19 +66,23 @@ function srhR18Best(pool){return pool?.proxies?.[0]||null}
 
 async function srhR18SyncSelection(cfg=CONFIG,force=false){
   const s=srhR18ServerState(cfg),pool=await srhR18LoadPool(force),best=srhR18Best(pool);
-  if(!best)return null;
+  /* An empty workflow pool is authoritative: do not keep an old relay alive. */
+  if(!best){srhR18Persist(cfg,pool,null,0);return null}
   const current=pool.proxies.find(p=>p.id===s.selectedId);
-  /* Ranking from the workflow is authoritative: on a new revision or forced
-     refresh, switch to the fastest validated relay. */
   if(force||s.revision!==String(pool.revision||'')||!current||current.id!==best.id){srhR18Persist(cfg,pool,best,s.useCount);return best}
   s.selected=current;return current;
 }
 
 async function srhR18Order(cfg=CONFIG){
   const s=srhR18ServerState(cfg),out=[],push=p=>{if(p&&!out.some(x=>x.id===p.id))out.push(p)};
-  /* Cached selection remains usable if GitHub is temporarily unreachable. */
-  push(s.selected);
-  try{const pool=await srhR18LoadPool(false),selected=await srhR18SyncSelection(cfg,false);push(selected);pool.proxies.forEach(push)}catch{}
+  try{
+    const pool=await srhR18LoadPool(false),selected=await srhR18SyncSelection(cfg,false);
+    push(selected);pool.proxies.forEach(push);
+  }catch{
+    /* If GitHub itself is temporarily unreachable, the last workflow-validated
+       relay may be reused. A successfully downloaded empty pool never does so. */
+    push(s.selected);
+  }
   return out;
 }
 
@@ -98,8 +101,6 @@ function srhR18AfterSuccess(entry,cfg,pool){
   }
 }
 
-/* Load the already-validated ranking at boot. No network probe is made to any
-   proxy here. */
 (function srhR18Boot(){srhR18ServerState(CONFIG);srhR18SyncSelection(CONFIG,false).catch(()=>{})})();
 
 request=async function(params={},cfg=CONFIG){
@@ -121,6 +122,6 @@ request=async function(params={},cfg=CONFIG){
 
 try{window.SRHELL_PROXY_POOL={
   version:SRH_PROXY_POOL_R18,
-  status:()=>{const s=srhR18ServerState(CONFIG),p=srhR18State.pool;return{origin:srhR18Origin(CONFIG),selectedId:s.selectedId,useCount:s.useCount,poolRevision:p?.revision||s.revision,generatedAt:p?.generatedAt||'',available:p?.proxies?.map(x=>({id:x.id,latencyMs:x.latencyMs,successRate:x.successRate}))||[]}},
+  status:()=>{const s=srhR18ServerState(CONFIG),p=srhR18State.pool;return{origin:srhR18Origin(CONFIG),selectedId:s.selectedId,useCount:s.useCount,poolRevision:p?.revision||s.revision,generatedAt:p?.generatedAt||'',candidateCount:p?.candidateCount??null,validCount:p?.validCount??p?.proxies?.length??null,available:p?.proxies?.map(x=>({id:x.id,latencyMs:x.latencyMs,successRate:x.successRate}))||[]}},
   refresh:()=>srhR18SyncSelection(CONFIG,true)
 }}catch{}
