@@ -1,0 +1,41 @@
+{
+  "revision": "2026-09-17-candidates-1",
+  "probeTarget": "https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6/runtime/shared/proxy-probe.txt",
+  "probeMarker": "SRHELL_CORS_PROXY_OK_v1",
+  "attempts": 3,
+  "timeoutMs": 7000,
+  "minimumSuccesses": 2,
+  "maxApiFallbacks": 2,
+  "proxies": [
+    {
+      "id": "cors-lol",
+      "name": "CORS.lol",
+      "template": "https://api.cors.lol/?url={url}",
+      "priority": 10
+    },
+    {
+      "id": "allorigins-raw",
+      "name": "AllOrigins Raw",
+      "template": "https://api.allorigins.win/raw?url={url}",
+      "priority": 20
+    },
+    {
+      "id": "htmldriven",
+      "name": "HTMLDriven CORS Proxy",
+      "template": "https://cors-proxy.htmldriven.com/?url={url}",
+      "priority": 30
+    },
+    {
+      "id": "thingproxy",
+      "name": "ThingProxy",
+      "template": "https://thingproxy.freeboard.io/fetch/{rawUrl}",
+      "priority": 80
+    },
+    {
+      "id": "codetabs",
+      "name": "CodeTabs",
+      "template": "https://api.codetabs.com/v1/proxy?quest={url}",
+      "priority": 90
+    }
+  ]
+}
