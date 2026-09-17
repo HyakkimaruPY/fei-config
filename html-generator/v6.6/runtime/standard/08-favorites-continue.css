@@ -1,0 +1,14 @@
+/* SRHELL v6.6 — detail favorite/history controls + favorites iframe. */
+.srh-detail-toolbar{position:absolute;z-index:9;left:10px;right:50px;top:9px;display:flex;align-items:center;justify-content:space-between;gap:10px;pointer-events:none}
+.srh-detail-toolbar__title{min-width:0;max-width:calc(100% - 92px);padding:7px 10px;border-radius:11px;background:rgba(3,10,8,.58);backdrop-filter:blur(10px);-webkit-backdrop-filter:blur(10px);font:750 12px/1.15 var(--font-ui,system-ui);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:#fff;text-shadow:0 1px 2px #000}
+.srh-detail-toolbar__actions{display:flex;gap:7px;pointer-events:auto}
+.srh-detail-tool{width:38px;height:38px;border:1px solid rgba(162,208,236,.27);border-radius:12px;background:rgba(4,14,10,.68);color:#dce9e3;display:grid;place-items:center;backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);cursor:pointer}
+.srh-detail-tool.is-active{color:#ffd968;background:rgba(54,48,18,.76);border-color:rgba(255,217,104,.42)}
+.srh-detail-tool--trash{color:#ffc0c6}
+.srh-action-svg{width:20px;height:20px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.srh-detail-tool.is-active .srh-action-svg path{fill:currentColor;stroke:currentColor}
+#favoritesTopButton .srh-action-svg{width:22px;height:22px}
+.srh-favorites-overlay{position:fixed;z-index:120;inset:0;background:rgba(0,0,0,.72);display:grid;place-items:center;padding:max(12px,env(safe-area-inset-top)) 10px max(12px,env(safe-area-inset-bottom));backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px)}
+.srh-favorites-frame{display:block;width:min(960px,100%);height:min(88dvh,820px);border:1px solid rgba(162,208,236,.24);border-radius:22px;background:#07140f;box-shadow:0 28px 80px rgba(0,0,0,.55)}
+.detail-art.is-playing~.detail-title-row .watch-button{opacity:.56}
+@media(max-width:680px){.srh-detail-toolbar{left:8px;right:46px;top:7px}.srh-detail-toolbar__title{max-width:calc(100% - 84px);font-size:11px}.srh-detail-tool{width:35px;height:35px;border-radius:11px}.srh-favorites-overlay{padding:0}.srh-favorites-frame{width:100%;height:100dvh;border:0;border-radius:0}}
