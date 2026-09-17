@@ -1,5 +1,5 @@
 {
-  "revision": "2026-09-17-r17-1",
+  "revision": "2026-09-17-r17-2",
   "refreshMs": 21600000,
   "probeTimeoutMs": 4200,
   "maxConcurrent": 2,
@@ -30,8 +30,9 @@
       "id": "thingproxy",
       "name": "ThingProxy",
       "template": "https://thingproxy.freeboard.io/fetch/{rawUrl}",
-      "enabled": true,
-      "priority": 40
+      "enabled": false,
+      "priority": 80,
+      "note": "Desativado no pool automático porque o serviço documenta registro das URLs requisitadas."
     },
     {
       "id": "codetabs",
