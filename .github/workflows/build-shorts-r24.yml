@@ -1,0 +1,63 @@
+name: Build Shorts R24
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'html-generator/v6.6/runtime/shorts-r24/**'
+      - 'html-generator/v6.6/templates/shorts-r24.html'
+      - 'html-generator/v6.6/scripts/build-shorts-r24.mjs'
+      - '.github/workflows/build-shorts-r24.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: shorts-r24
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build historical Shorts core
+        run: node html-generator/v6.6/scripts/build-shorts-r24.mjs
+      - name: Validate distribution and template
+        shell: bash
+        run: |
+          node --check html-generator/v6.6/dist/r24/shorts.js
+          node - <<'NODE'
+          const fs=require('fs');
+          const m=JSON.parse(fs.readFileSync('html-generator/v6.6/dist/r24/manifest.json','utf8'));
+          if(m.sourceCommit!=='aefc61c6f386b16ac321df3a3c697baf3335c193') throw new Error('wrong historical source');
+          if(m.arcSeconds!==120) throw new Error('wrong arc duration');
+          const html=fs.readFileSync('html-generator/v6.6/templates/shorts-r24.html','utf8');
+          if(!html.includes('/dist/r24')) throw new Error('R24 template does not load dist/r24');
+          if(html.includes("/runtime/shorts/01.js")||html.includes("/runtime/shorts/02.js")||html.includes("/runtime/shorts/03.js")) throw new Error('R24 template still loads mutable Shorts runtime');
+          const scripts=[...html.matchAll(/<script(?:\s[^>]*)?>([\s\S]*?)<\/script>/gi)].map(x=>x[1].trim()).filter(Boolean);
+          scripts.forEach((src,i)=>{fs.writeFileSync(`/tmp/r24-inline-${i}.js`,src)});
+          console.log(`validated ${scripts.length} inline script(s)`);
+          NODE
+          for f in /tmp/r24-inline-*.js; do [ -f "$f" ] && node --check "$f"; done
+          wc -c html-generator/v6.6/dist/r24/*
+          cat html-generator/v6.6/dist/r24/manifest.json
+      - name: Commit validated R24 distribution
+        shell: bash
+        run: |
+          if [ -z "$(git status --porcelain -- html-generator/v6.6/dist/r24)" ]; then
+            echo 'R24 distribution already current.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add html-generator/v6.6/dist/r24
+          git commit -m 'Build validated Shorts R24 distribution'
+          git push
