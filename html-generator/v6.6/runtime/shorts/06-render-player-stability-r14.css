@@ -1,0 +1,143 @@
+/* SRHELL v6.6 — Shorts R14
+   Stable poster grid + player cover/controls layout. */
+
+/* Replace the absolute/virtual card geometry with a stable CSS grid.
+   We keep lazy images, but cards no longer get recycled/repositioned while scrolling. */
+.feed-spacer.srh-r14-grid{
+  position:relative!important;
+  display:grid!important;
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  gap:8px!important;
+  width:100%!important;
+  height:auto!important;
+  min-height:0!important;
+  align-items:start!important;
+  contain:none!important;
+}
+.feed-spacer.srh-r14-grid>.short-card{
+  position:relative!important;
+  inset:auto!important;
+  left:auto!important;
+  top:auto!important;
+  width:100%!important;
+  height:auto!important;
+  aspect-ratio:9/16!important;
+  contain:none!important;
+  content-visibility:visible!important;
+  transform:none!important;
+  overflow:hidden!important;
+  isolation:isolate;
+}
+.feed-spacer.srh-r14-grid>.short-card>.short-card__image{
+  position:absolute!important;
+  inset:0!important;
+  width:100%!important;
+  height:100%!important;
+  display:block!important;
+  object-fit:cover!important;
+  content-visibility:visible!important;
+  opacity:1!important;
+  transform:translateZ(0);
+  backface-visibility:hidden;
+}
+.feed-spacer.srh-r14-grid>.short-card>.short-card__shade,
+.feed-spacer.srh-r14-grid>.short-card>.arc-badge,
+.feed-spacer.srh-r14-grid>.short-card>.card-progress{z-index:2}
+@media(min-width:700px){.feed-spacer.srh-r14-grid{grid-template-columns:repeat(4,minmax(0,1fr))!important;gap:10px!important}}
+@media(min-width:1000px){.feed-spacer.srh-r14-grid{grid-template-columns:repeat(6,minmax(0,1fr))!important;gap:11px!important}}
+
+/* Hold the series/movie cover over the video until the first real playback frame. */
+.srh-r14-poster{
+  position:absolute;
+  z-index:12;
+  inset:0;
+  overflow:hidden;
+  background:#050608;
+  opacity:1;
+  visibility:visible;
+  pointer-events:none;
+  transition:opacity .18s ease,visibility .18s ease;
+}
+.srh-r14-poster>img{
+  width:100%;
+  height:100%;
+  display:block;
+  object-fit:cover;
+  background:#050608;
+  transform:translateZ(0);
+}
+.srh-r14-poster:after{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:linear-gradient(180deg,rgba(0,0,0,.04) 0%,rgba(0,0,0,.06) 58%,rgba(0,0,0,.28) 100%);
+}
+.short-player.srh-r14-media-ready .srh-r14-poster{opacity:0;visibility:hidden}
+.short-player__frame video{opacity:0;transition:opacity .16s ease!important}
+.short-player.srh-r14-media-ready .short-player__frame video{opacity:1}
+
+/* One predictable control geometry on mobile and desktop. */
+.srh-r12-back{
+  top:max(12px,env(safe-area-inset-top))!important;
+  left:max(10px,env(safe-area-inset-left))!important;
+  width:44px!important;
+  height:44px!important;
+}
+.srh-r12-actions{
+  right:max(8px,env(safe-area-inset-right))!important;
+  top:50%!important;
+  bottom:auto!important;
+  transform:translateY(-50%)!important;
+  gap:8px!important;
+}
+.srh-r12-actions .short-action,.srh-r12-action{
+  width:50px!important;
+  min-height:50px!important;
+  height:50px!important;
+  padding:5px 3px!important;
+  grid-template-rows:24px auto!important;
+  gap:1px!important;
+  border-radius:15px!important;
+}
+.srh-r12-actions .action-svg,.srh-r12-action svg{width:22px!important;height:22px!important}
+.srh-r12-actions .short-action small,.srh-r12-action small{font-size:8px!important;line-height:1!important;margin:0!important}
+.srh-r12-copy{
+  left:max(12px,env(safe-area-inset-left))!important;
+  right:max(70px,calc(env(safe-area-inset-right) + 62px))!important;
+  bottom:max(34px,calc(env(safe-area-inset-bottom) + 28px))!important;
+  grid-template-columns:46px minmax(0,1fr)!important;
+  gap:9px!important;
+  align-items:end!important;
+}
+.srh-r12-cover{width:46px!important;height:70px!important;border-radius:8px!important}
+.srh-r12-copytitle{font-size:14px!important;line-height:1.18!important}
+.srh-r12-synopsis{font-size:10px!important;line-height:1.34!important;-webkit-line-clamp:2!important}
+.srh-r12-seek{gap:14px!important}
+.srh-r12-seek button{width:46px!important;height:46px!important}
+.srh-r12-seek button.srh-r12-play{width:58px!important;height:58px!important}
+.srh-r12-progress{
+  left:max(12px,env(safe-area-inset-left))!important;
+  right:max(12px,env(safe-area-inset-right))!important;
+  bottom:max(9px,env(safe-area-inset-bottom))!important;
+  height:3px!important;
+}
+.short-player__shade{transition:opacity .18s ease}
+
+/* After 4 s without interaction, the player becomes visually clean.
+   The poster is independent from controls and remains until video playback begins. */
+.srh-r12-controls-hidden .srh-r12-actions,
+.srh-r12-controls-hidden .srh-r12-copy,
+.srh-r12-controls-hidden .srh-r12-seek,
+.srh-r12-controls-hidden .srh-r12-back,
+.srh-r12-controls-hidden .srh-r12-progress{opacity:0!important;pointer-events:none!important}
+.srh-r12-controls-hidden .short-player__shade{opacity:0!important}
+
+@media(max-width:420px){
+  .srh-r12-actions{right:max(4px,env(safe-area-inset-right))!important;gap:7px!important}
+  .srh-r12-actions .short-action,.srh-r12-action{width:46px!important;min-height:47px!important;height:47px!important;border-radius:14px!important}
+  .srh-r12-actions .action-svg,.srh-r12-action svg{width:21px!important;height:21px!important}
+  .srh-r12-copy{left:max(9px,env(safe-area-inset-left))!important;right:max(58px,calc(env(safe-area-inset-right) + 52px))!important}
+  .srh-r12-seek{gap:10px!important}
+  .srh-r12-seek button{width:43px!important;height:43px!important}
+  .srh-r12-seek button.srh-r12-play{width:54px!important;height:54px!important}
+}
