@@ -64,7 +64,7 @@
 <script>
 (()=>{
   const B="https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6";
-  const REV="builder-aura625-r8";
+  const REV="builder-aura625-r9";
   const assets=[B+'/builder/generator.css',B+'/builder/generator.js'];
   const key=u=>'srh66:'+REV+':'+u;
   const versioned=u=>u+(u.includes('?')?'&':'?')+'v='+encodeURIComponent(REV);
@@ -86,7 +86,7 @@
   Promise.all(assets.map(get)).then(([css,rawJs])=>{
     const st=document.createElement('style');st.textContent=css;document.head.appendChild(st);document.getElementById('bootStyle')?.remove();
     let js=rawJs;
-    js=js.replace(/fetch\(url,\{cache:'force-cache'\}\)/g,"fetch(url+(url.includes('?')?'&':'?')+'v=builder-aura625-r8',{cache:'no-store'})");
+    js=js.replace(/fetch\(url,\{cache:'force-cache'\}\)/g,"fetch(url+(url.includes('?')?'&':'?')+'v=builder-aura625-r9',{cache:'no-store'})");
     const sc=document.createElement('script');sc.textContent=js;document.body.appendChild(sc);
   }).catch(e=>{document.body.innerHTML='<div class="boot">Falha ao carregar módulos do gerador: '+String(e.message||e)+'</div>'});
 })();
