@@ -1281,5 +1281,59 @@ async function srhR23Auto(target,cfg,baseError){if(cfg?.autoCorsProxy===false)th
 request=async function(params={},cfg=CONFIG){const target=apiUrl(params,cfg),profile=srhR23Profile(cfg),manual=String(cfg?.corsProxy||'').trim();if(!manual&&cfg?.autoCorsProxy!==false&&profile.selected&&profile.useCount<3){try{const data=await srhR23FetchJson(srhR23ProxyUrl(profile.selected.template,target),8500);srhR23Persist(cfg,profile.selected,profile.useCount+1,profile.revision);return data}catch{}}try{return await srhR23Direct(target,cfg)}catch(e){return srhR23Auto(target,cfg,e)}};
 try{window.SRHELL_PROXY_POOL={version:SRH_API_ROUTER_R23,status:()=>{const p=srhR23Profile(CONFIG),pool=srhR23Api.pool;return{profile:srhR23Key(CONFIG),origin:srhR23Origin(CONFIG),selectedId:p.selectedId,useCount:p.useCount,refreshOnNext:p.useCount>=3,poolRevision:pool?.revision||p.revision,available:pool?.proxies?.map(x=>({id:x.id,latencyMs:x.latencyMs,successRate:x.successRate}))||[]}},refresh:()=>srhR23LoadPool(true)}}catch{}
 
+/* ===== runtime/standard/14-detail-action-polish.js ===== */
+/* SRHELL standard detail polish — guarantee final VOD watch action. */
+(function installDetailActionPolish(){
+  const PLAY='<svg class="watch-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.8v12.4L18 12z"/></svg><span>Assistir</span>';
+  let queued=false;
+
+  function makeWatchButton(){
+    const entry=state.currentDetail?.entry;
+    if(!entry)return null;
+    const b=document.createElement('button');
+    b.type='button';
+    b.id='watchFilm';
+    b.className='watch-button srh-final-watch';
+    b.innerHTML=PLAY;
+    b.onclick=e=>{
+      e.stopPropagation();
+      const current=state.currentDetail?.entry||entry;
+      const old=getHistory('vod').find(x=>x.key===current.key);
+      openGeneralPlayer(current.sources||current.url,current.title,old?{...current,...old,sources:current.sources}:current);
+    };
+    return b;
+  }
+
+  function ensureFilmActions(){
+    const modal=detailModal();
+    if(!modal?.classList.contains('is-vod'))return;
+    const body=el.detailBody;
+    const row=body?.querySelector('.srh-final-actions--vod');
+    if(!row)return;
+    let watch=row.querySelector('.watch-button');
+    if(!watch){
+      watch=body.querySelector('.watch-button')||makeWatchButton();
+      if(watch)row.appendChild(watch);
+    }else if(watch.parentElement!==row){
+      row.appendChild(watch);
+    }
+  }
+
+  function schedule(){
+    if(queued)return;
+    queued=true;
+    queueMicrotask(()=>{queued=false;ensureFilmActions()});
+  }
+
+  const previousOpenFilm=openFilm;
+  openFilm=async function(item){
+    await previousOpenFilm(item);
+    ensureFilmActions();
+  };
+
+  const observer=new MutationObserver(schedule);
+  observer.observe(el.detailBody,{childList:true,subtree:true});
+})();
+
 init();
 })();
