@@ -42,7 +42,7 @@ jobs:
       - name: Commit validated distribution
         shell: bash
         run: |
-          if git diff --quiet -- html-generator/v6.6/dist/r23; then
+          if [ -z "$(git status --porcelain -- html-generator/v6.6/dist/r23)" ]; then
             echo 'Distribution already current.'
             exit 0
           fi
