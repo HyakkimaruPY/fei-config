@@ -1,0 +1,10 @@
+/* SRHELL v6.6 — clean VOD/series detail layout.
+   Film keeps only the action button below the art; series goes straight from art to seasons/episodes. */
+.detail-modal.is-vod .detail-title,
+.detail-modal.is-vod .synopsis{display:none!important}
+.detail-modal.is-vod .detail-title-row{justify-content:flex-end!important;margin-top:8px!important}
+.detail-modal.is-vod .watch-button{margin-left:auto!important}
+.detail-modal.is-series .detail-title-row,
+.detail-modal.is-series .synopsis{display:none!important}
+#seriesStop,
+.detail-inline-actions [data-inline-close]{display:none!important}
