@@ -5,6 +5,8 @@ on:
   push:
     branches: [main]
     paths:
+      - 'html-generator/v6.6/generator-r23.html'
+      - 'html-generator/v6.6/generator.html'
       - 'html-generator/v6.6/builder/generator-r23-clean.js'
       - 'html-generator/v6.6/templates/standard-r23.html'
       - 'html-generator/v6.6/templates/shorts-r23.html'
