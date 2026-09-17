@@ -22,11 +22,13 @@
 <script>
 (()=>{
   const BASE="https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6";
+  const REV="shorts-proxy-r3";
   const CSS=[BASE+'/runtime/shorts/01.css',BASE+'/runtime/shorts/02.css',BASE+'/runtime/shorts/03.css'];
   const JS_CORE=[BASE+'/runtime/shorts/01.js',BASE+'/runtime/shorts/02.js',BASE+'/runtime/shorts/03.js'];
   const JS_PATCH=BASE+'/runtime/shorts/04-proxy-fix.js';
-  const cfg=JSON.parse(document.getElementById('app-config').textContent),theme=BASE+'/themes/'+(cfg.theme||'graphene')+'.css',cacheKey=u=>'srh66:shorts-proxy-r2:'+u;
-  async function get(u){try{const c=localStorage.getItem(cacheKey(u));if(c)return c}catch{}const r=await fetch(u,{cache:'force-cache'});if(!r.ok)throw new Error('HTTP '+r.status+' em '+u);const t=await r.text();try{localStorage.setItem(cacheKey(u),t)}catch{}return t}
+  const cfg=JSON.parse(document.getElementById('app-config').textContent),theme=BASE+'/themes/'+(cfg.theme||'graphene')+'.css',cacheKey=u=>'srh66:'+REV+':'+u;
+  const versioned=u=>u+(u.includes('?')?'&':'?')+'v='+encodeURIComponent(REV);
+  async function get(u){try{const c=localStorage.getItem(cacheKey(u));if(c)return c}catch{}const r=await fetch(versioned(u),{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status+' em '+u);const t=await r.text();try{localStorage.setItem(cacheKey(u),t)}catch{}return t}
   async function boot(){
     try{
       const css=(await Promise.all([...CSS,theme].map(get))).join('\n'),st=document.createElement('style');st.textContent=css;document.head.appendChild(st);
