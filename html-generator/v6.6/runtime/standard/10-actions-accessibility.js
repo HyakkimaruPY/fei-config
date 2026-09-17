@@ -68,41 +68,9 @@
     if(type==='series')suppressedSeries.delete(String(item?.series_id??item?.id??''));
   }
 
-  function installActions(){
-    if(!ctx||!['vod','series'].includes(ctx.type))return;
-    const body=el.detailBody;if(!body)return;
-
-    /* Remove all legacy title/flare toolbars. Their functionality is rebuilt below. */
-    body.querySelectorAll('.srh-detail-toolbar').forEach(n=>n.remove());
-    body.querySelectorAll('.srh-final-actions').forEach(n=>n.remove());
-    body.querySelectorAll('.detail-title-row').forEach(n=>n.remove());
-    body.querySelectorAll('.detail-title').forEach(n=>n.remove());
-
-    const synopsis=body.querySelector('.synopsis');
-    const art=body.querySelector('.detail-art');
-    const row=document.createElement('div');
-    row.className='srh-final-actions srh-final-actions--'+ctx.type;
-
-    if(ctx.type==='vod'){
-      const watch=body.querySelector('.watch-button');
-      if(watch){
-        watch.classList.add('srh-final-watch');
-        row.appendChild(watch);
-      }
-      const oldWatchRow=body.querySelector('.srh-watch-row');
-      if(oldWatchRow&&!oldWatchRow.children.length)oldWatchRow.remove();
-    }
-
-    const iconGroup=document.createElement('div');
-    iconGroup.className='srh-final-actions__icons';
-    const fav=buildIconButton('favorite',isFav(ctx.type,ctx.item));
-    fav.onclick=e=>{
-      e.stopPropagation();
-      const active=toggleFav(ctx.type,ctx.item);
-      fav.classList.toggle('is-active',active);
-      fav.setAttribute('aria-label',active?'Remover dos favoritos':'Adicionar aos favoritos');
-    };
-    iconGroup.appendChild(fav);
+  function buildActionIcons(){
+    const group=document.createElement('div');
+    group.className='srh-final-actions__icons';
 
     if(ctx.fromContinue){
       const trash=buildIconButton('trash');
@@ -112,13 +80,62 @@
         ctx.fromContinue=false;
         trash.remove();
       };
-      iconGroup.appendChild(trash);
+      group.appendChild(trash);
     }
-    row.appendChild(iconGroup);
 
-    if(synopsis)synopsis.insertAdjacentElement('afterend',row);
-    else if(art)art.insertAdjacentElement('afterend',row);
-    else body.prepend(row);
+    const fav=buildIconButton('favorite',isFav(ctx.type,ctx.item));
+    fav.onclick=e=>{
+      e.stopPropagation();
+      const active=toggleFav(ctx.type,ctx.item);
+      fav.classList.toggle('is-active',active);
+      fav.setAttribute('aria-label',active?'Remover dos favoritos':'Adicionar aos favoritos');
+    };
+    group.appendChild(fav);
+    return group;
+  }
+
+  function installActions(){
+    if(!ctx||!['vod','series'].includes(ctx.type))return;
+    const body=el.detailBody;if(!body)return;
+
+    /* Keep the working watch button alive across repeated hierarchy rebuilds. */
+    const watch=body.querySelector('.watch-button');
+    if(watch)watch.remove();
+    const titleText=body.querySelector('.detail-title')?.textContent?.trim()||itemTitle(ctx.item);
+    const synopsis=body.querySelector('.synopsis');
+    const art=body.querySelector('.detail-art');
+    if(!art)return;
+
+    /* Remove legacy/duplicated rows, then rebuild one deterministic hierarchy. */
+    body.querySelectorAll('.srh-detail-toolbar,.srh-final-actions,.detail-title-row').forEach(n=>n.remove());
+    body.querySelectorAll('.detail-title').forEach(n=>n.remove());
+
+    const titleRow=document.createElement('div');
+    titleRow.className='detail-title-row srh-detail-title-row srh-detail-title-row--'+ctx.type;
+    const title=document.createElement('h2');
+    title.className='detail-title srh-detail-title';
+    title.textContent=titleText;
+    titleRow.appendChild(title);
+
+    /* Series: title at left, trash/favorite at right, all above the synopsis. */
+    if(ctx.type==='series')titleRow.appendChild(buildActionIcons());
+
+    art.insertAdjacentElement('afterend',titleRow);
+    if(synopsis)titleRow.insertAdjacentElement('afterend',synopsis);
+
+    /* Film: title -> synopsis -> [trash] [favorite] [watch], with watch at far right. */
+    if(ctx.type==='vod'){
+      const row=document.createElement('div');
+      row.className='srh-final-actions srh-final-actions--vod';
+      row.appendChild(buildActionIcons());
+      if(watch){
+        watch.classList.add('srh-final-watch');
+        row.appendChild(watch);
+      }
+      if(synopsis)synopsis.insertAdjacentElement('afterend',row);
+      else titleRow.insertAdjacentElement('afterend',row);
+      body.querySelector('.srh-watch-row')?.remove();
+    }
   }
 
   const prevFilm=openFilm;
@@ -135,9 +152,8 @@
     installActions();
   };
 
-  /* The R8 continue flow marks history-origin modals by inserting a temporary
-     toolbar containing a trash button. Detect that marker, then replace it with
-     the final low-position action row. */
+  /* R8 marks Continue-origin modals with a temporary toolbar containing trash.
+     Detect that marker and rebuild the same hierarchy with the trash action enabled. */
   let pending=false;
   const detailObserver=new MutationObserver(()=>{
     if(pending)return;
