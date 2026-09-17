@@ -1,0 +1,45 @@
+{
+  "revision": "2026-09-17-r17-1",
+  "refreshMs": 21600000,
+  "probeTimeoutMs": 4200,
+  "maxConcurrent": 2,
+  "maxApiFallbacks": 2,
+  "proxies": [
+    {
+      "id": "cors-lol",
+      "name": "CORS.lol",
+      "template": "https://api.cors.lol/?url={url}",
+      "enabled": true,
+      "priority": 10
+    },
+    {
+      "id": "allorigins-raw",
+      "name": "AllOrigins Raw",
+      "template": "https://api.allorigins.win/raw?url={url}",
+      "enabled": true,
+      "priority": 20
+    },
+    {
+      "id": "htmldriven",
+      "name": "HTMLDriven CORS Proxy",
+      "template": "https://cors-proxy.htmldriven.com/?url={url}",
+      "enabled": true,
+      "priority": 30
+    },
+    {
+      "id": "thingproxy",
+      "name": "ThingProxy",
+      "template": "https://thingproxy.freeboard.io/fetch/{rawUrl}",
+      "enabled": true,
+      "priority": 40
+    },
+    {
+      "id": "codetabs",
+      "name": "CodeTabs",
+      "template": "https://api.codetabs.com/v1/proxy?quest={url}",
+      "enabled": false,
+      "priority": 90,
+      "note": "Mantido apenas como reserva editável; desativado por histórico recente de instabilidade."
+    }
+  ]
+}
