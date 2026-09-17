@@ -1,12 +1,14 @@
 import {execFileSync} from 'node:child_process';
 import {createHash} from 'node:crypto';
 import {mkdirSync,readFileSync,writeFileSync} from 'node:fs';
-import {dirname,join} from 'node:path';
+import {join} from 'node:path';
 
 const ROOT='html-generator/v6.6';
 const OLD='aefc61c6f386b16ac321df3a3c697baf3335c193';
 const DIST=join(ROOT,'dist/r24');
 const BRIDGE=join(ROOT,'runtime/shorts-r24/proxy-affinity.js');
+const POLISH_CSS=join(ROOT,'runtime/shorts-r24/ui-polish.css');
+const POLISH_JS=join(ROOT,'runtime/shorts-r24/ui-polish.js');
 
 function old(path){
   return execFileSync('git',['show',`${OLD}:${ROOT}/${path}`],{encoding:'utf8',maxBuffer:8*1024*1024});
@@ -19,11 +21,17 @@ function hash(text){return createHash('sha256').update(text).digest('hex').slice
 
 mkdirSync(DIST,{recursive:true});
 
-const css=[old('runtime/shorts/01.css'),old('runtime/shorts/02.css'),old('runtime/shorts/03.css')].join('\n\n');
+const css=[
+  old('runtime/shorts/01.css'),
+  old('runtime/shorts/02.css'),
+  old('runtime/shorts/03.css'),
+  readFileSync(POLISH_CSS,'utf8')
+].join('\n\n');
 let js1=old('runtime/shorts/01.js');
 let js2=old('runtime/shorts/02.js');
 let js3=old('runtime/shorts/03.js');
 const bridge=readFileSync(BRIDGE,'utf8');
+const polish=readFileSync(POLISH_JS,'utf8');
 
 // The historical modular core is preserved. Only the arc unit changes from 10 min to 2 min.
 js2=mustReplace(js2,'Math.ceil(seconds/600)','Math.ceil(seconds/120)','02.js arcCount');
@@ -33,8 +41,11 @@ js3=mustReplace(js3,'i*600','i*120','03.js seek arc');
 js3=mustReplace(js3,"10 min cada","2 min cada",'03.js arc label');
 js3=mustReplace(js3,'Math.floor(i*10)','Math.floor(i*2)','03.js arc minutes');
 
-// 01.js opens the IIFE and 03.js closes it. The bridge is intentionally inserted inside
-// that historical scope, so it can replace only request() without adding global patches.
+// Install the small R24 polish after every historical function/event exists, but before init().
+js3=mustReplace(js3,'init();\n})();',`${polish.trim()}\n\ninit();\n})();`,'03.js final init');
+
+// 01.js opens the IIFE and 03.js closes it. The bridge stays inside that historical scope,
+// replacing only request(); the UI polish remains inside the same scope at the very end.
 const js=[js1,bridge,js2,js3].join('\n\n');
 const revision='r24-'+hash(css+'\n'+js);
 
