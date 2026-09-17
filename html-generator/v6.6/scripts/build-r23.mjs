@@ -22,7 +22,7 @@ const standardPatches=[
   'runtime/standard/07-detail-cleanup.js','runtime/standard/08-favorites-continue.js','runtime/standard/09-detail-hierarchy.js',
   'runtime/standard/10-actions-accessibility.js','runtime/standard/11-aura-transport-r11.js',
   'runtime/standard/12-catalog-resilience-r12.js','runtime/standard/13-transport-r15.js',
-  'runtime/shared/03-api-router-r23.js','runtime/shared/04-browser-stability-r25.js',
+  'runtime/shared/03-api-router-r23.js','runtime/shared/04-browser-stability-r25.js','runtime/shared/05-detail-network-isolation-r26.js',
   'runtime/standard/14-detail-action-polish.js','runtime/standard/15-mobile-stability-r25.js'
 ];
 const shortsCss=[
@@ -32,7 +32,7 @@ const shortsCss=[
 const shortsCore=['runtime/shorts/01.js','runtime/shorts/02.js','runtime/shorts/03.js'];
 const shortsPatches=[
   'runtime/shorts/04-proxy-fix.js','runtime/shorts/05-aura-transport-r5.js','runtime/shorts/06-aura-player-r12.js',
-  'runtime/shared/03-api-router-r23.js','runtime/shared/04-browser-stability-r25.js','runtime/shorts/10-feed-controller-r23.js'
+  'runtime/shared/03-api-router-r23.js','runtime/shared/04-browser-stability-r25.js','runtime/shared/05-detail-network-isolation-r26.js','runtime/shorts/10-feed-controller-r23.js'
 ];
 
 function assembleJs(coreFiles,patchFiles,label){
