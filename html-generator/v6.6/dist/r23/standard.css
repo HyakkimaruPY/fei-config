@@ -442,26 +442,56 @@ body{
 /* ===== runtime/standard/10-design-balance.css ===== */
 /* SRHELL v6.6 — final action placement + accessibility/tonal balance. */
 
-/* Film/series no longer repeat the title under the art or overlay a title flare. */
-.detail-modal.is-vod .detail-title-row,
-.detail-modal.is-series .detail-title-row,
+/* Keep the close control floating over media, but never render legacy title/flare toolbars. */
 .detail-modal.is-vod .srh-detail-toolbar,
 .detail-modal.is-series .srh-detail-toolbar,
 .detail-modal.is-vod .detail-head__title,
 .detail-modal.is-series .detail-head__title{display:none!important}
 
-/* Action row lives low in the modal, immediately after the synopsis. */
+/* Shared title row. Long names wrap without pushing action buttons outside the modal. */
+.srh-detail-title-row{
+  display:flex!important;
+  align-items:flex-start!important;
+  gap:10px!important;
+  min-width:0!important;
+}
+.srh-detail-title-row .srh-detail-title{
+  display:block!important;
+  flex:1 1 auto!important;
+  min-width:0!important;
+  margin:0!important;
+  white-space:normal!important;
+  overflow-wrap:anywhere!important;
+  word-break:normal!important;
+}
+.srh-detail-title-row .srh-final-actions__icons{flex:0 0 auto!important}
+
+/* Film order: art -> title -> synopsis -> trash/favorite/watch. */
+.detail-modal.is-vod .srh-detail-title-row{grid-column:2!important;grid-row:1!important}
+.detail-modal.is-vod .synopsis{grid-row:2!important;margin-bottom:0!important}
+.detail-modal.is-vod .srh-final-actions{grid-column:2!important;grid-row:3!important}
+
+/* Series order: art -> title + actions -> synopsis -> season -> episodes. */
+.detail-modal.is-series .srh-detail-title-row{grid-column:2!important;grid-row:1!important}
+.detail-modal.is-series .synopsis{grid-row:2!important;margin-top:0!important}
+.detail-modal.is-series .season-box{grid-row:3!important}
+.detail-modal.is-series .episode-container{grid-row:4!important}
+
 .srh-final-actions{
   display:flex!important;
   align-items:center!important;
-  gap:9px!important;
+  gap:8px!important;
   width:auto!important;
   margin:0 20px 12px!important;
   padding:0!important;
 }
-.srh-final-actions--vod{justify-content:space-between!important}
-.srh-final-actions--series{justify-content:flex-end!important}
-.srh-final-actions__icons{display:flex!important;align-items:center!important;gap:8px!important;margin-left:auto!important}
+.srh-final-actions--vod{justify-content:flex-end!important}
+.srh-final-actions__icons{
+  display:flex!important;
+  align-items:center!important;
+  gap:8px!important;
+  margin-left:auto!important;
+}
 .srh-final-action{
   width:44px!important;height:44px!important;min-width:44px!important;min-height:44px!important;
   display:grid!important;place-items:center!important;
@@ -480,6 +510,7 @@ body{
 .srh-final-icon{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
 .srh-final-action.is-active .srh-final-icon path{fill:currentColor;stroke:currentColor}
 .srh-final-watch{
+  flex:0 0 auto!important;
   min-height:44px!important;
   margin:0!important;
   padding-inline:17px!important;
@@ -487,16 +518,8 @@ body{
   font-weight:760!important;
 }
 
-/* The old dedicated watch row must not reserve empty space after the button is moved. */
-.detail-modal.is-vod .srh-watch-row:empty{display:none!important}
-.detail-modal.is-vod .synopsis{grid-row:2!important;margin-bottom:10px!important}
-.detail-modal.is-vod .srh-final-actions{grid-column:2!important;grid-row:3!important}
-
-/* Series: synopsis -> actions -> season -> episodes. */
-.detail-modal.is-series .synopsis{grid-row:1!important;margin-top:16px!important}
-.detail-modal.is-series .srh-final-actions{grid-column:2!important;grid-row:2!important}
-.detail-modal.is-series .season-box{grid-row:3!important}
-.detail-modal.is-series .episode-container{grid-row:4!important}
+/* Any old watch wrapper must not reserve blank space after the button is detached. */
+.detail-modal.is-vod .srh-watch-row{display:none!important}
 
 /* Shared interaction quality: 1px boundaries remain, but controls have real focus and tap areas. */
 button:focus-visible,
@@ -515,8 +538,7 @@ button:active{transform:scale(.975)}
   border-width:1px!important;
 }
 
-/* Porcelain: distinct tonal layers instead of one nearly-white plane.
-   The palette is intentionally warm/neutral so the accent can carry hierarchy. */
+/* Porcelain: distinct tonal layers instead of one nearly-white plane. */
 body[data-theme="porcelain"]{
   --bg:#e4dfd6;
   --bg-elev:#f2eee7;
@@ -601,11 +623,26 @@ body[data-theme="porcelain"] .rail-all{color:#2f4b70!important;background:rgba(6
 .srh-favorites-frame{background:var(--bg)!important;border-color:color-mix(in srgb,var(--line) 85%,var(--text) 15%)!important}
 
 @media(max-width:780px){
-  .srh-final-actions{margin:0 12px 10px!important}
-  .srh-final-actions--vod{gap:8px!important}
-  .srh-final-actions--vod .srh-final-watch{flex:1 1 auto!important;justify-content:center!important}
-  .detail-modal.is-series .synopsis{margin-top:0!important}
+  .detail-modal.is-vod .srh-detail-title-row,
+  .detail-modal.is-series .srh-detail-title-row{
+    order:1!important;
+    padding:12px 12px 8px!important;
+    margin:0!important;
+  }
+  .detail-modal.is-vod .synopsis,
+  .detail-modal.is-series .synopsis{
+    order:2!important;
+  }
+  .detail-modal.is-vod .srh-final-actions{
+    order:3!important;
+    margin:0 12px 10px!important;
+    justify-content:flex-end!important;
+  }
+  .detail-modal.is-vod .srh-final-actions__icons{margin-left:auto!important}
+  .detail-modal.is-vod .srh-final-watch{flex:0 0 auto!important;justify-content:center!important}
+  .detail-modal.is-series .season-box{order:3!important}
   .detail-modal.is-series .episode-container{
+    order:4!important;
     max-height:min(48dvh,460px)!important;
     min-height:0!important;
     flex:0 1 auto!important;
