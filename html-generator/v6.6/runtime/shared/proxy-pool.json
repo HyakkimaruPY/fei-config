@@ -1,46 +1,23 @@
 {
-  "revision": "2026-09-17-r17-2",
-  "refreshMs": 21600000,
-  "probeTimeoutMs": 4200,
-  "maxConcurrent": 2,
+  "revision": "workflow-1789649145",
+  "generatedAt": "2026-09-17T12:45:45Z",
+  "sourceRevision": "2026-09-17-candidates-2",
+  "validator": "github-actions-cors-v1.1",
+  "probeTarget": "https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6/runtime/shared/proxy-probe.txt",
+  "candidateCount": 6,
+  "validCount": 1,
   "maxApiFallbacks": 2,
   "proxies": [
     {
-      "id": "cors-lol",
-      "name": "CORS.lol",
-      "template": "https://api.cors.lol/?url={url}",
-      "enabled": true,
-      "priority": 10
-    },
-    {
-      "id": "allorigins-raw",
-      "name": "AllOrigins Raw",
-      "template": "https://api.allorigins.win/raw?url={url}",
-      "enabled": true,
-      "priority": 20
-    },
-    {
-      "id": "htmldriven",
-      "name": "HTMLDriven CORS Proxy",
-      "template": "https://cors-proxy.htmldriven.com/?url={url}",
-      "enabled": true,
-      "priority": 30
-    },
-    {
-      "id": "thingproxy",
-      "name": "ThingProxy",
-      "template": "https://thingproxy.freeboard.io/fetch/{rawUrl}",
-      "enabled": false,
-      "priority": 80,
-      "note": "Desativado no pool automático porque o serviço documenta registro das URLs requisitadas."
-    },
-    {
-      "id": "codetabs",
-      "name": "CodeTabs",
-      "template": "https://api.codetabs.com/v1/proxy?quest={url}",
-      "enabled": false,
-      "priority": 90,
-      "note": "Mantido apenas como reserva editável; desativado por histórico recente de instabilidade."
+      "id": "corsproxy-render",
+      "name": "CORSProxy Render",
+      "template": "https://corsproxy-latest.onrender.com/{rawUrl}",
+      "priority": 5,
+      "latencyMs": 314,
+      "successRate": 1.0,
+      "lastStatus": 200,
+      "corsAllowOrigin": "*",
+      "validatedAt": "2026-09-17T12:45:17Z"
     }
   ]
 }
