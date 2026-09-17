@@ -14,7 +14,7 @@ const standardCss=[
   'runtime/standard/01.css','runtime/standard/02.css','runtime/standard/03-fixes.css',
   'runtime/standard/04-aura-reference.css','runtime/standard/05-player-cleanup.css','runtime/standard/06-spacing-fix.css',
   'runtime/standard/07-detail-cleanup.css','runtime/standard/08-favorites-continue.css','runtime/standard/09-detail-hierarchy.css',
-  'runtime/standard/10-design-balance.css'
+  'runtime/standard/10-design-balance.css','runtime/standard/11-detail-action-polish.css'
 ];
 const standardCore=['runtime/standard/01.js','runtime/standard/02.js','runtime/standard/03.js'];
 const standardPatches=[
@@ -22,7 +22,7 @@ const standardPatches=[
   'runtime/standard/07-detail-cleanup.js','runtime/standard/08-favorites-continue.js','runtime/standard/09-detail-hierarchy.js',
   'runtime/standard/10-actions-accessibility.js','runtime/standard/11-aura-transport-r11.js',
   'runtime/standard/12-catalog-resilience-r12.js','runtime/standard/13-transport-r15.js',
-  'runtime/shared/03-api-router-r23.js'
+  'runtime/shared/03-api-router-r23.js','runtime/standard/14-detail-action-polish.js'
 ];
 const shortsCss=[
   'runtime/shorts/01.css','runtime/shorts/02.css','runtime/shorts/03.css',
