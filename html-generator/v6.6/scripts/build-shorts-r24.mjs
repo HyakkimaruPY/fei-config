@@ -7,6 +7,7 @@ const ROOT='html-generator/v6.6';
 const OLD='aefc61c6f386b16ac321df3a3c697baf3335c193';
 const DIST=join(ROOT,'dist/r24');
 const BRIDGE=join(ROOT,'runtime/shorts-r24/proxy-affinity.js');
+const STABILITY=join(ROOT,'runtime/shorts-r24/browser-stability.js');
 const POLISH_CSS=join(ROOT,'runtime/shorts-r24/ui-polish.css');
 const POLISH_JS=join(ROOT,'runtime/shorts-r24/ui-polish.js');
 
@@ -31,6 +32,7 @@ let js1=old('runtime/shorts/01.js');
 let js2=old('runtime/shorts/02.js');
 let js3=old('runtime/shorts/03.js');
 const bridge=readFileSync(BRIDGE,'utf8');
+const stability=readFileSync(STABILITY,'utf8');
 const polish=readFileSync(POLISH_JS,'utf8');
 
 // The historical modular core is preserved. Only the arc unit changes from 10 min to 2 min.
@@ -44,9 +46,9 @@ js3=mustReplace(js3,'Math.floor(i*10)','Math.floor(i*2)','03.js arc minutes');
 // Install the small R24 polish after every historical function/event exists, but before init().
 js3=mustReplace(js3,'init();\n})();',`${polish.trim()}\n\ninit();\n})();`,'03.js final init');
 
-// 01.js opens the IIFE and 03.js closes it. The bridge stays inside that historical scope,
-// replacing only request(); the UI polish remains inside the same scope at the very end.
-const js=[js1,bridge,js2,js3].join('\n\n');
+// 01.js opens the IIFE and 03.js closes it. The bridge and browser guard stay inside
+// that historical scope, replacing only request()/fetch safety; UI polish is last.
+const js=[js1,bridge,stability,js2,js3].join('\n\n');
 const revision='r24-'+hash(css+'\n'+js);
 
 const cssPath=join(DIST,'shorts.css');
