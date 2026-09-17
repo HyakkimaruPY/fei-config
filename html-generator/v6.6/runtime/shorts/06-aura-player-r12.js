@@ -6,6 +6,7 @@
 const SRH_R12_ARC_SECONDS=120;
 const SRH_R12_HIDE_MS=4000;
 const srhR12MetaCache=new Map();
+const srhR12Frame=document.getElementById('shortFrame');
 let srhR12HideTimer=0,srhR12GridFrame=0;
 
 function srhR12Svg(body){return `<svg class="action-svg" viewBox="0 0 24 24" aria-hidden="true">${body}</svg>`}
@@ -46,8 +47,8 @@ function srhR12ApplyMeta(meta,item){
 }
 
 function srhR12FitKey(){return `srhell:${APP_ID}:shorts:fit-r12`}
-function srhR12SetFit(mode){mode=mode==='contain'?'contain':'cover';el.shortFrame.classList.toggle('srh-fit-contain',mode==='contain');el.shortFrame.classList.toggle('srh-fit-cover',mode!=='contain');try{localStorage.setItem(srhR12FitKey(),mode)}catch{}const b=document.getElementById('srhR12Fit');if(b){const small=b.querySelector('small');if(small)small.textContent=mode==='contain'?'Ajustar':'Corte';b.setAttribute('aria-label',mode==='contain'?'Usar corte':'Ajustar vídeo à tela')}}
-function srhR12ToggleFit(){srhR12SetFit(el.shortFrame.classList.contains('srh-fit-contain')?'cover':'contain');srhR12ShowControls()}
+function srhR12SetFit(mode){mode=mode==='contain'?'contain':'cover';if(!srhR12Frame)return;srhR12Frame.classList.toggle('srh-fit-contain',mode==='contain');srhR12Frame.classList.toggle('srh-fit-cover',mode!=='contain');try{localStorage.setItem(srhR12FitKey(),mode)}catch{}const b=document.getElementById('srhR12Fit');if(b){const small=b.querySelector('small');if(small)small.textContent=mode==='contain'?'Ajustar':'Corte';b.setAttribute('aria-label',mode==='contain'?'Usar corte':'Ajustar vídeo à tela')}}
+function srhR12ToggleFit(){srhR12SetFit(srhR12Frame?.classList.contains('srh-fit-contain')?'cover':'contain');srhR12ShowControls()}
 function srhR12StoredFit(){try{return localStorage.getItem(srhR12FitKey())||'cover'}catch{return'cover'}}
 
 function srhR12SyncFullscreen(){const b=document.getElementById('srhR12Expand');if(!b)return;const full=!!document.fullscreenElement;const small=b.querySelector('small');if(small)small.textContent=full?'Normal':'Tela cheia';b.setAttribute('aria-label',full?'Voltar à tela normal':'Abrir em tela cheia');b.classList.toggle('is-active',full)}
