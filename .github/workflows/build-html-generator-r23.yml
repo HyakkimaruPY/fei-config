@@ -14,6 +14,7 @@ on:
       - 'html-generator/v6.6/runtime/shorts/**'
       - 'html-generator/v6.6/runtime/shared/03-api-router-r23.js'
       - 'html-generator/v6.6/runtime/shared/04-browser-stability-r25.js'
+      - 'html-generator/v6.6/runtime/shared/05-detail-network-isolation-r26.js'
       - 'html-generator/v6.6/themes/**'
       - 'html-generator/v6.6/scripts/build-r23.mjs'
       - '.github/workflows/build-html-generator-r23.yml'
@@ -53,4 +54,5 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git add html-generator/v6.6/dist/r23
           git commit -m 'Build validated HTML generator R23 distribution'
+          git pull --rebase origin main
           git push
