@@ -1,16 +1,34 @@
-/* SRHELL v6.6 theme graphene */
-body[data-theme="graphene"]{--font-weight-ui:500;--font-weight-title:730;--title-track:-.022em;--label-track:.055em}
+/* SRHELL v6.6 theme graphene — aligned with Aura 6.25 */
 body[data-theme="graphene"]{
-  --bg:#090a0c;--bg-elev:#101216;--surface:#15181d;--surface-2:#1b1f25;--surface-3:#232830;
-  --line:#303640;--banner-border:#48515e;--text:#f0f2f5;--muted:#929aa5;
-  --accent:#91a8cf;--accent-2:#7388ad;--success:#72c4a6;--danger:#df7e8b;
-  --glass-bg:rgba(20,22,26,.72);--glass-line:rgba(222,227,234,.14);--glass-blur:20px;
-  --shadow:0 22px 58px rgba(0,0,0,.38);--card-shadow:0 8px 24px rgba(0,0,0,.24);
-  --radius:16px;--radius-sm:12px;--control-radius:13px;
-  --button-bg:linear-gradient(180deg,#aebbd0,#8798b4);--button-fg:#080a0d;
-  --texture:radial-gradient(circle at 50% -14%,rgba(194,203,216,.075),transparent 28%),linear-gradient(180deg,#0b0d10 0%,#090a0c 72%);
-  --font-ui:"SF Pro Text","Segoe UI Variable Text",Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-  --font-display:"SF Pro Display","Segoe UI Variable Display",Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
-  --font-weight-ui:470;--font-weight-title:650;--title-track:-.022em;--label-track:.06em;
+  --bg:#0D151C;
+  --bg-elev:#101820;
+  --surface:#121A22;
+  --surface-2:#182532;
+  --surface-3:#223342;
+  --line:rgba(162,208,236,.20);
+  --banner-border:rgba(162,208,236,.24);
+  --text:#EAEFF3;
+  --muted:rgba(234,239,243,.68);
+  --accent:#A2D0EC;
+  --accent-2:#6FA8CB;
+  --success:#72c4a6;
+  --danger:#ef6f7e;
+  --glass-bg:rgba(18,26,34,.76);
+  --glass-line:rgba(162,208,236,.17);
+  --glass-blur:18px;
+  --shadow:0 22px 58px rgba(0,0,0,.38);
+  --card-shadow:0 9px 26px rgba(0,0,0,.26);
+  --radius:16px;
+  --radius-sm:12px;
+  --control-radius:12px;
+  --button-bg:linear-gradient(180deg,#B4D7EC,#86B9D7);
+  --button-fg:#0D151C;
+  --texture:radial-gradient(circle at 1% 1%,rgba(162,208,236,.07),transparent 35%),radial-gradient(circle at 99% 99%,rgba(58,90,115,.14),transparent 45%),#0D151C;
+  --font-ui:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --font-display:-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Helvetica Neue",Arial,sans-serif;
+  --font-weight-ui:480;
+  --font-weight-title:690;
+  --title-track:-.018em;
+  --label-track:.045em;
+  --modal-radius:16px;
 }
-body[data-theme="graphene"]{--font-ui:"SF Pro Text","Segoe UI Variable Text",Inter,system-ui,-apple-system,sans-serif;--font-display:"SF Pro Display","Segoe UI Variable Display",Inter,system-ui,-apple-system,sans-serif;--font-weight-ui:480;--font-weight-title:660;--title-track:-.024em;--modal-radius:18px}
