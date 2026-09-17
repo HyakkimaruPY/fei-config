@@ -1,0 +1,36 @@
+/* SRHELL v6.6 — R22 stable builder bootstrap.
+   No eval, no source-code rewriting of previous builders.
+   Loads generator-r14 as a normal script and safely adapts template fetches. */
+(()=>{
+'use strict';
+const BASE='https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6';
+const NATIVE_FETCH=window.fetch.bind(window);
+const POOL_URL=BASE+'/runtime/shared/proxy-pool.json';
+let poolCache=null,poolLoading=null;
+
+function proxyUrl(template,target){const b=String(template||'').trim(),raw=String(target||'').trim();if(!b||!raw)return'';const enc=encodeURIComponent(raw);if(b.includes('{rawUrl}'))return b.split('{rawUrl}').join(raw);if(b.includes('{raw}'))return b.split('{raw}').join(raw);if(b.includes('{url}'))return b.split('{url}').join(enc);if(/[?&](?:url|target|uri|quest|q)=$/i.test(b)||b.endsWith('=')||b.endsWith('?'))return b+enc;try{const u=new URL(b),keys=['url','target','uri','quest','q'],key=keys.find(k=>u.searchParams.has(k));u.searchParams.set(key||'url',raw);return u.toString()}catch{return''}}
+function safe(v){return String(v||'').toLowerCase().replace(/[^a-z0-9._-]+/g,'_').slice(0,140)}
+function autoEnabled(){return document.getElementById('autoCorsProxyInput')?.checked!==false}
+function profileKey(target){let origin='unknown';try{origin=new URL(target).origin}catch{}const app=document.getElementById('appNameInput')?.value||'app';return 'srhell:generator:r22:'+safe(app)+':'+safe(origin)}
+function readProfile(k){try{return JSON.parse(localStorage.getItem(k)||'null')||{}}catch{return{}}}
+function writeProfile(k,v){try{localStorage.setItem(k,JSON.stringify(v))}catch{}}
+function normalizePool(raw){const proxies=(Array.isArray(raw?.proxies)?raw.proxies:[]).filter(x=>x&&x.id&&x.template&&x.valid!==false&&x.enabled!==false).sort((a,b)=>(Number(a.latencyMs)||999999)-(Number(b.latencyMs)||999999));return{...raw,proxies}}
+async function loadPool(force=false){if(!force&&poolCache)return poolCache;if(poolLoading)return poolLoading;poolLoading=(async()=>{const r=await NATIVE_FETCH(POOL_URL+'?v='+Date.now(),{cache:'no-store',credentials:'omit'});if(!r.ok)throw new Error('Pool HTTP '+r.status);return poolCache=normalizePool(await r.json())})().finally(()=>{poolLoading=null});return poolLoading}
+async function proxyFallback(target,init,directError){if(!autoEnabled())throw directError;const key=profileKey(target),p=readProfile(key),selected=p.selected||null,useCount=Number(p.useCount||0);if(selected&&useCount<3){try{const r=await NATIVE_FETCH(proxyUrl(selected.template,target),{...init,cache:'no-store',credentials:'omit'});if(r.ok){writeProfile(key,{selected,useCount:useCount+1,revision:p.revision||''});return r}}catch{}}
+ let pool;try{pool=await loadPool(!selected||useCount>=3)}catch{throw directError}let last=directError;for(const entry of pool.proxies.slice(0,2)){const u=proxyUrl(entry.template,target);if(!u)continue;try{const r=await NATIVE_FETCH(u,{...init,cache:'no-store',credentials:'omit'});if(r.ok){writeProfile(key,{selected:entry,useCount:1,revision:String(pool.revision||'')});return r}last=new Error('HTTP '+r.status)}catch(e){last=e}}throw last}
+function transformShorts(text){let t=String(text||'');t=t.replace('REV="shorts-aura-r13"','REV="shorts-r22"');t=t.replace("const CSS_PATCHES=[BASE+'/runtime/shorts/04-aura-player-r12.css',BASE+'/runtime/shorts/05-theme-variants-r13.css'];","const CSS_PATCHES=[BASE+'/runtime/shorts/04-aura-player-r12.css',BASE+'/runtime/shorts/05-theme-variants-r13.css',BASE+'/runtime/shorts/06-aura-player-polish-r14.css',BASE+'/runtime/shorts/08-architecture-r21.css'];");t=t.replace("const JS_PATCHES=[BASE+'/runtime/shorts/04-proxy-fix.js',BASE+'/runtime/shorts/05-aura-transport-r5.js',BASE+'/runtime/shorts/06-aura-player-r12.js'];","const JS_PATCHES=[BASE+'/runtime/shorts/04-proxy-fix.js',BASE+'/runtime/shorts/05-aura-transport-r5.js',BASE+'/runtime/shorts/06-aura-player-r12.js',BASE+'/runtime/shorts/07-aura-player-polish-r14.js',BASE+'/runtime/shared/02-proxy-affinity-r21.js',BASE+'/runtime/shorts/09-architecture-r21.js'];");return t.replace(/Arcos de 10 minutos/g,'Arcos de 2 minutos')}
+function transformStandard(text){let t=String(text||'');t=t.replace('const REV="aura625-r12";','const REV="standard-r22";');t=t.replace("BASE+'/runtime/standard/12-catalog-resilience-r12.js'];","BASE+'/runtime/standard/12-catalog-resilience-r12.js',BASE+'/runtime/standard/13-transport-r15.js',BASE+'/runtime/standard/14-api-parser-r16.js',BASE+'/runtime/shared/02-proxy-affinity-r21.js'];");return t}
+function transformedResponse(r,text){return new Response(text,{status:r.status,statusText:r.statusText,headers:r.headers})}
+window.fetch=async function(input,init){const raw=typeof input==='string'?input:input?.url||String(input);let u;try{u=new URL(raw,location.href)}catch{return NATIVE_FETCH(input,init)}
+ if(u.href.includes('/templates/shorts.html')){const r=await NATIVE_FETCH(input,{...init,cache:'no-store'});return transformedResponse(r,transformShorts(await r.text()))}
+ if(u.href.includes('/templates/standard.html')){const r=await NATIVE_FETCH(input,{...init,cache:'no-store'});return transformedResponse(r,transformStandard(await r.text()))}
+ if(u.pathname.endsWith('/player_api.php')){try{const r=await NATIVE_FETCH(input,init);if(r.ok)return r;return await proxyFallback(u.href,init,new Error('HTTP '+r.status))}catch(e){return proxyFallback(u.href,init,e)}}
+ return NATIVE_FETCH(input,init)};
+
+const NativeBlob=window.Blob;
+window.Blob=function(parts=[],opts={}){try{if(String(opts?.type||'').includes('text/html')&&Array.isArray(parts)&&parts.length){const auto=autoEnabled();parts=parts.map(p=>{if(typeof p!=='string'||!p.includes('id="app-config"'))return p;return p.replace(/(<script[^>]+id="app-config"[^>]*>)([\s\S]*?)(<\/script>)/,(_,a,j,c)=>{try{const cfg=JSON.parse(j);cfg.autoCorsProxy=auto;return a+JSON.stringify(cfg)+c}catch{return _}})})}}catch{}return new NativeBlob(parts,opts)};window.Blob.prototype=NativeBlob.prototype;
+
+function afterLoad(){const proxyInput=document.getElementById('corsProxyInput');if(proxyInput&&!document.getElementById('autoCorsProxyInput')){const label=document.createElement('label');label.style.cssText='display:flex;align-items:center;gap:9px;margin-top:8px;padding:9px 10px;border:1px solid var(--line,#2c394a);border-radius:12px;font-size:11px;cursor:pointer';label.innerHTML='<input id="autoCorsProxyInput" type="checkbox" checked style="accent-color:var(--accent,#7aa2f7)"><span><strong>Proxy CORS automático</strong><br><small style="opacity:.68">Usar o proxy validado do GitHub somente se a conexão direta falhar.</small></span>';proxyInput.insertAdjacentElement('afterend',label)}
+ document.querySelectorAll('*').forEach(n=>{if(n.childElementCount===0&&/arcos de 10 min/i.test(n.textContent||''))n.textContent=(n.textContent||'').replace(/arcos de 10 min\.?/i,'arcos de 2 min.')})}
+const script=document.createElement('script');script.src=BASE+'/builder/generator-r14.js?v=r22-stable';script.async=false;script.onload=afterLoad;script.onerror=()=>{const b=document.getElementById('statusBox');if(b){b.textContent='Falha ao carregar builder estável R22.';b.className='status-strip err'}};document.head.appendChild(script);
+})();
