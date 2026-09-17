@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>App Xtream</title>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.18/dist/hls.min.js"></script>
-<meta name="srhell-media-engine" content="6.2">
+<meta name="srhell-media-engine" content="6.2-aura625">
 </head>
 <body data-theme="graphene">
 <div class="app" id="appRoot">
@@ -16,5 +16,40 @@
 <section class="modal-layer is-hidden" id="detailLayer"><article class="detail-modal"><header class="detail-head"><div class="detail-head__title" id="detailHeadTitle">Detalhes</div><button class="square-button" id="detailClose" aria-label="Fechar"><svg class="ui-svg" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg></button></header><div class="detail-scroll" id="detailScroll"><div id="detailBody"></div></div></article></section>
 <section class="player-layer is-hidden" id="playerLayer"><div class="player-panel"><header class="player-head"><div class="player-title" id="playerTitle">Player</div><button class="square-button" id="playerClose" aria-label="Fechar player"><svg class="ui-svg" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg></button></header><div class="player-wrap" id="playerWrap"><video class="player" id="videoPlayer" controls autoplay playsinline></video><button class="player-expand" id="playerExpand" aria-label="Expandir ou minimizar"><svg class="ui-svg" viewBox="0 0 24 24"><path d="M8.5 4.5h-4v4M15.5 4.5h4v4M8.5 19.5h-4v-4M15.5 19.5h4v-4"/></svg></button></div><div class="player-status" id="playerStatus">Carregando…</div></div></section><div class="toast" id="toast"></div>
 <script type="application/json" id="app-config">__APP_CONFIG__</script>
-<script>(()=>{const BASE="https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6",CSS=[BASE+'/runtime/standard/01.css',BASE+'/runtime/standard/02.css',BASE+'/runtime/standard/03-fixes.css'],JS=[BASE+'/runtime/standard/01.js',BASE+'/runtime/standard/02.js',BASE+'/runtime/standard/03.js',BASE+'/runtime/standard/04-fixes.js'];const cfg=JSON.parse(document.getElementById('app-config').textContent),theme=BASE+'/themes/'+(cfg.theme||'graphene')+'.css',cacheKey=u=>'srh66:'+u;async function get(u){try{const c=localStorage.getItem(cacheKey(u));if(c)return c}catch{}const r=await fetch(u,{cache:'force-cache'});if(!r.ok)throw new Error('HTTP '+r.status+' em '+u);const t=await r.text();try{localStorage.setItem(cacheKey(u),t)}catch{}return t}async function boot(){try{const css=(await Promise.all([...CSS,theme].map(get))).join('\n'),st=document.createElement('style');st.textContent=css;document.head.appendChild(st);const js=(await Promise.all(JS.map(get))).join('\n'),sc=document.createElement('script');sc.textContent=js;document.body.appendChild(sc)}catch(e){document.body.innerHTML='<pre style="white-space:pre-wrap;padding:18px;font-family:system-ui;color:#fff;background:#111;min-height:100vh">Falha ao carregar módulos do app.\n'+String(e.message||e)+'</pre>'}}boot()})();</script>
+<script>
+(()=>{
+  const BASE="https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6";
+  const CSS_CORE=[BASE+'/runtime/standard/01.css',BASE+'/runtime/standard/02.css',BASE+'/runtime/standard/03-fixes.css'];
+  const CSS_AURA=BASE+'/runtime/standard/04-aura-reference.css';
+  const JS_CORE=[BASE+'/runtime/standard/01.js',BASE+'/runtime/standard/02.js',BASE+'/runtime/standard/03.js'];
+  const JS_PATCH=BASE+'/runtime/standard/04-fixes.js';
+  const cfg=JSON.parse(document.getElementById('app-config').textContent);
+  const theme=BASE+'/themes/'+(cfg.theme||'graphene')+'.css';
+  const cacheKey=u=>'srh66:aura625-r2:'+u;
+  async function get(u){
+    try{const c=localStorage.getItem(cacheKey(u));if(c)return c}catch{}
+    const r=await fetch(u,{cache:'force-cache'});
+    if(!r.ok)throw new Error('HTTP '+r.status+' em '+u);
+    const t=await r.text();
+    try{localStorage.setItem(cacheKey(u),t)}catch{}
+    return t;
+  }
+  async function boot(){
+    try{
+      const cssParts=await Promise.all([...CSS_CORE,theme,CSS_AURA].map(get));
+      const st=document.createElement('style');st.textContent=cssParts.join('\n');document.head.appendChild(st);
+      const coreParts=await Promise.all(JS_CORE.map(get));
+      const patch=await get(JS_PATCH);
+      let js=coreParts.join('\n');
+      const closing=/\}\)\(\);\s*$/;
+      if(!closing.test(js))throw new Error('Runtime padrão sem marcador de fechamento esperado.');
+      js=js.replace(closing,'\n'+patch+'\n})();');
+      const sc=document.createElement('script');sc.textContent=js;document.body.appendChild(sc);
+    }catch(e){
+      document.body.innerHTML='<pre style="white-space:pre-wrap;padding:18px;font-family:system-ui;color:#fff;background:#111;min-height:100vh">Falha ao carregar módulos do app.\n'+String(e.message||e)+'</pre>';
+    }
+  }
+  boot();
+})();
+</script>
 </body></html>
