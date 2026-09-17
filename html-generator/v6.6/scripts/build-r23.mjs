@@ -82,9 +82,10 @@ assertIds('runtime/standard/01.js','templates/standard-r23.html');
 assertIds('runtime/shorts/01.js','templates/shorts-r23.html');
 assertIds('builder/generator-r23-clean.js','generator-r23.html');
 
-const generatorHtml=read('generator-r23.html');
-if(/generator-r(?:1[4-9]|2[0-2])|\beval\s*\(/.test(generatorHtml))throw new Error('generator-r23.html contém builder antigo/eval');
-inlineScripts(generatorHtml).forEach((s,i)=>checkJsText(s,`generator-r23.html inline script ${i}`));
+const generatorR23=read('generator-r23.html'),generatorMain=read('generator.html');
+if(generatorMain!==generatorR23)throw new Error('generator.html divergiu de generator-r23.html; a entrada principal deve ser exatamente a versão R23 validada.');
+if(/generator-r(?:1[4-9]|2[0-2])|\beval\s*\(/.test(generatorR23))throw new Error('generator-r23.html contém builder antigo/eval');
+inlineScripts(generatorR23).forEach((s,i)=>checkJsText(s,`generator-r23.html inline script ${i}`));
 for(const bad of ['eval(','generator-r20.js','generator-r21.js','generator-r22.js'])if(read('builder/generator-r23-clean.js').includes(bad))throw new Error(`builder R23 contém dependência proibida: ${bad}`);
 
 console.log(`R23 build OK: ${revision}`);
