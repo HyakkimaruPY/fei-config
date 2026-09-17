@@ -3,7 +3,8 @@
 /* Move the right-side player rail slightly below the visual center line. */
 .short-player__rail{top:56.5%!important}
 
-/* Keep mobile scrolling light: no fixed-background composition or blur work on every frame. */
+/* Keep mobile scrolling light: no fixed-background composition or live blur work
+   on every frame. Full-screen blur is especially expensive in Android WebViews. */
 @media(pointer:coarse){
   body{background-attachment:scroll!important}
   .feed-scroller{
@@ -12,10 +13,13 @@
     scroll-behavior:auto!important;
   }
   .short-card{transition:none!important}
-  .arc-badge,.short-action{
+  .arc-badge,.short-action,.overlay,.overlay__shell,.arc-drawer{
     -webkit-backdrop-filter:none!important;
     backdrop-filter:none!important;
   }
+  .overlay{background:rgba(0,0,0,.78)!important}
+  .overlay__shell{background:var(--bg-elev)!important}
+  .arc-drawer{background:rgba(10,11,14,.96)!important}
 }
 
 @media(max-width:680px){
