@@ -1,6 +1,6 @@
 {
-  "revision": "workflow-1789649145",
-  "generatedAt": "2026-09-17T12:45:45Z",
+  "revision": "workflow-1789680371",
+  "generatedAt": "2026-09-17T21:26:11Z",
   "sourceRevision": "2026-09-17-candidates-2",
   "validator": "github-actions-cors-v1.1",
   "probeTarget": "https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6/runtime/shared/proxy-probe.txt",
@@ -13,11 +13,11 @@
       "name": "CORSProxy Render",
       "template": "https://corsproxy-latest.onrender.com/{rawUrl}",
       "priority": 5,
-      "latencyMs": 314,
+      "latencyMs": 184,
       "successRate": 1.0,
       "lastStatus": 200,
       "corsAllowOrigin": "*",
-      "validatedAt": "2026-09-17T12:45:17Z"
+      "validatedAt": "2026-09-17T21:25:44Z"
     }
   ]
 }
