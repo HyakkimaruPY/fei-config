@@ -35,8 +35,7 @@ const shortsPatches=[
 ];
 
 function assembleJs(coreFiles,patchFiles,label){
-  const core=join(coreFiles);
-  const patches=join(patchFiles);
+  const core=join(coreFiles),patches=join(patchFiles);
   const marker=/\ninit\(\);\s*\n\}\)\(\);\s*$/;
   if(!marker.test(core))throw new Error(`${label}: marcador final init()/IIFE não encontrado`);
   const bundle=core.replace(marker,`\n/* ===== R23 MODULES ===== */\n${patches}\ninit();\n})();\n`);
@@ -47,8 +46,7 @@ function assembleJs(coreFiles,patchFiles,label){
 
 const standardJs=assembleJs(standardCore,standardPatches,'standard');
 const shortsJs=assembleJs(shortsCore,shortsPatches,'shorts');
-const standardCssBundle=join(standardCss);
-const shortsCssBundle=join(shortsCss);
+const standardCssBundle=join(standardCss),shortsCssBundle=join(shortsCss);
 write('standard.js',standardJs);write('shorts.js',shortsJs);write('standard.css',standardCssBundle);write('shorts.css',shortsCssBundle);
 
 for(const f of ['standard.js','shorts.js']){
@@ -66,14 +64,23 @@ const revision='r23-'+hash.digest('hex').slice(0,16);
 const manifest={revision,generatedAt:new Date().toISOString(),standard:{js:'standard.js',css:'standard.css'},shorts:{js:'shorts.js',css:'shorts.css'},themes:themeFiles.map(x=>path.basename(x,'.css'))};
 write('manifest.json',JSON.stringify(manifest,null,2));
 
+function checkJsText(source,label){
+  const tmp=path.join(outDir,`.check-${crypto.createHash('md5').update(label).digest('hex')}.js`);
+  fs.writeFileSync(tmp,source);const r=spawnSync(process.execPath,['--check',tmp],{encoding:'utf8'});fs.unlinkSync(tmp);
+  if(r.status!==0)throw new Error(`${label} inválido:\n${r.stderr||r.stdout}`);
+}
 function validateTemplate(file){
   const full=path.join(root,'templates',file),html=fs.readFileSync(full,'utf8');
   if(!html.includes('__APP_CONFIG__'))throw new Error(`${file}: __APP_CONFIG__ ausente`);
   if(/generator-r(?:1[4-9]|2[0-2])|\beval\s*\(/.test(html))throw new Error(`${file}: referência a builder antigo/eval encontrada`);
   const sample=html.replace('__APP_CONFIG__',JSON.stringify({appId:'ci_test',appMode:file.startsWith('shorts')?'shorts':'standard',appName:'CI',server:'http://example.invalid',username:'u',password:'p',liveExtension:'m3u8',corsProxy:'',autoCorsProxy:true,theme:'graphene',targets:[]}));
-  const scripts=[...sample.matchAll(/<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/gi)].map(m=>m[1]).filter(s=>s.trim()&&!/type=["']application\/json/i.test(m?.[0]||''));
-  scripts.forEach((s,i)=>{const tmp=path.join(outDir,`.template-${file}-${i}.js`);fs.writeFileSync(tmp,s);const r=spawnSync(process.execPath,['--check',tmp],{encoding:'utf8'});fs.unlinkSync(tmp);if(r.status!==0)throw new Error(`${file} script ${i} inválido:\n${r.stderr||r.stdout}`)});
+  const matches=[...sample.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/gi)];
+  let n=0;
+  for(const m of matches){const attrs=m[1]||'',source=m[2]||'';if(/\bsrc\s*=|type=["']application\/json/i.test(attrs)||!source.trim())continue;checkJsText(source,`${file} inline script ${n++}`)}
 }
-for(const file of ['standard-r23.html','shorts-r23.html'])if(fs.existsSync(path.join(root,'templates',file)))validateTemplate(file);
+for(const file of ['standard-r23.html','shorts-r23.html'])validateTemplate(file);
 
+for(const bad of ['eval(','generator-r20.js','generator-r21.js','generator-r22.js']){
+  if(read('builder/generator-r23-clean.js').includes(bad))throw new Error(`builder R23 contém dependência proibida: ${bad}`);
+}
 console.log(`R23 build OK: ${revision}`);
