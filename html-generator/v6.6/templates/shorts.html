@@ -19,7 +19,26 @@
 <div class="short-player is-hidden" id="shortPlayer"><div class="short-player__stage" id="shortStage"><div class="short-player__frame" id="shortFrame"><video id="shortVideo" controls playsinline preload="metadata"></video><div class="short-player__shade"></div></div><div class="short-player__title" id="shortTitle"></div><div class="short-player__rail"><button class="short-action" id="shortClose" aria-label="Sair"><svg class="action-svg" viewBox="0 0 24 24"><path d="M14.5 6.5L9 12l5.5 5.5M9.5 12H19"/></svg><small>Sair</small></button><button class="short-action" id="arcPrev" aria-label="Arco anterior"><svg class="action-svg" viewBox="0 0 24 24"><path d="M15 6.5L9.5 12 15 17.5"/><path d="M7 6.5v11"/></svg><small>Anterior</small></button><button class="short-action" id="shortArcs" aria-label="Arcos"><svg class="action-svg" viewBox="0 0 24 24"><rect x="5" y="5" width="14" height="14" rx="3"/><path d="M9 8.5h6M9 12h6M9 15.5h4"/></svg><small>Arcos</small></button><button class="short-action" id="arcNext" aria-label="Próximo arco"><svg class="action-svg" viewBox="0 0 24 24"><path d="M9 6.5l5.5 5.5L9 17.5"/><path d="M17 6.5v11"/></svg><small>Próximo</small></button><button class="short-action" id="shortFavorite" aria-label="Favoritar"><svg class="action-svg heart-shape" viewBox="0 0 24 24"><path d="M12 19s-7-4.35-7-9.2A3.8 3.8 0 0 1 12 7.7a3.8 3.8 0 0 1 7 2.1C19 14.65 12 19 12 19z"/></svg><small>Favorito</small></button></div><div class="arc-drawer is-hidden" id="arcDrawer"><div class="arc-head" id="arcHead">Arcos de 10 minutos</div><div class="arc-grid" id="arcGrid"></div></div></div></div>
 <div class="toast" id="toast"></div>
 <script id="app-config" type="application/json">__APP_CONFIG__</script>
-
-<script>(()=>{const BASE="https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6",CSS=[BASE+'/runtime/shorts/01.css',BASE+'/runtime/shorts/02.css',BASE+'/runtime/shorts/03.css'],JS=[BASE+'/runtime/shorts/01.js',BASE+'/runtime/shorts/02.js',BASE+'/runtime/shorts/03.js'];const cfg=JSON.parse(document.getElementById('app-config').textContent),theme=BASE+'/themes/'+(cfg.theme||'graphene')+'.css',cacheKey=u=>'srh66:'+u;async function get(u){try{const c=localStorage.getItem(cacheKey(u));if(c)return c}catch{}const r=await fetch(u,{cache:'force-cache'});if(!r.ok)throw new Error('HTTP '+r.status+' em '+u);const t=await r.text();try{localStorage.setItem(cacheKey(u),t)}catch{}return t}async function boot(){try{const css=(await Promise.all([...CSS,theme].map(get))).join('\n'),st=document.createElement('style');st.textContent=css;document.head.appendChild(st);const js=(await Promise.all(JS.map(get))).join('\n'),sc=document.createElement('script');sc.textContent=js;document.body.appendChild(sc)}catch(e){document.body.innerHTML='<pre style="white-space:pre-wrap;padding:18px;font-family:system-ui;color:#fff;background:#111;min-height:100vh">Falha ao carregar módulos do app Shorts.\n'+String(e.message||e)+'</pre>'}}boot()})();</script>
+<script>
+(()=>{
+  const BASE="https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6";
+  const CSS=[BASE+'/runtime/shorts/01.css',BASE+'/runtime/shorts/02.css',BASE+'/runtime/shorts/03.css'];
+  const JS_CORE=[BASE+'/runtime/shorts/01.js',BASE+'/runtime/shorts/02.js',BASE+'/runtime/shorts/03.js'];
+  const JS_PATCH=BASE+'/runtime/shorts/04-proxy-fix.js';
+  const cfg=JSON.parse(document.getElementById('app-config').textContent),theme=BASE+'/themes/'+(cfg.theme||'graphene')+'.css',cacheKey=u=>'srh66:shorts-proxy-r2:'+u;
+  async function get(u){try{const c=localStorage.getItem(cacheKey(u));if(c)return c}catch{}const r=await fetch(u,{cache:'force-cache'});if(!r.ok)throw new Error('HTTP '+r.status+' em '+u);const t=await r.text();try{localStorage.setItem(cacheKey(u),t)}catch{}return t}
+  async function boot(){
+    try{
+      const css=(await Promise.all([...CSS,theme].map(get))).join('\n'),st=document.createElement('style');st.textContent=css;document.head.appendChild(st);
+      const coreParts=await Promise.all(JS_CORE.map(get)),patch=await get(JS_PATCH);let js=coreParts.join('\n');
+      const marker=/\ninit\(\);\s*\n\}\)\(\);\s*$/;
+      if(!marker.test(js))throw new Error('Runtime Shorts sem marcador de inicialização esperado.');
+      js=js.replace(marker,'\n'+patch+'\ninit();\n})();');
+      const sc=document.createElement('script');sc.textContent=js;document.body.appendChild(sc);
+    }catch(e){document.body.innerHTML='<pre style="white-space:pre-wrap;padding:18px;font-family:system-ui;color:#fff;background:#111;min-height:100vh">Falha ao carregar módulos do app Shorts.\n'+String(e.message||e)+'</pre>'}
+  }
+  boot();
+})();
+</script>
 </body>
 </html>
