@@ -1,0 +1,44 @@
+/* SRHELL standard detail polish — final small alignment pass. */
+
+/* Film: final row remains [trash when applicable] [favorite] [watch].
+   The watch button occupies the far-right position, naturally moving favorite left. */
+.detail-modal.is-vod .srh-final-actions--vod{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:flex-end!important;
+  gap:8px!important;
+}
+.detail-modal.is-vod .srh-final-actions--vod .srh-final-actions__icons{
+  display:flex!important;
+  align-items:center!important;
+  gap:8px!important;
+  margin-left:auto!important;
+}
+.detail-modal.is-vod .srh-final-watch{
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  flex:0 0 auto!important;
+  min-height:44px!important;
+  margin:0!important;
+}
+
+/* Series: title and action buttons share one true visual center line. */
+.detail-modal.is-series .srh-detail-title-row{
+  align-items:center!important;
+  min-height:44px!important;
+}
+.detail-modal.is-series .srh-detail-title-row .srh-detail-title{
+  align-self:center!important;
+  line-height:1.24!important;
+}
+.detail-modal.is-series .srh-detail-title-row .srh-final-actions__icons{
+  align-self:center!important;
+  margin-top:0!important;
+  margin-bottom:0!important;
+}
+
+@media(max-width:780px){
+  .detail-modal.is-series .srh-detail-title-row{align-items:center!important}
+  .detail-modal.is-vod .srh-final-actions--vod{justify-content:flex-end!important}
+}
