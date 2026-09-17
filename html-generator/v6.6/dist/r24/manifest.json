@@ -1,8 +1,8 @@
 {
-  "revision": "r24-1b69982585f7a256",
-  "generatedAt": "2026-09-17T20:07:18.345Z",
+  "revision": "r24-b77173ad405985b4",
+  "generatedAt": "2026-09-17T20:20:35.680Z",
   "sourceCommit": "aefc61c6f386b16ac321df3a3c697baf3335c193",
-  "architecture": "historical-modular-rebuild",
+  "architecture": "historical-modular-core",
   "arcSeconds": 120,
   "css": "shorts.css",
   "js": "shorts.js"
