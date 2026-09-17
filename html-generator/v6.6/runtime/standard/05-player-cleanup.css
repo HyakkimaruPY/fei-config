@@ -1,0 +1,4 @@
+/* SRHELL v6.6 — one close control per detail modal. */
+.detail-inline-actions [data-inline-close],
+#seriesStop{display:none!important}
+.detail-inline-actions{right:9px!important;bottom:9px!important}
