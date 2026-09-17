@@ -4,7 +4,8 @@
 This runs in GitHub Actions, never in the generated SRHELL apps. It probes a
 neutral marker file, verifies that the relay returns the expected body and a
 usable Access-Control-Allow-Origin header, measures latency, and writes the
-validated pool sorted from fastest to slowest.
+validated pool sorted from fastest to slowest. If nothing passes, an empty pool
+is published: stale/unverified proxies are never kept alive implicitly.
 """
 
 from __future__ import annotations
@@ -12,7 +13,6 @@ from __future__ import annotations
 import concurrent.futures
 import json
 import statistics
-import sys
 import time
 import urllib.error
 import urllib.parse
@@ -24,7 +24,7 @@ ROOT = Path(__file__).resolve().parents[1]
 CANDIDATES = ROOT / "html-generator/v6.6/runtime/shared/proxy-candidates.json"
 OUTPUT = ROOT / "html-generator/v6.6/runtime/shared/proxy-pool.json"
 TEST_ORIGIN = "https://srhell.local"
-USER_AGENT = "SRHELL-CORS-Validator/1.0 (+GitHub Actions)"
+USER_AGENT = "SRHELL-CORS-Validator/1.1 (+GitHub Actions)"
 
 
 def utc_now() -> str:
@@ -93,7 +93,7 @@ def run_attempt(entry: dict, target: str, marker: str, timeout_s: float) -> dict
             "acao": exc.headers.get("Access-Control-Allow-Origin", "") if exc.headers else "",
             "error": f"HTTP {exc.code}",
         }
-    except Exception as exc:  # timeout, DNS, TLS, reset, etc.
+    except Exception as exc:
         return {
             "ok": False,
             "latencyMs": max(1, round((time.perf_counter() - started) * 1000)),
@@ -164,15 +164,16 @@ def main() -> int:
 
     valid = [r for r in results if r["valid"]]
     if not valid:
-        print("Nenhum proxy CORS válido; proxy-pool.json anterior será preservado.", file=sys.stderr)
-        return 2
+        print("Nenhum proxy CORS passou nesta rodada; publicando pool vazio seguro.")
 
     published = {
         "revision": f"workflow-{int(time.time())}",
         "generatedAt": utc_now(),
         "sourceRevision": str(config.get("revision") or ""),
-        "validator": "github-actions-cors-v1",
+        "validator": "github-actions-cors-v1.1",
         "probeTarget": target,
+        "candidateCount": len(results),
+        "validCount": len(valid),
         "maxApiFallbacks": max(1, int(config.get("maxApiFallbacks") or 2)),
         "proxies": [
             {
