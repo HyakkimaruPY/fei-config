@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>App Xtream</title>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.18/dist/hls.min.js"></script>
-<meta name="srhell-media-engine" content="6.2-aura625-r10">
+<meta name="srhell-media-engine" content="6.2-aura625-r12">
 <style id="srhBootStyle">
 html,body{margin:0;min-height:100%;background:#0b1116}body.srh-booting{overflow:hidden}body.srh-booting>*:not(#srhBoot):not(script){visibility:hidden!important}
 #srhBoot{position:fixed;z-index:2147483647;inset:0;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 50% 34%,rgba(162,208,236,.10),transparent 30%),linear-gradient(180deg,#0e171e,#08100d);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#eef4f1;transition:opacity .22s ease}
@@ -28,11 +28,11 @@ html,body{margin:0;min-height:100%;background:#0b1116}body.srh-booting{overflow:
 <script>
 (()=>{
   const BASE="https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6";
-  const REV="aura625-r10";
+  const REV="aura625-r12";
   const CSS_CORE=[BASE+'/runtime/standard/01.css',BASE+'/runtime/standard/02.css',BASE+'/runtime/standard/03-fixes.css'];
   const CSS_PATCHES=[BASE+'/runtime/standard/04-aura-reference.css',BASE+'/runtime/standard/05-player-cleanup.css',BASE+'/runtime/standard/06-spacing-fix.css',BASE+'/runtime/standard/07-detail-cleanup.css',BASE+'/runtime/standard/08-favorites-continue.css',BASE+'/runtime/standard/09-detail-hierarchy.css',BASE+'/runtime/standard/10-design-balance.css'];
   const JS_CORE=[BASE+'/runtime/standard/01.js',BASE+'/runtime/standard/02.js',BASE+'/runtime/standard/03.js'];
-  const JS_PATCHES=[BASE+'/runtime/standard/04-fixes.js',BASE+'/runtime/standard/05-proxy-fix.js',BASE+'/runtime/standard/06-player-cleanup.js',BASE+'/runtime/standard/07-detail-cleanup.js',BASE+'/runtime/standard/08-favorites-continue.js',BASE+'/runtime/standard/09-detail-hierarchy.js',BASE+'/runtime/standard/10-actions-accessibility.js'];
+  const JS_PATCHES=[BASE+'/runtime/standard/04-fixes.js',BASE+'/runtime/standard/05-proxy-fix.js',BASE+'/runtime/standard/06-player-cleanup.js',BASE+'/runtime/standard/07-detail-cleanup.js',BASE+'/runtime/standard/08-favorites-continue.js',BASE+'/runtime/standard/09-detail-hierarchy.js',BASE+'/runtime/standard/10-actions-accessibility.js',BASE+'/runtime/standard/11-aura-transport-r11.js',BASE+'/runtime/standard/12-catalog-resilience-r12.js'];
   const cfg=JSON.parse(document.getElementById('app-config').textContent);
   document.getElementById('srhBootTitle').textContent=cfg.appName||'Carregando aplicativo';
   const theme=BASE+'/themes/'+(cfg.theme||'graphene')+'.css';
@@ -40,6 +40,7 @@ html,body{margin:0;min-height:100%;background:#0b1116}body.srh-booting{overflow:
   const versioned=u=>u+(u.includes('?')?'&':'?')+'v='+encodeURIComponent(REV);
   const boot={card:document.getElementById('srhBootCard'),label:document.getElementById('srhBootLabel'),phase:document.getElementById('srhBootPhase'),pct:document.getElementById('srhBootPct'),fill:document.getElementById('srhBootFill'),root:document.getElementById('srhBoot')};
   const allAssets=[...CSS_CORE,theme,...CSS_PATCHES,...JS_CORE,...JS_PATCHES];let loaded=0;
+  try{const keep='srh66:'+REV+':';for(let i=localStorage.length-1;i>=0;i--){const k=localStorage.key(i);if(k&&k.startsWith('srh66:')&&!k.startsWith(keep))localStorage.removeItem(k)}}catch{}
   function progress(label){loaded++;const p=Math.min(94,6+Math.round(88*loaded/allAssets.length));boot.pct.textContent=p+'%';boot.fill.style.width=p+'%';boot.label.textContent=label||'Carregando módulos…'}
   async function get(u){try{const c=localStorage.getItem(cacheKey(u));if(c){progress('Preparando módulos locais…');return c}}catch{}const r=await fetch(versioned(u),{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status+' em '+u);const t=await r.text();try{localStorage.setItem(cacheKey(u),t)}catch{}progress('Baixando componentes…');return t}
   function finish(){boot.phase.textContent='Pronto';boot.label.textContent='Interface carregada';boot.pct.textContent='100%';boot.fill.style.width='100%';document.body.classList.remove('srh-booting');requestAnimationFrame(()=>requestAnimationFrame(()=>{boot.root.classList.add('is-done');setTimeout(()=>boot.root.remove(),240)}))}
