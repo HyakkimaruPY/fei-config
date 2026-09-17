@@ -49,13 +49,9 @@ const shortsJs=assembleJs(shortsCore,shortsPatches,'shorts');
 const standardCssBundle=join(standardCss),shortsCssBundle=join(shortsCss);
 write('standard.js',standardJs);write('shorts.js',shortsJs);write('standard.css',standardCssBundle);write('shorts.css',shortsCssBundle);
 
-for(const f of ['standard.js','shorts.js']){
-  const full=path.join(outDir,f),r=spawnSync(process.execPath,['--check',full],{encoding:'utf8'});
-  if(r.status!==0)throw new Error(`${f} falhou no node --check:\n${r.stderr||r.stdout}`);
-}
-const builder=path.join(root,'builder/generator-r23-clean.js');
-const br=spawnSync(process.execPath,['--check',builder],{encoding:'utf8'});
-if(br.status!==0)throw new Error(`generator-r23-clean.js inválido:\n${br.stderr||br.stdout}`);
+function checkFileJs(full,label){const r=spawnSync(process.execPath,['--check',full],{encoding:'utf8'});if(r.status!==0)throw new Error(`${label} falhou no node --check:\n${r.stderr||r.stdout}`)}
+for(const f of ['standard.js','shorts.js'])checkFileJs(path.join(outDir,f),f);
+checkFileJs(path.join(root,'builder/generator-r23-clean.js'),'generator-r23-clean.js');
 
 const themeFiles=['graphene','obsidian','porcelain','jade','aurora','ember'].map(x=>`themes/${x}.css`);
 const hash=crypto.createHash('sha256');
@@ -69,18 +65,26 @@ function checkJsText(source,label){
   fs.writeFileSync(tmp,source);const r=spawnSync(process.execPath,['--check',tmp],{encoding:'utf8'});fs.unlinkSync(tmp);
   if(r.status!==0)throw new Error(`${label} inválido:\n${r.stderr||r.stdout}`);
 }
+function inlineScripts(html){
+  const out=[];for(const m of html.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/gi)){const attrs=m[1]||'',source=m[2]||'';if(/\bsrc\s*=|type=["']application\/json/i.test(attrs)||!source.trim())continue;out.push(source)}return out;
+}
 function validateTemplate(file){
-  const full=path.join(root,'templates',file),html=fs.readFileSync(full,'utf8');
+  const html=read('templates/'+file);
   if(!html.includes('__APP_CONFIG__'))throw new Error(`${file}: __APP_CONFIG__ ausente`);
   if(/generator-r(?:1[4-9]|2[0-2])|\beval\s*\(/.test(html))throw new Error(`${file}: referência a builder antigo/eval encontrada`);
   const sample=html.replace('__APP_CONFIG__',JSON.stringify({appId:'ci_test',appMode:file.startsWith('shorts')?'shorts':'standard',appName:'CI',server:'http://example.invalid',username:'u',password:'p',liveExtension:'m3u8',corsProxy:'',autoCorsProxy:true,theme:'graphene',targets:[]}));
-  const matches=[...sample.matchAll(/<script([^>]*)>([\s\S]*?)<\/script>/gi)];
-  let n=0;
-  for(const m of matches){const attrs=m[1]||'',source=m[2]||'';if(/\bsrc\s*=|type=["']application\/json/i.test(attrs)||!source.trim())continue;checkJsText(source,`${file} inline script ${n++}`)}
+  inlineScripts(sample).forEach((s,i)=>checkJsText(s,`${file} inline script ${i}`));
 }
+function requiredIds(js){const ids=new Set();for(const m of js.matchAll(/\$\(['"]#([^'"]+)['"]\)/g))ids.add(m[1]);return [...ids]}
+function assertIds(jsFile,htmlFile){const js=read(jsFile),html=read(htmlFile),missing=requiredIds(js).filter(id=>!new RegExp(`id=["']${id}["']`).test(html));if(missing.length)throw new Error(`${htmlFile}: IDs ausentes exigidos por ${jsFile}: ${missing.join(', ')}`)}
 for(const file of ['standard-r23.html','shorts-r23.html'])validateTemplate(file);
+assertIds('runtime/standard/01.js','templates/standard-r23.html');
+assertIds('runtime/shorts/01.js','templates/shorts-r23.html');
+assertIds('builder/generator-r23-clean.js','generator-r23.html');
 
-for(const bad of ['eval(','generator-r20.js','generator-r21.js','generator-r22.js']){
-  if(read('builder/generator-r23-clean.js').includes(bad))throw new Error(`builder R23 contém dependência proibida: ${bad}`);
-}
+const generatorHtml=read('generator-r23.html');
+if(/generator-r(?:1[4-9]|2[0-2])|\beval\s*\(/.test(generatorHtml))throw new Error('generator-r23.html contém builder antigo/eval');
+inlineScripts(generatorHtml).forEach((s,i)=>checkJsText(s,`generator-r23.html inline script ${i}`));
+for(const bad of ['eval(','generator-r20.js','generator-r21.js','generator-r22.js'])if(read('builder/generator-r23-clean.js').includes(bad))throw new Error(`builder R23 contém dependência proibida: ${bad}`);
+
 console.log(`R23 build OK: ${revision}`);
