@@ -1,0 +1,23 @@
+/* Shorts R24 — minimal performance/position polish over the historical stable core. */
+
+/* Move the right-side player rail slightly below the visual center line. */
+.short-player__rail{top:56.5%!important}
+
+/* Keep mobile scrolling light: no fixed-background composition or blur work on every frame. */
+@media(pointer:coarse){
+  body{background-attachment:scroll!important}
+  .feed-scroller{
+    -webkit-overflow-scrolling:touch;
+    overscroll-behavior-y:contain;
+    scroll-behavior:auto!important;
+  }
+  .short-card{transition:none!important}
+  .arc-badge,.short-action{
+    -webkit-backdrop-filter:none!important;
+    backdrop-filter:none!important;
+  }
+}
+
+@media(max-width:680px){
+  .short-player__rail{top:58%!important}
+}
