@@ -5,9 +5,18 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>App Xtream</title>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.18/dist/hls.min.js"></script>
-<meta name="srhell-media-engine" content="6.2-aura625-r9">
+<meta name="srhell-media-engine" content="6.2-aura625-r10">
+<style id="srhBootStyle">
+html,body{margin:0;min-height:100%;background:#0b1116}body.srh-booting{overflow:hidden}body.srh-booting>*:not(#srhBoot):not(script){visibility:hidden!important}
+#srhBoot{position:fixed;z-index:2147483647;inset:0;display:grid;place-items:center;padding:24px;background:radial-gradient(circle at 50% 34%,rgba(162,208,236,.10),transparent 30%),linear-gradient(180deg,#0e171e,#08100d);font-family:system-ui,-apple-system,"Segoe UI",sans-serif;color:#eef4f1;transition:opacity .22s ease}
+#srhBoot.is-done{opacity:0;pointer-events:none}.srh-boot-card{width:min(330px,calc(100vw - 48px));padding:22px;border:1px solid rgba(162,208,236,.20);border-radius:22px;background:rgba(13,24,20,.82);box-shadow:0 26px 80px rgba(0,0,0,.42);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}
+.srh-boot-mark{width:38px;height:38px;margin-bottom:17px;border:1px solid rgba(162,208,236,.28);border-radius:13px;display:grid;place-items:center;background:rgba(162,208,236,.06)}.srh-boot-mark:before{content:"";width:15px;height:15px;border:2px solid rgba(238,244,241,.23);border-top-color:#a2d0ec;border-radius:50%;animation:srhBootSpin .72s linear infinite}
+.srh-boot-title{font-size:18px;font-weight:780;letter-spacing:-.02em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.srh-boot-label{margin-top:5px;color:rgba(238,244,241,.62);font-size:11px}.srh-boot-line{height:5px;margin-top:19px;overflow:hidden;border-radius:999px;background:rgba(255,255,255,.09)}.srh-boot-fill{height:100%;width:4%;border-radius:inherit;background:linear-gradient(90deg,#709db9,#c4e4f6);transition:width .18s ease}.srh-boot-foot{display:flex;justify-content:space-between;gap:12px;margin-top:8px;font-size:10px;color:rgba(238,244,241,.55)}.srh-boot-retry{display:none;width:100%;min-height:42px;margin-top:15px;border:1px solid rgba(162,208,236,.28);border-radius:12px;background:rgba(162,208,236,.10);color:#eef4f1;font-weight:700}.srh-boot-card.is-error .srh-boot-mark:before{animation:none;border-color:#d97d86}.srh-boot-card.is-error .srh-boot-retry{display:block}@keyframes srhBootSpin{to{transform:rotate(360deg)}}
+@media(prefers-reduced-motion:reduce){.srh-boot-mark:before{animation-duration:1.4s}.srh-boot-fill,#srhBoot{transition:none}}
+</style>
 </head>
-<body data-theme="graphene">
+<body data-theme="graphene" class="srh-booting">
+<div id="srhBoot" role="status" aria-live="polite"><div class="srh-boot-card" id="srhBootCard"><div class="srh-boot-mark"></div><div class="srh-boot-title" id="srhBootTitle">Carregando aplicativo</div><div class="srh-boot-label" id="srhBootLabel">Preparando interface…</div><div class="srh-boot-line"><div class="srh-boot-fill" id="srhBootFill"></div></div><div class="srh-boot-foot"><span id="srhBootPhase">Inicializando</span><strong id="srhBootPct">4%</strong></div><button class="srh-boot-retry" id="srhBootRetry" type="button">Tentar novamente</button></div></div>
 <div class="app" id="appRoot">
 <header class="topbar"><div class="topbar__row"><div class="brand"><h1 class="brand__title" id="appTitle"></h1><div class="brand__meta" id="appMeta">Carregando playlist…</div></div><div class="top-actions"><div class="days-chip" id="daysChip">—</div><button class="icon-button search-icon" id="searchButton" aria-label="Buscar"><svg class="ui-svg" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.7" cy="10.7" r="5.8"/><path d="M15 15l4.5 4.5"/></svg></button><button class="icon-button" id="settingsButton" aria-label="Configurações"><svg class="ui-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 7.5h14M5 12h14M5 16.5h14"/></svg></button></div></div><section class="settings-panel is-hidden" id="settingsPanel"><div class="settings-panel__inner"><div class="settings-grid"><div class="settings-stat"><div class="settings-stat__label">Validade</div><div class="settings-stat__value" id="expiryDate">Consultando…</div></div><div class="settings-stat"><div class="settings-stat__label">Tempo restante</div><div class="settings-stat__value" id="expiryDays">—</div></div></div><div class="accordion"><button class="accordion__trigger" id="updateAccordionButton"><span>Atualizar app</span><span id="updateAccordionIcon">⌄</span></button><div class="accordion__body is-hidden" id="updateAccordionBody"><input class="input" id="updateM3uInput" placeholder="Cole o novo M3U / login Xtream"><div class="update-actions"><button class="button" id="updateLoadButton">Ler categorias</button><button class="button button--accent" id="updateApplyButton" disabled>Atualizar</button></div><div class="update-status" id="updateStatus">Insira um login novo e selecione uma ou mais categorias.</div><div class="update-groups" id="updateGroups"></div></div></div></div></section></header>
 <div class="search-wrap" id="searchWrap"><input class="search" id="globalSearch" type="search" autocomplete="off" placeholder="Buscar…"></div><div class="home-status" id="homeStatus">Preparando conteúdo…</div><section class="continue is-hidden" id="continueSection"><h2 class="section-title">Continuar assistindo</h2><div class="continue-viewport"><div class="continue-row" id="continueRow"></div></div></section><main id="contentRoot"></main></div>
@@ -19,39 +28,40 @@
 <script>
 (()=>{
   const BASE="https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6";
-  const REV="aura625-r9";
+  const REV="aura625-r10";
   const CSS_CORE=[BASE+'/runtime/standard/01.css',BASE+'/runtime/standard/02.css',BASE+'/runtime/standard/03-fixes.css'];
-  const CSS_PATCHES=[BASE+'/runtime/standard/04-aura-reference.css',BASE+'/runtime/standard/05-player-cleanup.css',BASE+'/runtime/standard/06-spacing-fix.css',BASE+'/runtime/standard/07-detail-cleanup.css',BASE+'/runtime/standard/08-favorites-continue.css',BASE+'/runtime/standard/09-detail-hierarchy.css'];
+  const CSS_PATCHES=[BASE+'/runtime/standard/04-aura-reference.css',BASE+'/runtime/standard/05-player-cleanup.css',BASE+'/runtime/standard/06-spacing-fix.css',BASE+'/runtime/standard/07-detail-cleanup.css',BASE+'/runtime/standard/08-favorites-continue.css',BASE+'/runtime/standard/09-detail-hierarchy.css',BASE+'/runtime/standard/10-design-balance.css'];
   const JS_CORE=[BASE+'/runtime/standard/01.js',BASE+'/runtime/standard/02.js',BASE+'/runtime/standard/03.js'];
-  const JS_PATCHES=[BASE+'/runtime/standard/04-fixes.js',BASE+'/runtime/standard/05-proxy-fix.js',BASE+'/runtime/standard/06-player-cleanup.js',BASE+'/runtime/standard/07-detail-cleanup.js',BASE+'/runtime/standard/08-favorites-continue.js',BASE+'/runtime/standard/09-detail-hierarchy.js'];
+  const JS_PATCHES=[BASE+'/runtime/standard/04-fixes.js',BASE+'/runtime/standard/05-proxy-fix.js',BASE+'/runtime/standard/06-player-cleanup.js',BASE+'/runtime/standard/07-detail-cleanup.js',BASE+'/runtime/standard/08-favorites-continue.js',BASE+'/runtime/standard/09-detail-hierarchy.js',BASE+'/runtime/standard/10-actions-accessibility.js'];
   const cfg=JSON.parse(document.getElementById('app-config').textContent);
+  document.getElementById('srhBootTitle').textContent=cfg.appName||'Carregando aplicativo';
   const theme=BASE+'/themes/'+(cfg.theme||'graphene')+'.css';
   const cacheKey=u=>'srh66:'+REV+':'+u;
   const versioned=u=>u+(u.includes('?')?'&':'?')+'v='+encodeURIComponent(REV);
-  async function get(u){
-    try{const c=localStorage.getItem(cacheKey(u));if(c)return c}catch{}
-    const r=await fetch(versioned(u),{cache:'no-store'});
-    if(!r.ok)throw new Error('HTTP '+r.status+' em '+u);
-    const t=await r.text();
-    try{localStorage.setItem(cacheKey(u),t)}catch{}
-    return t;
-  }
-  async function boot(){
+  const boot={card:document.getElementById('srhBootCard'),label:document.getElementById('srhBootLabel'),phase:document.getElementById('srhBootPhase'),pct:document.getElementById('srhBootPct'),fill:document.getElementById('srhBootFill'),root:document.getElementById('srhBoot')};
+  const allAssets=[...CSS_CORE,theme,...CSS_PATCHES,...JS_CORE,...JS_PATCHES];let loaded=0;
+  function progress(label){loaded++;const p=Math.min(94,6+Math.round(88*loaded/allAssets.length));boot.pct.textContent=p+'%';boot.fill.style.width=p+'%';boot.label.textContent=label||'Carregando módulos…'}
+  async function get(u){try{const c=localStorage.getItem(cacheKey(u));if(c){progress('Preparando módulos locais…');return c}}catch{}const r=await fetch(versioned(u),{cache:'no-store'});if(!r.ok)throw new Error('HTTP '+r.status+' em '+u);const t=await r.text();try{localStorage.setItem(cacheKey(u),t)}catch{}progress('Baixando componentes…');return t}
+  function finish(){boot.phase.textContent='Pronto';boot.label.textContent='Interface carregada';boot.pct.textContent='100%';boot.fill.style.width='100%';document.body.classList.remove('srh-booting');requestAnimationFrame(()=>requestAnimationFrame(()=>{boot.root.classList.add('is-done');setTimeout(()=>boot.root.remove(),240)}))}
+  function fail(e){boot.card.classList.add('is-error');boot.phase.textContent='Falha';boot.label.textContent=String(e?.message||e||'Não foi possível carregar os módulos.');boot.pct.textContent='—';boot.fill.style.width='100%';document.getElementById('srhBootRetry').onclick=()=>location.reload()}
+  async function bootApp(){
     try{
+      boot.phase.textContent='Estilo';
       const cssParts=await Promise.all([...CSS_CORE,theme,...CSS_PATCHES].map(get));
       const st=document.createElement('style');st.textContent=cssParts.join('\n');document.head.appendChild(st);
+      boot.phase.textContent='Runtime';
       const coreParts=await Promise.all(JS_CORE.map(get));
       const patches=(await Promise.all(JS_PATCHES.map(get))).join('\n');
       let js=coreParts.join('\n');
       const marker=/\ninit\(\);\s*\n\}\)\(\);\s*$/;
       if(!marker.test(js))throw new Error('Runtime padrão sem marcador de inicialização esperado.');
       js=js.replace(marker,'\n'+patches+'\ninit();\n})();');
+      boot.phase.textContent='Montando interface';boot.label.textContent='Aplicando preferências…';boot.pct.textContent='97%';boot.fill.style.width='97%';
       const sc=document.createElement('script');sc.textContent=js;document.body.appendChild(sc);
-    }catch(e){
-      document.body.innerHTML='<pre style="white-space:pre-wrap;padding:18px;font-family:system-ui;color:#fff;background:#111;min-height:100vh">Falha ao carregar módulos do app.\n'+String(e.message||e)+'</pre>';
-    }
+      finish();
+    }catch(e){fail(e)}
   }
-  boot();
+  bootApp();
 })();
 </script>
 </body></html>
