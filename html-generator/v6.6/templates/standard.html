@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>App Xtream</title>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.18/dist/hls.min.js"></script>
-<meta name="srhell-media-engine" content="6.2-aura625">
+<meta name="srhell-media-engine" content="6.2-aura625-r5">
 </head>
 <body data-theme="graphene">
 <div class="app" id="appRoot">
@@ -19,16 +19,18 @@
 <script>
 (()=>{
   const BASE="https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6";
+  const REV="aura625-r5";
   const CSS_CORE=[BASE+'/runtime/standard/01.css',BASE+'/runtime/standard/02.css',BASE+'/runtime/standard/03-fixes.css'];
-  const CSS_AURA=BASE+'/runtime/standard/04-aura-reference.css';
+  const CSS_PATCHES=[BASE+'/runtime/standard/04-aura-reference.css',BASE+'/runtime/standard/05-player-cleanup.css'];
   const JS_CORE=[BASE+'/runtime/standard/01.js',BASE+'/runtime/standard/02.js',BASE+'/runtime/standard/03.js'];
-  const JS_PATCHES=[BASE+'/runtime/standard/04-fixes.js',BASE+'/runtime/standard/05-proxy-fix.js'];
+  const JS_PATCHES=[BASE+'/runtime/standard/04-fixes.js',BASE+'/runtime/standard/05-proxy-fix.js',BASE+'/runtime/standard/06-player-cleanup.js'];
   const cfg=JSON.parse(document.getElementById('app-config').textContent);
   const theme=BASE+'/themes/'+(cfg.theme||'graphene')+'.css';
-  const cacheKey=u=>'srh66:aura625-r4:'+u;
+  const cacheKey=u=>'srh66:'+REV+':'+u;
+  const versioned=u=>u+(u.includes('?')?'&':'?')+'v='+encodeURIComponent(REV);
   async function get(u){
     try{const c=localStorage.getItem(cacheKey(u));if(c)return c}catch{}
-    const r=await fetch(u,{cache:'force-cache'});
+    const r=await fetch(versioned(u),{cache:'no-store'});
     if(!r.ok)throw new Error('HTTP '+r.status+' em '+u);
     const t=await r.text();
     try{localStorage.setItem(cacheKey(u),t)}catch{}
@@ -36,7 +38,7 @@
   }
   async function boot(){
     try{
-      const cssParts=await Promise.all([...CSS_CORE,theme,CSS_AURA].map(get));
+      const cssParts=await Promise.all([...CSS_CORE,theme,...CSS_PATCHES].map(get));
       const st=document.createElement('style');st.textContent=cssParts.join('\n');document.head.appendChild(st);
       const coreParts=await Promise.all(JS_CORE.map(get));
       const patches=(await Promise.all(JS_PATCHES.map(get))).join('\n');
