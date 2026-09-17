@@ -79,7 +79,7 @@ function toggleShortSearch(){const opening=!el.searchWrap.classList.contains('is
 el.searchButton.onclick=toggleShortSearch;el.search.oninput=()=>{clearTimeout(state.searchTimer);state.searchTimer=setTimeout(updateShortSearch,180)};
 el.settingsButton.onclick=()=>{const opening=el.settingsPanel.classList.contains('is-hidden');el.settingsPanel.classList.toggle('is-hidden');if(opening)refreshAccount()};el.updateAccordionButton.onclick=()=>{const hidden=el.updateAccordionBody.classList.toggle('is-hidden');el.updateAccordionIcon.textContent=hidden?'⌄':'⌃'};el.updateLoad.onclick=loadUpdateCategories;el.updateApply.onclick=applyUpdate;
 async function init(){installImageFallback();document.body.dataset.theme=CONFIG.theme||'graphene';document.title=CONFIG.appName;el.title.textContent=CONFIG.appName;updateHistoryButton();refreshAccount();const targets=(CONFIG.targets||[]).filter(t=>t.type==='vod');if(!targets.length){el.homeStatus.textContent='Nenhuma categoria de Shorts configurada.';el.feedSpacer.innerHTML='<div class="skeleton">Atualize a lista e selecione pelo menos uma categoria.</div>';return}el.homeStatus.textContent='Mesclando '+targets.length+' categoria(s)…';try{state.items=await loadMergedItems();el.homeStatus.textContent=state.items.length+' Shorts · '+targets.length+' categoria(s) mesclada(s)';renderGrid(true)}catch(e){el.homeStatus.textContent='Falha ao carregar';el.feedSpacer.innerHTML='<div class="skeleton">'+escapeHtml(e.message)+'</div>'}}
-/* ===== R23 MODULES ===== */
+/* ===== DIAGNOSTIC MODULES ===== */
 /* ===== runtime/shorts/04-proxy-fix.js ===== */
 /* SRHELL v6.6 Shorts — explicit CORS proxy state.
    Injected inside the Shorts runtime IIFE before init().
