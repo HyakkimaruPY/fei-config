@@ -18,12 +18,13 @@
 <script id="app-config" type="application/json">__APP_CONFIG__</script>
 <script>
 (()=>{
- const BASE="https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6",REV="shorts-aura-r12";
+ const BASE="https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6",REV="shorts-aura-r13";
  const CSS_CORE=[BASE+'/runtime/shorts/01.css',BASE+'/runtime/shorts/02.css',BASE+'/runtime/shorts/03.css'];
- const CSS_PATCHES=[BASE+'/runtime/shorts/04-aura-player-r12.css'];
+ const CSS_PATCHES=[BASE+'/runtime/shorts/04-aura-player-r12.css',BASE+'/runtime/shorts/05-theme-variants-r13.css'];
  const JS_CORE=[BASE+'/runtime/shorts/01.js',BASE+'/runtime/shorts/02.js',BASE+'/runtime/shorts/03.js'];
  const JS_PATCHES=[BASE+'/runtime/shorts/04-proxy-fix.js',BASE+'/runtime/shorts/05-aura-transport-r5.js',BASE+'/runtime/shorts/06-aura-player-r12.js'];
  const cfg=JSON.parse(document.getElementById('app-config').textContent),theme=BASE+'/themes/'+(cfg.theme||'graphene')+'.css',cacheKey=u=>'srh66:'+REV+':'+u,versioned=u=>u+(u.includes('?')?'&':'?')+'v='+encodeURIComponent(REV),boot={root:document.getElementById('srhBoot'),card:document.getElementById('srhBootCard'),label:document.getElementById('srhBootLabel'),phase:document.getElementById('srhBootPhase'),pct:document.getElementById('srhBootPct'),fill:document.getElementById('srhBootFill')};
+ document.body.dataset.theme=cfg.theme||'graphene';
  document.getElementById('srhBootTitle').textContent=cfg.appName||'Shorts';
  const assets=[...CSS_CORE,theme,...CSS_PATCHES,...JS_CORE,...JS_PATCHES];let done=0;
  try{const keep='srh66:'+REV+':';for(let i=localStorage.length-1;i>=0;i--){const k=localStorage.key(i);if(k&&k.startsWith('srh66:')&&!k.startsWith(keep))localStorage.removeItem(k)}}catch{}
