@@ -1,32 +1,26 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
-import {spawnSync} from 'node:child_process';
+import {spawnSync,execFileSync} from 'node:child_process';
 
 const root=path.resolve('html-generator/v6.6');
+const repoRoot='html-generator/v6.6';
 const outDir=path.join(root,'dist/r23');
+const HIST_STANDARD='46b9cd4bbf7d403a31634a4f46417856b6903e5a';
 fs.mkdirSync(outDir,{recursive:true});
 const read=p=>fs.readFileSync(path.join(root,p),'utf8');
+const readAt=(ref,p)=>execFileSync('git',['show',`${ref}:${repoRoot}/${p}`],{encoding:'utf8',maxBuffer:8*1024*1024});
 const write=(p,s)=>fs.writeFileSync(path.join(outDir,p),s.endsWith('\n')?s:s+'\n');
 const join=files=>files.map(f=>`/* ===== ${f} ===== */\n${read(f).trim()}\n`).join('\n');
 
-/* Controlled rollback to the last pre-R25 bundle composition (a9637def).
-   Keep the current UI/detail modules, but remove the later browser/network
-   stability layers while we isolate the Android/WebView performance regression. */
-const standardCss=[
-  'runtime/standard/01.css','runtime/standard/02.css','runtime/standard/03-fixes.css',
-  'runtime/standard/04-aura-reference.css','runtime/standard/05-player-cleanup.css','runtime/standard/06-spacing-fix.css',
-  'runtime/standard/07-detail-cleanup.css','runtime/standard/08-favorites-continue.css','runtime/standard/09-detail-hierarchy.css',
-  'runtime/standard/10-design-balance.css','runtime/standard/11-detail-action-polish.css'
-];
+/* Deep diagnostic rollback.
+   Standard is intentionally reduced to the original modular core plus the first
+   inline-detail fix from 46b9cd4. This predates Aura rendering/redirect logic,
+   mutation-observer action layers, proxy stacks and later transport patches. */
+const standardCss=['runtime/standard/01.css','runtime/standard/02.css','runtime/standard/03-fixes.css'];
 const standardCore=['runtime/standard/01.js','runtime/standard/02.js','runtime/standard/03.js'];
-const standardPatches=[
-  'runtime/standard/04-fixes.js','runtime/standard/05-proxy-fix.js','runtime/standard/06-player-cleanup.js',
-  'runtime/standard/07-detail-cleanup.js','runtime/standard/08-favorites-continue.js','runtime/standard/09-detail-hierarchy.js',
-  'runtime/standard/10-actions-accessibility.js','runtime/standard/11-aura-transport-r11.js',
-  'runtime/standard/12-catalog-resilience-r12.js','runtime/standard/13-transport-r15.js',
-  'runtime/shared/03-api-router-r23.js','runtime/standard/14-detail-action-polish.js'
-];
+const historicalInlinePatch=`/* ===== runtime/standard/04-fixes.js @ ${HIST_STANDARD} ===== */\n${readAt(HIST_STANDARD,'runtime/standard/04-fixes.js').trim()}\n`;
+
 const shortsCss=[
   'runtime/shorts/01.css','runtime/shorts/02.css','runtime/shorts/03.css',
   'runtime/shorts/04-aura-player-r12.css','runtime/shorts/05-theme-variants-r13.css','runtime/shorts/09-feed-r23.css'
@@ -37,17 +31,18 @@ const shortsPatches=[
   'runtime/shared/03-api-router-r23.js','runtime/shorts/10-feed-controller-r23.js'
 ];
 
-function assembleJs(coreFiles,patchFiles,label){
-  const core=join(coreFiles),patches=join(patchFiles);
+function assembleJsText(coreFiles,patches,label){
+  const core=join(coreFiles);
   const marker=/\ninit\(\);\s*\n\}\)\(\);\s*$/;
   if(!marker.test(core))throw new Error(`${label}: marcador final init()/IIFE não encontrado`);
-  const bundle=core.replace(marker,`\n/* ===== R23 MODULES ===== */\n${patches}\ninit();\n})();\n`);
+  const bundle=core.replace(marker,`\n/* ===== DIAGNOSTIC MODULES ===== */\n${patches}\ninit();\n})();\n`);
   const initCount=(bundle.match(/\binit\(\);/g)||[]).length;
   if(initCount!==1)throw new Error(`${label}: esperado 1 init();, encontrado ${initCount}`);
   return bundle;
 }
+function assembleJs(coreFiles,patchFiles,label){return assembleJsText(coreFiles,join(patchFiles),label)}
 
-const standardJs=assembleJs(standardCore,standardPatches,'standard');
+const standardJs=assembleJsText(standardCore,historicalInlinePatch,'standard');
 const shortsJs=assembleJs(shortsCore,shortsPatches,'shorts');
 const standardCssBundle=join(standardCss),shortsCssBundle=join(shortsCss);
 write('standard.js',standardJs);write('shorts.js',shortsJs);write('standard.css',standardCssBundle);write('shorts.css',shortsCssBundle);
@@ -60,7 +55,7 @@ const themeFiles=['graphene','obsidian','porcelain','jade','aurora','ember'].map
 const hash=crypto.createHash('sha256');
 for(const s of [standardJs,shortsJs,standardCssBundle,shortsCssBundle,...themeFiles.map(read)])hash.update(s);
 const revision='r23-'+hash.digest('hex').slice(0,16);
-const manifest={revision,generatedAt:new Date().toISOString(),standard:{js:'standard.js',css:'standard.css'},shorts:{js:'shorts.js',css:'shorts.css'},themes:themeFiles.map(x=>path.basename(x,'.css'))};
+const manifest={revision,generatedAt:new Date().toISOString(),diagnosticBaseline:{standard:'46b9cd4-pre-aura'},standard:{js:'standard.js',css:'standard.css'},shorts:{js:'shorts.js',css:'shorts.css'},themes:themeFiles.map(x=>path.basename(x,'.css'))};
 write('manifest.json',JSON.stringify(manifest,null,2));
 
 function checkJsText(source,label){
@@ -91,4 +86,4 @@ if(/generator-r(?:1[4-9]|2[0-2])|\beval\s*\(/.test(generatorR23))throw new Error
 inlineScripts(generatorR23).forEach((s,i)=>checkJsText(s,`generator-r23.html inline script ${i}`));
 for(const bad of ['eval(','generator-r20.js','generator-r21.js','generator-r22.js'])if(read('builder/generator-r23-clean.js').includes(bad))throw new Error(`builder R23 contém dependência proibida: ${bad}`);
 
-console.log(`R23 build OK: ${revision}`);
+console.log(`R23 deep rollback build OK: ${revision}`);
