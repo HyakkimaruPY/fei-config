@@ -1,0 +1,53 @@
+name: Build HTML Generator R23
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'html-generator/v6.6/builder/generator-r23-clean.js'
+      - 'html-generator/v6.6/templates/standard-r23.html'
+      - 'html-generator/v6.6/templates/shorts-r23.html'
+      - 'html-generator/v6.6/runtime/standard/**'
+      - 'html-generator/v6.6/runtime/shorts/**'
+      - 'html-generator/v6.6/runtime/shared/03-api-router-r23.js'
+      - 'html-generator/v6.6/themes/**'
+      - 'html-generator/v6.6/scripts/build-r23.mjs'
+      - '.github/workflows/build-html-generator-r23.yml'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: html-generator-r23
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build and validate R23
+        run: node html-generator/v6.6/scripts/build-r23.mjs
+      - name: Show bundle sizes
+        run: |
+          wc -c html-generator/v6.6/dist/r23/*
+          cat html-generator/v6.6/dist/r23/manifest.json
+      - name: Commit validated distribution
+        shell: bash
+        run: |
+          if git diff --quiet -- html-generator/v6.6/dist/r23; then
+            echo 'Distribution already current.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add html-generator/v6.6/dist/r23
+          git commit -m 'Build validated HTML generator R23 distribution'
+          git push
