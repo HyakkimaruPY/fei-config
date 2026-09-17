@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>App Xtream</title>
 <script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.18/dist/hls.min.js"></script>
-<meta name="srhell-media-engine" content="6.2-aura625-r7">
+<meta name="srhell-media-engine" content="6.2-aura625-r8">
 </head>
 <body data-theme="graphene">
 <div class="app" id="appRoot">
@@ -19,11 +19,11 @@
 <script>
 (()=>{
   const BASE="https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6";
-  const REV="aura625-r7";
+  const REV="aura625-r8";
   const CSS_CORE=[BASE+'/runtime/standard/01.css',BASE+'/runtime/standard/02.css',BASE+'/runtime/standard/03-fixes.css'];
-  const CSS_PATCHES=[BASE+'/runtime/standard/04-aura-reference.css',BASE+'/runtime/standard/05-player-cleanup.css',BASE+'/runtime/standard/06-spacing-fix.css',BASE+'/runtime/standard/07-detail-cleanup.css'];
+  const CSS_PATCHES=[BASE+'/runtime/standard/04-aura-reference.css',BASE+'/runtime/standard/05-player-cleanup.css',BASE+'/runtime/standard/06-spacing-fix.css',BASE+'/runtime/standard/07-detail-cleanup.css',BASE+'/runtime/standard/08-favorites-continue.css'];
   const JS_CORE=[BASE+'/runtime/standard/01.js',BASE+'/runtime/standard/02.js',BASE+'/runtime/standard/03.js'];
-  const JS_PATCHES=[BASE+'/runtime/standard/04-fixes.js',BASE+'/runtime/standard/05-proxy-fix.js',BASE+'/runtime/standard/06-player-cleanup.js',BASE+'/runtime/standard/07-detail-cleanup.js'];
+  const JS_PATCHES=[BASE+'/runtime/standard/04-fixes.js',BASE+'/runtime/standard/05-proxy-fix.js',BASE+'/runtime/standard/06-player-cleanup.js',BASE+'/runtime/standard/07-detail-cleanup.js',BASE+'/runtime/standard/08-favorites-continue.js'];
   const cfg=JSON.parse(document.getElementById('app-config').textContent);
   const theme=BASE+'/themes/'+(cfg.theme||'graphene')+'.css';
   const cacheKey=u=>'srh66:'+REV+':'+u;
