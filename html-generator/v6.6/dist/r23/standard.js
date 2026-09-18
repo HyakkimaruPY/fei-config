@@ -415,6 +415,111 @@ async function closeDetail(){
     b.type='button';b.className='icon-button';b.id='favoritesTopButton';b.setAttribute('aria-label','Favoritos');b.innerHTML=STAR;b.onclick=openFavorites;
     el.searchButton.insertAdjacentElement('afterend',b);
   }
+
+  /* Continue watching opens the same full detail modal used by catalog items.
+     The saved time is used to seek the media and freeze the exact frame in-place;
+     no image/video frame bytes are stored in localStorage. */
+  function historyVodItem(entry){
+    const raw=String(entry?.key||'').split(':')[1]||'';
+    let ext='mp4';
+    try{
+      const u=String(entry?.url||entry?.sources?.[0]||'');
+      const m=u.match(/\.([a-z0-9]{2,5})(?:[?#]|$)/i);
+      if(m)ext=m[1];
+    }catch{}
+    return{stream_id:raw,name:entry?.title||'Filme',stream_icon:entry?.image||'',container_extension:ext};
+  }
+  function historySeriesItem(entry){
+    const name=String(entry?.title||'Série').replace(/\s+[—-]\s+Epis[oó]dio\s+\d+.*$/i,'').trim()||'Série';
+    return{series_id:entry?.seriesId,name,cover:entry?.image||''};
+  }
+  function freezeAtSavedFrame(video,position,onDone){
+    if(!video||!(Number(position)>0))return;
+    const target=Math.max(0,Number(position)||0);
+    let done=false,timer=0;
+    const finish=()=>{
+      if(done)return;
+      done=true;
+      clearTimeout(timer);
+      try{video.pause()}catch{}
+      try{video.muted=false}catch{}
+      onDone?.();
+    };
+    const seek=()=>{
+      try{
+        const end=Number.isFinite(video.duration)&&video.duration>0?Math.max(0,video.duration-.35):target;
+        video.currentTime=Math.min(target,end);
+      }catch{}
+    };
+    try{video.muted=true}catch{}
+    video.addEventListener('loadedmetadata',seek,{once:true});
+    video.addEventListener('seeked',()=>requestAnimationFrame(finish),{once:true});
+    video.addEventListener('playing',()=>{
+      if(Math.abs((video.currentTime||0)-target)<1.2)requestAnimationFrame(finish);
+    },{once:true});
+    timer=setTimeout(()=>{
+      seek();
+      setTimeout(finish,180);
+    },3200);
+    if(video.readyState>=1)seek();
+  }
+  async function openContinueMovie(entry){
+    const item=historyVodItem(entry);
+    if(!item.stream_id)return;
+    await openFilm(item);
+    const watch=el.detailBody.querySelector('#watchFilm');
+    if(!watch)return;
+    watch.click();
+    const inline=state.detailInlineVideo;
+    if(!inline?.video)return;
+    freezeAtSavedFrame(inline.video,entry.position,()=>{
+      if(inline.status)inline.status.textContent='Pausado';
+    });
+  }
+  async function openContinueSeries(entry){
+    const item=historySeriesItem(entry);
+    if(!item.series_id)return;
+    await openSeries(item);
+    const video=el.detailBody.querySelector('#seriesInlineVideo');
+    if(!video)return;
+    freezeAtSavedFrame(video,entry.position);
+    const season=String(entry.season??'');
+    if(season){
+      const option=[...el.detailBody.querySelectorAll('[data-season]')].find(b=>String(b.dataset.season)===season);
+      option?.click();
+    }
+    const episodeNo=String(entry.episodeNumber??'').trim();
+    let row=null;
+    if(episodeNo){
+      row=[...el.detailBody.querySelectorAll('.episode')].find(r=>{
+        const t=r.querySelector('.episode__title')?.textContent||'';
+        return new RegExp('Epis[oó]dio\\s+'+episodeNo+'(?:\\D|$)','i').test(t);
+      });
+    }
+    row=row||el.detailBody.querySelector('.episode');
+    row?.click();
+  }
+  async function openContinueEntry(entry,type){
+    if(!entry)return;
+    if(type==='series')return openContinueSeries(entry);
+    return openContinueMovie(entry);
+  }
+
+  renderContinue=function(){
+    const type=state.activeType,list=getHistory(type).filter(x=>x.duration>0&&x.position>5&&x.position/x.duration<.97).slice(0,12);
+    if(!list.length||type==='live'){
+      el.continueSection.classList.add('is-hidden');
+      el.continueRow.innerHTML='';
+      return;
+    }
+    el.continueSection.classList.remove('is-hidden');
+    el.continueRow.innerHTML=list.map((x,i)=>`<article class="continue-card" data-history="${i}"><img src="${escapeHtml(x.image||'')}" alt="" loading="lazy"><div class="progress"><div class="progress__bar" style="width:${Math.min(100,x.position/x.duration*100)}%"></div></div><div class="continue-card__body"><div class="continue-card__title">${escapeHtml(x.title)}</div><div class="continue-card__meta">${Math.round(x.position/x.duration*100)}%</div></div></article>`).join('');
+    el.continueRow.querySelectorAll('[data-history]').forEach(c=>c.onclick=()=>{
+      const x=list[Number(c.dataset.history)];
+      if(x)openContinueEntry(x,type);
+    });
+  };
+
 })();
 
 init();
