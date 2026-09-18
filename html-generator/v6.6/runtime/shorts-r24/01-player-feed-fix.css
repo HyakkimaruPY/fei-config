@@ -1,0 +1,120 @@
+/* SRHELL Shorts R24 — lightweight feed/player stability patch.
+   Keeps the historical modular core, but removes repaint-prone absolute feed layers. */
+
+.feed-spacer.srh-r24-flow{
+  display:grid!important;
+  grid-template-columns:repeat(2,minmax(0,1fr))!important;
+  gap:8px!important;
+  height:auto!important;
+  min-height:0!important;
+  align-items:start!important;
+}
+.feed-spacer.srh-r24-flow .short-card{
+  position:relative!important;
+  left:auto!important;
+  top:auto!important;
+  width:100%!important;
+  height:auto!important;
+  aspect-ratio:2/3!important;
+  min-width:0!important;
+  overflow:hidden!important;
+  contain:layout paint!important;
+  isolation:isolate!important;
+  transform:none!important;
+  transition:border-color .12s ease!important;
+  background:var(--surface-2)!important;
+}
+.feed-spacer.srh-r24-flow .short-card:active{transform:none!important}
+.feed-spacer.srh-r24-flow .short-card__image{
+  position:absolute!important;
+  inset:0!important;
+  z-index:0!important;
+  width:100%!important;
+  height:100%!important;
+  object-fit:cover!important;
+  display:block!important;
+  background:var(--surface-2)!important;
+}
+.feed-spacer.srh-r24-flow .short-card__shade{display:none!important}
+.feed-spacer.srh-r24-flow .arc-badge,
+.feed-spacer.srh-r24-flow .card-progress{z-index:2!important}
+
+/* Poster/loading layer stays over the video until the first rendered frame. */
+.srh-r24-poster{
+  position:absolute;
+  z-index:4;
+  inset:0;
+  overflow:hidden;
+  background:#05070a;
+  opacity:1;
+  transition:opacity .16s ease;
+  pointer-events:none;
+}
+.srh-r24-poster.is-ready{opacity:0}
+.srh-r24-poster img{
+  display:block;
+  width:100%;
+  height:100%;
+  object-fit:cover;
+  background:var(--surface-2);
+}
+.srh-r24-poster:after{
+  content:"";
+  position:absolute;
+  inset:0;
+  background:linear-gradient(180deg,rgba(0,0,0,.08),rgba(0,0,0,.18));
+}
+.srh-r24-poster__control{
+  position:absolute;
+  z-index:2;
+  left:50%;
+  top:50%;
+  width:68px;
+  height:68px;
+  transform:translate(-50%,-50%);
+  border-radius:50%;
+  display:grid;
+  place-items:center;
+  background:rgba(5,9,13,.62);
+  border:1px solid rgba(255,255,255,.28);
+  box-shadow:0 8px 30px rgba(0,0,0,.34);
+}
+.srh-r24-poster__control:before{
+  content:"";
+  position:absolute;
+  inset:7px;
+  border-radius:50%;
+  border:2px solid rgba(255,255,255,.20);
+  border-top-color:#eaf2f7;
+  animation:srhR24Spin .78s linear infinite;
+}
+.srh-r24-poster__play{
+  width:0;
+  height:0;
+  margin-left:4px;
+  border-top:8px solid transparent;
+  border-bottom:8px solid transparent;
+  border-left:13px solid #fff;
+}
+@keyframes srhR24Spin{to{transform:rotate(360deg)}}
+
+/* Side controls: slightly smaller SVGs and a lower visual center. */
+.short-player__rail{
+  top:57.5%!important;
+}
+.short-action .action-svg{
+  width:16px!important;
+  height:16px!important;
+  transform:translateY(2px)!important;
+}
+.short-action{
+  grid-template-rows:19px auto!important;
+}
+
+@media(min-width:900px){
+  .feed-spacer.srh-r24-flow{grid-template-columns:repeat(6,minmax(0,1fr))!important;gap:10px!important}
+}
+@media(max-width:680px){
+  .feed-spacer.srh-r24-flow{gap:8px!important}
+  .short-player__rail{top:58%!important}
+}
