@@ -1,6 +1,6 @@
 {
-  "revision": "r24-85e215c864ab2e2c",
-  "generatedAt": "2026-09-18T11:31:18.593Z",
+  "revision": "r24-71178fd95574f095",
+  "generatedAt": "2026-09-18T11:43:52.347Z",
   "sourceCommit": "aefc61c6f386b16ac321df3a3c697baf3335c193",
   "architecture": "historical-modular-core+stable-feed-player",
   "stableFeedPatch": "atomic-cover-v2",
