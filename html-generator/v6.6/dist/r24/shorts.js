@@ -78,10 +78,8 @@ function toggleShortSearch(){const opening=!el.searchWrap.classList.contains('is
 el.searchButton.onclick=toggleShortSearch;el.search.oninput=()=>{clearTimeout(state.searchTimer);state.searchTimer=setTimeout(updateShortSearch,180)};
 el.settingsButton.onclick=()=>{const opening=el.settingsPanel.classList.contains('is-hidden');el.settingsPanel.classList.toggle('is-hidden');if(opening)refreshAccount()};el.updateAccordionButton.onclick=()=>{const hidden=el.updateAccordionBody.classList.toggle('is-hidden');el.updateAccordionIcon.textContent=hidden?'⌄':'⌃'};el.updateLoad.onclick=loadUpdateCategories;el.updateApply.onclick=applyUpdate;
 async function init(){installImageFallback();document.body.dataset.theme=CONFIG.theme||'graphene';document.title=CONFIG.appName;el.title.textContent=CONFIG.appName;updateHistoryButton();refreshAccount();const targets=(CONFIG.targets||[]).filter(t=>t.type==='vod');if(!targets.length){el.homeStatus.textContent='Nenhuma categoria de Shorts configurada.';el.feedSpacer.innerHTML='<div class="skeleton">Atualize a lista e selecione pelo menos uma categoria.</div>';return}el.homeStatus.textContent='Mesclando '+targets.length+' categoria(s)…';try{state.items=await loadMergedItems();el.homeStatus.textContent=state.items.length+' Shorts · '+targets.length+' categoria(s) mesclada(s)';renderGrid(true)}catch(e){el.homeStatus.textContent='Falha ao carregar';el.feedSpacer.innerHTML='<div class="skeleton">'+escapeHtml(e.message)+'</div>'}}
-/* SRHELL Shorts R24 — clean normal-flow renderer.
-   Feed DOM is created once. No scroll virtualization, no IntersectionObserver,
-   no lazy images and no card replacement during scrolling. */
-(function installR24CleanRenderer(){
+/* SRHELL Shorts R24 — keep current player behavior, restore first modular catalog renderer. */
+(function installR24PlayerOnlyPatch(){
   const frame=el.shortVideo?.closest('.short-player__frame')||document.getElementById('shortFrame');
   const poster=document.createElement('div');
   poster.className='srh-r24-poster is-hidden';
@@ -122,105 +120,7 @@ async function init(){installImageFallback();document.body.dataset.theme=CONFIG.
     el.shortVideo.addEventListener('playing',hide,{once:true});
   }
 
-  function stopCoverLoader(){
-    const loader=state.srhCoverLoader;
-    if(loader)loader.cancelled=true;
-    state.srhCoverLoader=null;
-  }
-  function startCoverLoader(cards){
-    stopCoverLoader();
-    const loader={cards:[...cards],next:0,active:0,cancelled:false};
-    state.srhCoverLoader=loader;
-
-    const pump=()=>{
-      if(loader.cancelled||state.srhCoverLoader!==loader)return;
-      while(loader.active<3&&loader.next<loader.cards.length){
-        const card=loader.cards[loader.next++];
-        if(!card?.isConnected)continue;
-        const src=card.dataset.coverSrc||'';
-        if(!src){card.classList.add('is-cover-error');continue}
-        loader.active++;
-        const img=new Image();
-        img.className='short-card__image';
-        img.alt='';
-        img.decoding='async';
-        let committed=false,slotReleased=false;
-        const releaseSlot=()=>{
-          if(slotReleased)return;
-          slotReleased=true;
-          loader.active=Math.max(0,loader.active-1);
-          pump();
-        };
-        const timeout=setTimeout(releaseSlot,2500);
-        const done=async ok=>{
-          if(committed)return;
-          committed=true;
-          clearTimeout(timeout);
-          if(ok){try{await img.decode?.()}catch{}}
-          if(!loader.cancelled&&state.srhCoverLoader===loader&&card.isConnected){
-            if(ok){
-              card.appendChild(img);
-              card.classList.add('is-cover-ready');
-            }else{
-              card.classList.add('is-cover-error');
-            }
-          }
-          releaseSlot();
-        };
-        img.onload=()=>done(true);
-        img.onerror=()=>done(false);
-        img.src=src;
-      }
-    };
-    pump();
-  }
-
-  renderGrid=function(force=false){
-    const items=currentShortItems();
-    if(!items.length){
-      stopCoverLoader();
-      state.srhFlowSig='';
-      el.feedSpacer.className='feed-spacer';
-      el.feedSpacer.style.height='auto';
-      el.feedSpacer.innerHTML='<div class="skeleton">Nenhum Short encontrado.</div>';
-      return;
-    }
-
-    const sig=(state.filteredItems?'f:':'a:')+items.length+':'+itemId(items[0])+':'+itemId(items[items.length-1])+':'+(state.filteredItems?el.search.value:'');
-    if(sig===state.srhFlowSig&&el.feedSpacer.querySelector('.short-card'))return;
-
-    state.srhFlowSig=sig;
-    state.gridSig=sig;
-    state.probeWanted=new Set();
-    state.probeQueue=[];
-    state.probeQueued=new Set();
-    state.probeActive=0;
-
-    const hmap=new Map(history().map(x=>[String(x.streamId),x]));
-    el.feedSpacer.className='feed-spacer srh-r24-flow';
-    el.feedSpacer.style.height='auto';
-    el.feedSpacer.innerHTML=items.map((item,idx)=>{
-      const id=itemId(item);
-      const sec=durationFor(item);
-      const count=arcCount(sec);
-      const h=hmap.get(id);
-      const pct=h?.duration?Math.min(100,h.position/h.duration*100):0;
-      const img=itemImage(item)||'';
-      return `<article class="short-card" data-index="${idx}" data-stream-id="${escapeHtml(id)}" data-cover-src="${escapeHtml(img)}" aria-label="${escapeHtml(itemTitle(item)||'Short')}"></article>`;
-    }).join('');
-
-    const cards=[...el.feedSpacer.querySelectorAll('.short-card')];
-    cards.forEach(card=>{
-      card.onclick=()=>openShort(items[Number(card.dataset.index)],0);
-    });
-    startCoverLoader(cards);
-  };
-
-  /* Disable the historical duration probe scheduler for feed cards. */
-  setProbeWindow=function(){state.probeWanted=new Set();state.probeQueue=[]};
-  queueDurationProbe=function(){};
-  runProbeQueue=function(){};
-
+  /* Player source failover retained from the current working player. */
   attachCandidates=function(candidates,onReady,onError){
     let queue=uniqueMediaUrls(candidates);
     if(location.protocol==='https:')queue.sort((a,b)=>Number(/^https:/i.test(b))-Number(/^https:/i.test(a)));
@@ -287,19 +187,11 @@ async function init(){installImageFallback();document.body.dataset.theme=CONFIG.
     return baseOpenShort(item,resumeAt);
   };
 
+  const baseCloseShort=closeShort;
   closeShort=async function(){
-    persistProgress();
-    try{el.shortVideo.pause()}catch{}
-    destroyHls();
-    el.arcDrawer.classList.add('is-hidden');
-    state.current=null;
-    await Promise.race([
-      Promise.resolve(leavePortraitFullscreen()).catch(()=>{}),
-      new Promise(resolve=>setTimeout(resolve,450))
-    ]);
-    el.shortPlayer.classList.add('is-hidden');
+    const out=await baseCloseShort();
     poster.classList.add('is-hidden');
-    try{el.shortVideo.removeAttribute('src');el.shortVideo.load()}catch{}
+    return out;
   };
   el.shortClose.onclick=closeShort;
 })();
