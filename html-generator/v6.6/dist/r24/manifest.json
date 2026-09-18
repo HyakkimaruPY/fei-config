@@ -1,9 +1,9 @@
 {
   "revision": "r24-622fbcc479113c00",
-  "generatedAt": "2026-09-18T12:14:19.049Z",
+  "generatedAt": "2026-09-18T12:16:20.166Z",
   "sourceCommit": "aefc61c6f386b16ac321df3a3c697baf3335c193",
   "architecture": "historical-modular-core+stable-feed-player",
-  "stableFeedPatch": "clean-render-v3",
+  "stableFeedPatch": "clean-render-v4-no-overlays",
   "arcSeconds": 120,
   "css": "shorts.css",
   "js": "shorts.js"
