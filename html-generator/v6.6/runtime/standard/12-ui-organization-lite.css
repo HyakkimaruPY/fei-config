@@ -150,3 +150,49 @@
     -webkit-overflow-scrolling:touch!important;
   }
 }
+
+
+/* SRHELL modal shimmer skeletons — fixed geometry while real detail data arrives. */
+.srh-modal-loading{pointer-events:none}
+.srh-shimmer-block,.srh-shimmer-line,.srh-shimmer-button,.srh-shimmer-row{
+  position:relative!important;
+  overflow:hidden!important;
+  background:linear-gradient(180deg,color-mix(in srgb,var(--surface-2) 94%,transparent),color-mix(in srgb,var(--surface) 96%,transparent))!important;
+  border:1px solid color-mix(in srgb,var(--line) 78%,transparent)!important;
+}
+.srh-shimmer-block:after,.srh-shimmer-line:after,.srh-shimmer-button:after,.srh-shimmer-row:after{
+  content:"";
+  position:absolute;
+  inset:0;
+  transform:translateX(-110%);
+  background:linear-gradient(105deg,transparent 20%,rgba(232,238,246,.04) 38%,rgba(232,238,246,.22) 49%,rgba(232,238,246,.05) 60%,transparent 80%);
+  animation:srhModalShimmer 1.05s ease-in-out infinite;
+}
+@keyframes srhModalShimmer{to{transform:translateX(110%)}}
+.srh-modal-loading .detail-art{min-height:0}
+.srh-modal-loading .srh-shimmer-line{display:block;height:16px;border-radius:7px}
+.srh-modal-loading .srh-shimmer-line--title{width:min(66%,340px);height:24px}
+.srh-modal-loading .srh-skeleton-synopsis{
+  display:grid!important;
+  gap:8px!important;
+  min-height:104px!important;
+}
+.srh-modal-loading .srh-skeleton-synopsis .srh-shimmer-line:nth-child(1){width:94%}
+.srh-modal-loading .srh-skeleton-synopsis .srh-shimmer-line:nth-child(2){width:86%}
+.srh-modal-loading .srh-skeleton-synopsis .srh-shimmer-line:nth-child(3){width:68%}
+.srh-modal-loading .srh-skeleton-actions{display:flex;justify-content:flex-end;gap:8px;margin-top:10px}
+.srh-modal-loading .srh-shimmer-button{width:42px;height:42px;border-radius:13px}
+.srh-modal-loading .srh-shimmer-button--wide{width:104px}
+.srh-modal-loading .srh-shimmer-row{height:52px;border-radius:12px}
+.srh-modal-loading .srh-skeleton-quality{display:grid;gap:8px;margin-top:11px}
+.srh-modal-loading .srh-skeleton-episodes{display:grid;gap:8px;margin-top:10px}
+.srh-modal-loading .srh-skeleton-episodes .srh-shimmer-row{height:76px}
+.srh-modal-loading .season-trigger.srh-shimmer-row{margin-top:10px}
+
+@media(max-width:680px){
+  .srh-modal-loading .srh-shimmer-line--title{width:72%;height:22px}
+  .srh-modal-loading .srh-skeleton-synopsis{min-height:96px!important}
+  .srh-modal-loading .srh-shimmer-button{width:40px;height:40px}
+  .srh-modal-loading .srh-shimmer-button--wide{width:96px}
+  .srh-modal-loading .srh-skeleton-episodes .srh-shimmer-row{height:72px}
+}
