@@ -134,14 +134,49 @@
     return{available,gap,cols,w,h,rowH};
   };
 
+  function detailSkeleton(type){
+    const title='<span class="srh-shimmer-line srh-shimmer-line--title"></span>';
+    const synopsis='<div class="synopsis srh-skeleton-synopsis"><span class="srh-shimmer-line"></span><span class="srh-shimmer-line"></span><span class="srh-shimmer-line"></span></div>';
+    const actions='<div class="srh-skeleton-actions"><span class="srh-shimmer-button"></span><span class="srh-shimmer-button"></span><span class="srh-shimmer-button srh-shimmer-button--wide"></span></div>';
+    if(type==='live'){
+      return '<div class="detail-content srh-modal-loading"><div class="detail-art srh-shimmer-block"></div><div class="detail-title-row">'+title+'</div><div class="quality-list srh-skeleton-quality"><span class="srh-shimmer-row"></span><span class="srh-shimmer-row"></span><span class="srh-shimmer-row"></span></div></div>';
+    }
+    if(type==='series'){
+      return '<div class="detail-content srh-modal-loading"><div class="series-static"><div class="detail-art srh-shimmer-block"></div><div class="detail-title-row">'+title+'<div class="srh-lite-actions"><span class="srh-shimmer-button"></span><span class="srh-shimmer-button"></span></div></div>'+synopsis+'<div class="season-box"><span class="season-trigger srh-shimmer-row"></span></div></div><div class="episode-container"><div class="episode-list srh-skeleton-episodes"><span class="srh-shimmer-row"></span><span class="srh-shimmer-row"></span><span class="srh-shimmer-row"></span></div></div></div>';
+    }
+    return '<div class="detail-content srh-modal-loading"><div class="detail-art srh-shimmer-block"></div><div class="detail-title-row">'+title+'</div>'+synopsis+actions+'</div>';
+  }
+
   const baseOpenDetail=openDetail;
-  openDetail=function(title){const r=baseOpenDetail(title);detailModal()?.classList.remove('is-vod','is-live');return r};
+  openDetail=function(title){
+    const r=baseOpenDetail(title);
+    const type=state.srhPendingDetailType||'';
+    const modal=detailModal();
+    modal?.classList.remove('is-vod','is-series','is-live');
+    if(type){
+      modal?.classList.add('is-'+type);
+      el.detailBody.innerHTML=detailSkeleton(type);
+    }
+    return r;
+  };
   const baseOpenFilm=openFilm;
-  openFilm=async function(item){await baseOpenFilm(item);decorateDetail('vod',item)};
+  openFilm=async function(item){
+    state.srhPendingDetailType='vod';
+    try{await baseOpenFilm(item);decorateDetail('vod',item)}
+    finally{state.srhPendingDetailType=''}
+  };
   const baseOpenSeries=openSeries;
-  openSeries=async function(item){await baseOpenSeries(item);decorateDetail('series',item)};
+  openSeries=async function(item){
+    state.srhPendingDetailType='series';
+    try{await baseOpenSeries(item);decorateDetail('series',item)}
+    finally{state.srhPendingDetailType=''}
+  };
   const baseOpenLive=openLive;
-  openLive=function(group){const r=baseOpenLive(group);decorateDetail('live',group);return r};
+  openLive=function(group){
+    state.srhPendingDetailType='live';
+    try{const r=baseOpenLive(group);decorateDetail('live',group);return r}
+    finally{state.srhPendingDetailType=''}
+  };
 
   /* Favorites stays inside the existing collection view: one grid, no iframe. */
   const head=el.collectionTitle?.parentElement;
