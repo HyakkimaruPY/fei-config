@@ -242,6 +242,8 @@ async function closeDetail(){
 (function installLiteUiOrganization(){
   const APP_NS=String(BASE_CONFIG.appId||BASE_CONFIG.appName||'app').replace(/[^a-z0-9_-]/gi,'_');
   const FAVORITES_KEY=`srhell:${APP_NS}:standard:favorites:v1`;
+  const FAVORITES_TAB_KEY=`srhell:${APP_NS}:standard:favorites:tab:v1`;
+  const MIN_CONTINUE_SECONDS=60;
   const STAR='<svg class="srh-lite-icon srh-lite-icon--star" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.8l2.52 5.1 5.63.82-4.08 3.97.96 5.61L12 16.65 6.97 19.3l.96-5.61L3.85 9.72l5.63-.82L12 3.8z"/></svg>';
   const TRASH='<svg class="srh-lite-icon srh-lite-icon--trash" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8.2v9.1M12 8.2v9.1M16 8.2v9.1M5.5 6.1h13M9 4.3h6l.7 1.8H8.3L9 4.3zM6.7 6.1l.7 13.2h9.2l.7-13.2"/></svg>';
 
@@ -270,17 +272,36 @@ async function closeDetail(){
     if(idx>=0)list.splice(idx,1);else{list.unshift(entry);active=true}
     if(!writeFavorites(list)){toast('Não foi possível salvar Favoritos.');return isFavorite(type,item)}
     toast(active?'Adicionado aos Favoritos.':'Removido dos Favoritos.');
+    if(state.srhFavoritesOpen){
+      favoriteEntries=readFavorites();
+      renderFavoriteType(favoriteTab);
+    }
     return active;
   }
+
+  const baseSaveHistory=saveHistory;
+  saveHistory=function(entry){
+    if(!entry||entry.type==='live')return;
+    if(Number(entry.position)<MIN_CONTINUE_SECONDS)return;
+    return baseSaveHistory(entry);
+  };
+  (function pruneShortContinueEntries(){
+    for(const type of ['vod','series']){
+      try{
+        const list=getHistory(type),clean=list.filter(x=>Number(x.position)>=MIN_CONTINUE_SECONDS&&Number(x.duration)>0);
+        if(clean.length!==list.length)localStorage.setItem(historyKey(type),JSON.stringify(clean.slice(0,40)));
+      }catch{}
+    }
+  })();
 
   function startedEntry(type,item){
     if(type==='vod'){
       const key='vod:'+String(item?.stream_id??item?.id??'');
-      return getHistory('vod').find(x=>x.key===key&&Number(x.position)>5&&Number(x.duration)>0)||null;
+      return getHistory('vod').find(x=>x.key===key&&Number(x.position)>=MIN_CONTINUE_SECONDS&&Number(x.duration)>0)||null;
     }
     if(type==='series'){
       const sid=String(item?.series_id??item?.id??'');
-      return getHistory('series').find(x=>String(x.seriesId??'')===sid&&Number(x.position)>5&&Number(x.duration)>0)||null;
+      return getHistory('series').find(x=>String(x.seriesId??'')===sid&&Number(x.position)>=MIN_CONTINUE_SECONDS&&Number(x.duration)>0)||null;
     }
     return null;
   }
@@ -533,33 +554,78 @@ async function closeDetail(){
     });
   };
 
-  /* Favorites stays inside the existing collection view: one grid, no iframe. */
+  /* Favorites has its own tab state and remains mounted behind detail modals.
+     Closing a favorite returns to Favorites, never to a destroyed home grid. */
   const head=el.collectionTitle?.parentElement;
   const favTabs=document.createElement('div');
   favTabs.className='srh-favorites-tabs is-hidden';
   favTabs.innerHTML='<button class="srh-favorites-tab" data-fav-type="live">Ao vivo</button><button class="srh-favorites-tab" data-fav-type="vod">Filmes</button><button class="srh-favorites-tab" data-fav-type="series">Séries</button>';
   head?.insertAdjacentElement('afterend',favTabs);
   let favoriteEntries=[];
+  let favoriteTab=localStorage.getItem(FAVORITES_TAB_KEY);
+  if(!['live','vod','series'].includes(favoriteTab))favoriteTab='vod';
+
   function renderFavoriteType(type){
-    state.gridInstance?.destroy();state.gridInstance=null;el.collectionSpacer.innerHTML='';el.collectionSpacer.style.height='';
+    if(!['live','vod','series'].includes(type))type='vod';
+    favoriteTab=type;
+    try{localStorage.setItem(FAVORITES_TAB_KEY,type)}catch{}
+    state.gridInstance?.destroy();
+    state.gridInstance=null;
+    el.collectionSpacer.innerHTML='';
+    el.collectionSpacer.style.height='';
     favTabs.querySelectorAll('[data-fav-type]').forEach(b=>b.classList.toggle('is-active',b.dataset.favType===type));
     const list=favoriteEntries.filter(x=>x.type===type);
-    if(!list.length){el.collectionSpacer.innerHTML='<div class="srh-favorites-empty">Nenhum favorito nesta seção.</div>';return}
+    if(!list.length){
+      el.collectionSpacer.innerHTML='<div class="srh-favorites-empty">Nenhum favorito nesta seção.</div>';
+      el.collectionScroller.scrollTop=0;
+      return;
+    }
     const items=list.map(x=>x.item);
-    state.gridInstance=new GridVirtualizer(el.collectionScroller,el.collectionSpacer,type,items,(item,itemType)=>{closeCollection(false);openItem(item,itemType)});
+    state.gridInstance=new GridVirtualizer(
+      el.collectionScroller,
+      el.collectionSpacer,
+      type,
+      items,
+      (item,itemType)=>openItem(item,itemType)
+    );
     el.collectionScroller.scrollTop=0;
   }
+
   function openFavorites(){
-    closeDetail();closePlayer(false);state.searchDataset=null;destroyVirtualizers();el.content.innerHTML='';el.continueRow.innerHTML='';el.continueSection.classList.add('is-hidden');
-    favoriteEntries=readFavorites();el.collectionTitle.textContent='Favoritos';el.collectionView.classList.remove('is-hidden');state.collectionOpen=true;freezePage(true);favTabs.classList.remove('is-hidden');
-    const first=['vod','series','live'].find(t=>favoriteEntries.some(x=>x.type===t))||'vod';
-    renderFavoriteType(first);
+    closeDetail();
+    closePlayer(false);
+    state.searchDataset=null;
+    state.searchType=null;
+    state.gridInstance?.destroy();
+    state.gridInstance=null;
+    el.collectionSpacer.innerHTML='';
+    el.collectionSpacer.style.height='';
+    favoriteEntries=readFavorites();
+    el.collectionTitle.textContent='Favoritos';
+    el.collectionView.classList.remove('is-hidden');
+    state.collectionOpen=true;
+    state.srhFavoritesOpen=true;
+    freezePage(true);
+    favTabs.classList.remove('is-hidden');
+    renderFavoriteType(favoriteTab);
   }
+
   favTabs.querySelectorAll('[data-fav-type]').forEach(b=>b.onclick=()=>renderFavoriteType(b.dataset.favType));
+
   const baseOpenCollection=openCollection;
-  openCollection=function(title,type,items){favTabs.classList.add('is-hidden');return baseOpenCollection(title,type,items)};
+  openCollection=function(title,type,items){
+    state.srhFavoritesOpen=false;
+    favTabs.classList.add('is-hidden');
+    return baseOpenCollection(title,type,items);
+  };
+
   const baseCloseCollection=closeCollection;
-  closeCollection=function(rebuild=true){favTabs.classList.add('is-hidden');return baseCloseCollection(rebuild)};
+  closeCollection=function(rebuild=true){
+    const wasFavorites=!!state.srhFavoritesOpen;
+    state.srhFavoritesOpen=false;
+    favTabs.classList.add('is-hidden');
+    return baseCloseCollection(wasFavorites?false:rebuild);
+  };
 
   if(!document.getElementById('favoritesTopButton')){
     const b=document.createElement('button');
@@ -657,7 +723,7 @@ async function closeDetail(){
   }
 
   renderContinue=function(){
-    const type=state.activeType,list=getHistory(type).filter(x=>x.duration>0&&x.position>5&&x.position/x.duration<.97).slice(0,12);
+    const type=state.activeType,list=getHistory(type).filter(x=>x.duration>0&&x.position>=MIN_CONTINUE_SECONDS&&x.position/x.duration<.97).slice(0,12);
     if(!list.length||type==='live'){
       el.continueSection.classList.add('is-hidden');
       el.continueRow.innerHTML='';
