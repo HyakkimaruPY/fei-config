@@ -1,6 +1,6 @@
 {
-  "revision": "r24-71178fd95574f095",
-  "generatedAt": "2026-09-18T11:44:05.651Z",
+  "revision": "r24-666f52dbf2a06ff8",
+  "generatedAt": "2026-09-18T12:08:49.712Z",
   "sourceCommit": "aefc61c6f386b16ac321df3a3c697baf3335c193",
   "architecture": "historical-modular-core+stable-feed-player",
   "stableFeedPatch": "clean-render-v3",
