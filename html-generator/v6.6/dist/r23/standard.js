@@ -247,8 +247,48 @@ async function closeDetail(){
   const STAR='<svg class="srh-lite-icon srh-lite-icon--star" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.8l2.52 5.1 5.63.82-4.08 3.97.96 5.61L12 16.65 6.97 19.3l.96-5.61L3.85 9.72l5.63-.82L12 3.8z"/></svg>';
   const TRASH='<svg class="srh-lite-icon srh-lite-icon--trash" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8.2v9.1M12 8.2v9.1M16 8.2v9.1M5.5 6.1h13M9 4.3h6l.7 1.8H8.3L9 4.3zM6.7 6.1l.7 13.2h9.2l.7-13.2"/></svg>';
 
-  function readFavorites(){try{const v=JSON.parse(localStorage.getItem(FAVORITES_KEY)||'[]');return Array.isArray(v)?v:[]}catch{return[]}}
-  function writeFavorites(list){try{localStorage.setItem(FAVORITES_KEY,JSON.stringify(list.slice(0,160)));return true}catch{return false}}
+  const FAVORITES_MEMORY_KEY='__srhFavorites_'+APP_NS;
+  function readFavorites(){
+    try{
+      const raw=localStorage.getItem(FAVORITES_KEY);
+      if(raw!==null){
+        const v=JSON.parse(raw||'[]');
+        if(Array.isArray(v)){window[FAVORITES_MEMORY_KEY]=v;return v}
+      }
+    }catch{}
+    try{
+      const raw=sessionStorage.getItem(FAVORITES_KEY);
+      if(raw!==null){
+        const v=JSON.parse(raw||'[]');
+        if(Array.isArray(v)){window[FAVORITES_MEMORY_KEY]=v;return v}
+      }
+    }catch{}
+    return Array.isArray(window[FAVORITES_MEMORY_KEY])?window[FAVORITES_MEMORY_KEY]:[];
+  }
+  function clearDisposableStorage(){
+    try{
+      for(let i=localStorage.length-1;i>=0;i--){
+        const k=localStorage.key(i)||'';
+        if(/^srhell:tmdb:cache:/i.test(k))localStorage.removeItem(k);
+      }
+    }catch{}
+  }
+  function writeFavorites(list){
+    const compact=list.slice(0,160),raw=JSON.stringify(compact);
+    window[FAVORITES_MEMORY_KEY]=compact;
+    try{
+      localStorage.setItem(FAVORITES_KEY,raw);
+      return true;
+    }catch(e){
+      const quota=e?.name==='QuotaExceededError'||e?.name==='NS_ERROR_DOM_QUOTA_REACHED'||e?.code===22||e?.code===1014;
+      if(quota){
+        clearDisposableStorage();
+        try{localStorage.setItem(FAVORITES_KEY,raw);return true}catch{}
+      }
+      try{sessionStorage.setItem(FAVORITES_KEY,raw);return true}catch{}
+      return false;
+    }
+  }
   function favoriteKey(type,item){
     if(type==='live'){
       const id=item?.variants?.[0]?.stream_id||item?.variants?.[0]?.id||'';
@@ -779,7 +819,8 @@ async function closeDetail(){
   const CACHE_STORE='srhell:tmdb:cache:v3';
   const CONFIG_TTL=24*60*60*1000;
   const CACHE_TTL=7*24*60*60*1000;
-  const MAX_CACHE=100;
+  const MAX_CACHE=42;
+  const MAX_CACHE_BYTES=720000;
   let tmdbConfig=null;
   let coverActive=0;
   const coverQueue=[];
@@ -879,8 +920,20 @@ async function closeDetail(){
   function cacheWrite(key,data){
     const all=readJson(CACHE_STORE,{});
     all[key]={savedAt:Date.now(),data};
-    const entries=Object.entries(all).sort((a,b)=>Number(b[1].savedAt||0)-Number(a[1].savedAt||0)).slice(0,MAX_CACHE);
-    writeJson(CACHE_STORE,Object.fromEntries(entries));
+    const entries=Object.entries(all)
+      .sort((a,b)=>Number(b[1].savedAt||0)-Number(a[1].savedAt||0))
+      .slice(0,MAX_CACHE);
+    const out={};
+    let bytes=2;
+    for(const [k,v] of entries){
+      const piece=JSON.stringify({[k]:v});
+      if(bytes+piece.length>MAX_CACHE_BYTES)continue;
+      out[k]=v;bytes+=piece.length;
+    }
+    try{localStorage.setItem(CACHE_STORE,JSON.stringify(out))}
+    catch{
+      try{localStorage.removeItem(CACHE_STORE)}catch{}
+    }
   }
 
   function chooseLogo(logos=[]){
@@ -949,7 +1002,10 @@ async function closeDetail(){
     const key='season:'+tvId+':'+season;
     const cached=cacheRead(key);if(cached)return cached;
     const data=await tmdbFetch('/tv/'+tvId+'/season/'+season,{language:'pt-BR'});
-    const out=Array.isArray(data?.episodes)?data:{episodes:[]};
+    const out={episodes:(Array.isArray(data?.episodes)?data.episodes:[]).map((ep,i)=>({
+      episode_number:ep?.episode_number??i+1,
+      still_path:ep?.still_path||null
+    }))};
     cacheWrite(key,out);
     return out;
   }
@@ -1123,8 +1179,26 @@ async function closeDetail(){
   }
 
   function pseudoLogoText(title){
-    const chars=Array.from(cleanTitle(title)||String(title||'').trim());
-    return chars.length>10?chars.slice(0,10).join('')+'…':chars.join('');
+    const clean=cleanTitle(title)||String(title||'').trim();
+    const words=clean.split(/\s+/).filter(Boolean);
+    if(words.length<=2)return clean;
+    const connectors=new Set(['a','o','e','ou','de','da','do','das','dos','em','no','na','nos','nas','por','para','com','sem','um','uma']);
+    const out=[];
+    let meaningful=0,i=0;
+    for(;i<words.length;i++){
+      const w=words[i];
+      out.push(w);
+      if(!connectors.has(w.toLocaleLowerCase('pt-BR')))meaningful++;
+      if(meaningful>=2){
+        while(i+1<words.length&&connectors.has(words[i+1].toLocaleLowerCase('pt-BR'))){
+          out.push(words[++i]);
+          if(i+1<words.length)out.push(words[++i]);
+          break;
+        }
+        break;
+      }
+    }
+    return out.join(' ')+(i<words.length-1?'…':'');
   }
 
   function collapseFullTitle(){
@@ -1167,7 +1241,8 @@ async function closeDetail(){
     art.querySelector('.srh-art-brand')?.remove();
     art.parentElement?.querySelector(':scope > .srh-full-title-reveal')?.remove();
 
-    const title=data?.title||itemTitle(item);
+    const providerTitle=itemTitle(item)||data?.title||'';
+    const title=data?.title||providerTitle;
     const box=document.createElement('div');
     box.className='srh-art-brand';
 
@@ -1190,13 +1265,20 @@ async function closeDetail(){
         const h=Number(img.dataset.srhH)||img.naturalHeight||1;
         fitLogo(box,img,w,h);
         tuneLogoContrast(img,box);
+        img.setAttribute('role','button');
+        img.setAttribute('tabindex','0');
+        img.setAttribute('aria-label','Mostrar título completo');
+        bindFallback(img,providerTitle,art);
+        img.onkeydown=e=>{
+          if(e.key==='Enter'||e.key===' '){e.preventDefault();img.click()}
+        };
       };
       img.onerror=()=>{
         box.replaceChildren();
         const b=document.createElement('button');
         b.type='button';b.className='srh-art-brand__fallback';b.textContent=pseudoLogoText(title);
         box.appendChild(b);
-        bindFallback(b,title,art);
+        bindFallback(b,providerTitle,art);
       };
       img.src=data.logo;
       box.appendChild(img);
@@ -1206,7 +1288,7 @@ async function closeDetail(){
       b.className='srh-art-brand__fallback';
       b.textContent=pseudoLogoText(title);
       box.appendChild(b);
-      bindFallback(b,title,art);
+      bindFallback(b,providerTitle,art);
     }
     art.appendChild(box);
 
@@ -1238,7 +1320,7 @@ async function closeDetail(){
   }
 
   detailModal()?.addEventListener('click',e=>{
-    if(e.target.closest?.('.srh-art-brand__fallback,.srh-full-title-reveal'))return;
+    if(e.target.closest?.('.srh-art-brand__fallback,.srh-art-brand img,.srh-full-title-reveal'))return;
     collapseFullTitle();
   },true);
 
