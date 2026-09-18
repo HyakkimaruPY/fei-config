@@ -1,10 +1,10 @@
 {
   "revision": "r23-4a93812560b83d38",
-  "generatedAt": "2026-09-18T13:29:03.676Z",
+  "generatedAt": "2026-09-18T13:30:14.527Z",
   "diagnosticBaseline": {
     "standard": "46b9cd4-pre-aura"
   },
-  "standardLayer": "lite-ui-r6-tmdb-first-art-branding",
+  "standardLayer": "lite-ui-r7-logo-resume-polish",
   "standard": {
     "js": "standard.js",
     "css": "standard.css"
