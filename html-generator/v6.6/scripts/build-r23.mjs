@@ -19,7 +19,8 @@ const join=files=>files.map(f=>`/* ===== ${f} ===== */\n${read(f).trim()}\n`).jo
    mutation-observer action layers, proxy stacks and later transport patches. */
 const standardCss=['runtime/standard/01.css','runtime/standard/02.css','runtime/standard/03-fixes.css','runtime/standard/12-ui-organization-lite.css'];
 const standardCore=['runtime/standard/01.js','runtime/standard/02.js','runtime/standard/03.js'];
-const historicalInlinePatch=`/* ===== runtime/standard/04-fixes.js @ ${HIST_STANDARD} ===== */\n${readAt(HIST_STANDARD,'runtime/standard/04-fixes.js').trim()}\n`;\nconst standardLitePatches=historicalInlinePatch+join(['runtime/standard/15-ui-organization-lite.js']);
+const historicalInlinePatch=`/* ===== runtime/standard/04-fixes.js @ ${HIST_STANDARD} ===== */\n${readAt(HIST_STANDARD,'runtime/standard/04-fixes.js').trim()}\n`;
+const standardLitePatches=historicalInlinePatch+join(['runtime/standard/15-ui-organization-lite.js']);
 
 const shortsCss=[
   'runtime/shorts/01.css','runtime/shorts/02.css','runtime/shorts/03.css',
