@@ -17,10 +17,10 @@ const join=files=>files.map(f=>`/* ===== ${f} ===== */\n${read(f).trim()}\n`).jo
    Standard is intentionally reduced to the original modular core plus the first
    inline-detail fix from 46b9cd4. This predates Aura rendering/redirect logic,
    mutation-observer action layers, proxy stacks and later transport patches. */
-const standardCss=['runtime/standard/01.css','runtime/standard/02.css','runtime/standard/03-fixes.css','runtime/standard/12-ui-organization-lite.css'];
+const standardCss=['runtime/standard/01.css','runtime/standard/02.css','runtime/standard/03-fixes.css','runtime/standard/12-ui-organization-lite.css','runtime/standard/13-tmdb-enrichment.css'];
 const standardCore=['runtime/standard/01.js','runtime/standard/02.js','runtime/standard/03.js'];
 const historicalInlinePatch=`/* ===== runtime/standard/04-fixes.js @ ${HIST_STANDARD} ===== */\n${readAt(HIST_STANDARD,'runtime/standard/04-fixes.js').trim()}\n`;
-const standardLitePatches=historicalInlinePatch+join(['runtime/standard/15-ui-organization-lite.js']);
+const standardLitePatches=historicalInlinePatch+join(['runtime/standard/15-ui-organization-lite.js','runtime/standard/16-tmdb-enrichment.js']);
 
 const shortsCss=[
   'runtime/shorts/01.css','runtime/shorts/02.css','runtime/shorts/03.css',
@@ -56,7 +56,7 @@ const themeFiles=['graphene','obsidian','porcelain','jade','aurora','ember'].map
 const hash=crypto.createHash('sha256');
 for(const s of [standardJs,shortsJs,standardCssBundle,shortsCssBundle,...themeFiles.map(read)])hash.update(s);
 const revision='r23-'+hash.digest('hex').slice(0,16);
-const manifest={revision,generatedAt:new Date().toISOString(),diagnosticBaseline:{standard:'46b9cd4-pre-aura'},standardLayer:'lite-ui-r4-favorites-flow-60s',standard:{js:'standard.js',css:'standard.css'},shorts:{js:'shorts.js',css:'shorts.css'},themes:themeFiles.map(x=>path.basename(x,'.css'))};
+const manifest={revision,generatedAt:new Date().toISOString(),diagnosticBaseline:{standard:'46b9cd4-pre-aura'},standardLayer:'lite-ui-r5-tmdb-enrichment',standard:{js:'standard.js',css:'standard.css'},shorts:{js:'shorts.js',css:'shorts.css'},themes:themeFiles.map(x=>path.basename(x,'.css'))};
 write('manifest.json',JSON.stringify(manifest,null,2));
 
 function checkJsText(source,label){
