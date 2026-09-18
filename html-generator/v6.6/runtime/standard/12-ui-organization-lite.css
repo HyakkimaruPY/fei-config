@@ -1,16 +1,23 @@
 /* SRHELL v6.6 — lightweight UI organization restored on top of the stable pre-Aura core.
-   Intentionally CSS-only for geometry: no observers, blur-heavy feed layers or extra render loops. */
+   Geometry and actions only: no observers, iframe favorites, transport layers or background render loops. */
 
 /* Catalog proportions: VOD/series = classic 2:3 poster; live = compact square logo card. */
 .poster-card,.grid-card{border-radius:14px;overflow:hidden}
 .poster-card__image,.grid-card img{aspect-ratio:auto!important;object-fit:cover}
 .poster-card--live .poster-card__image,.grid-card--live img{object-fit:contain!important;padding:8%!important;background:var(--surface-2)!important}
 
-/* Detail modal: remove the duplicated header title and keep only a floating close control. */
+/* Remove the old invisible tail below every cover row. */
+.rail-section{margin-bottom:12px!important}
+.rail-head{margin-bottom:7px!important}
+.rail-body,.rail-track{margin:0!important;padding:0!important}
+.rail-viewport{padding-bottom:0!important}
+.rail-track{display:block!important}
+
+/* Detail modal: remove duplicated header title and keep only a floating close control. */
 .detail-modal{position:relative}
 .detail-head{position:absolute;z-index:18;top:10px;right:10px;padding:0;border:0;background:transparent;pointer-events:none}
 .detail-head__title{display:none!important}
-.detail-head .square-button{pointer-events:auto;background:color-mix(in srgb,var(--bg-elev) 74%,transparent);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.detail-head .square-button{pointer-events:auto;background:color-mix(in srgb,var(--bg-elev) 78%,transparent);backdrop-filter:blur(6px);-webkit-backdrop-filter:blur(6px)}
 .detail-scroll{padding-top:12px}
 .detail-content{display:flex;flex-direction:column;gap:0}
 .detail-title-row{display:flex!important;align-items:center!important;gap:10px!important;margin-top:11px!important;min-width:0}
@@ -19,16 +26,19 @@
 
 /* Lightweight action system. */
 .srh-lite-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}
-.srh-lite-action{width:42px;height:42px;min-width:42px;display:grid;place-items:center;border:1px solid var(--line);border-radius:13px;background:var(--surface-2);color:var(--text);cursor:pointer;touch-action:manipulation}
+.srh-lite-action{width:42px;height:42px;min-width:42px;display:grid;place-items:center;border:1px solid var(--line);border-radius:13px;background:var(--surface-2);color:var(--muted);cursor:pointer;touch-action:manipulation}
 .srh-lite-action:hover{border-color:var(--accent)}
 .srh-lite-action:active{transform:scale(.97)}
-.srh-lite-action.is-active{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 62%,var(--line));background:color-mix(in srgb,var(--accent) 12%,var(--surface-2))}
-.srh-lite-action.is-active .srh-lite-icon--star path{fill:currentColor}
+.srh-lite-icon{width:21px;height:21px;display:block;fill:none;stroke:currentColor;stroke-width:1.9;stroke-linecap:round;stroke-linejoin:round}
+.srh-lite-action--favorite{color:#9aa2ab}
+.srh-lite-action--favorite.is-active{color:#e7ca78;border-color:color-mix(in srgb,#e7ca78 62%,var(--line));background:color-mix(in srgb,#e7ca78 12%,var(--surface-2))}
+.srh-lite-action--favorite.is-active .srh-lite-icon--star path{fill:currentColor;stroke:currentColor}
+.srh-lite-action--trash{color:var(--danger,#d76f78)}
 .srh-lite-film-actions{display:flex;align-items:center;gap:8px;margin-top:10px}
 .srh-lite-film-actions .watch-button{margin-left:auto;min-height:42px}
 .detail-modal.is-series .detail-title-row,.detail-modal.is-live .detail-title-row{align-items:center!important}
 
-/* The series modal already has the modal close button. Keep only expand over inline video. */
+/* The series modal already has its own modal close button. Keep only expand over inline video. */
 #seriesStop{display:none!important}
 
 /* Favorites uses the existing collection/grid machinery instead of an iframe. */
@@ -36,8 +46,11 @@
 .srh-favorites-tab{flex:1;min-height:38px;border:1px solid var(--line);border-radius:11px;background:var(--surface);color:var(--muted);font-size:10px;font-weight:800;cursor:pointer}
 .srh-favorites-tab.is-active{color:var(--text);border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,var(--surface-2))}
 .srh-favorites-empty{padding:54px 18px;text-align:center;color:var(--muted);font-size:11px}
-#favoritesTopButton .srh-lite-icon{width:21px;height:21px}
+#favoritesTopButton{color:var(--muted)}
+#favoritesTopButton .srh-lite-icon{width:21px;height:21px;fill:none;stroke:currentColor}
 
+/* Restore the pre-regression series detail behavior: content-sized modal,
+   with only the episode region independently scrollable. */
 @media(max-width:680px){
   .detail-head{top:max(8px,env(safe-area-inset-top));right:8px}
   .detail-scroll{padding:8px}
@@ -46,4 +59,47 @@
   .srh-lite-film-actions{margin-top:9px}
   .srh-lite-film-actions .watch-button{min-height:40px;padding-inline:14px}
   .srh-favorites-tabs{padding:7px 8px}
+
+  .detail-modal.is-series{
+    width:100%!important;
+    height:auto!important;
+    max-height:91dvh!important;
+    align-self:center!important;
+  }
+  .detail-modal.is-series .detail-scroll{
+    display:block!important;
+    flex:0 1 auto!important;
+    height:auto!important;
+    max-height:91dvh!important;
+    min-height:0!important;
+    overflow:hidden!important;
+  }
+  .detail-modal.is-series #detailBody,
+  .detail-modal.is-series .detail-content{
+    display:flex!important;
+    flex-direction:column!important;
+    flex:0 1 auto!important;
+    height:auto!important;
+    min-height:0!important;
+    overflow:visible!important;
+  }
+  .detail-modal.is-series .series-static{
+    display:block!important;
+    flex:0 0 auto!important;
+    min-height:0!important;
+  }
+  .detail-modal.is-series .detail-art{
+    max-height:none!important;
+  }
+  .detail-modal.is-series .episode-container{
+    flex:0 1 auto!important;
+    height:auto!important;
+    min-height:0!important;
+    max-height:min(42dvh,420px)!important;
+    overflow-y:auto!important;
+    overflow-x:hidden!important;
+    overscroll-behavior:contain!important;
+    touch-action:pan-y!important;
+    -webkit-overflow-scrolling:touch!important;
+  }
 }
