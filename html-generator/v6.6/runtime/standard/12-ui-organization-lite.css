@@ -1,0 +1,49 @@
+/* SRHELL v6.6 — lightweight UI organization restored on top of the stable pre-Aura core.
+   Intentionally CSS-only for geometry: no observers, blur-heavy feed layers or extra render loops. */
+
+/* Catalog proportions: VOD/series = classic 2:3 poster; live = compact square logo card. */
+.poster-card,.grid-card{border-radius:14px;overflow:hidden}
+.poster-card__image,.grid-card img{aspect-ratio:auto!important;object-fit:cover}
+.poster-card--live .poster-card__image,.grid-card--live img{object-fit:contain!important;padding:8%!important;background:var(--surface-2)!important}
+
+/* Detail modal: remove the duplicated header title and keep only a floating close control. */
+.detail-modal{position:relative}
+.detail-head{position:absolute;z-index:18;top:10px;right:10px;padding:0;border:0;background:transparent;pointer-events:none}
+.detail-head__title{display:none!important}
+.detail-head .square-button{pointer-events:auto;background:color-mix(in srgb,var(--bg-elev) 74%,transparent);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}
+.detail-scroll{padding-top:12px}
+.detail-content{display:flex;flex-direction:column;gap:0}
+.detail-title-row{display:flex!important;align-items:center!important;gap:10px!important;margin-top:11px!important;min-width:0}
+.detail-title{flex:1 1 auto!important;min-width:0!important;margin:0!important;white-space:normal!important;overflow-wrap:anywhere!important;line-height:1.25}
+.synopsis{margin-top:10px}
+
+/* Lightweight action system. */
+.srh-lite-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto}
+.srh-lite-action{width:42px;height:42px;min-width:42px;display:grid;place-items:center;border:1px solid var(--line);border-radius:13px;background:var(--surface-2);color:var(--text);cursor:pointer;touch-action:manipulation}
+.srh-lite-action:hover{border-color:var(--accent)}
+.srh-lite-action:active{transform:scale(.97)}
+.srh-lite-action.is-active{color:var(--accent);border-color:color-mix(in srgb,var(--accent) 62%,var(--line));background:color-mix(in srgb,var(--accent) 12%,var(--surface-2))}
+.srh-lite-action.is-active .srh-lite-icon--star path{fill:currentColor}
+.srh-lite-film-actions{display:flex;align-items:center;gap:8px;margin-top:10px}
+.srh-lite-film-actions .watch-button{margin-left:auto;min-height:42px}
+.detail-modal.is-series .detail-title-row,.detail-modal.is-live .detail-title-row{align-items:center!important}
+
+/* The series modal already has the modal close button. Keep only expand over inline video. */
+#seriesStop{display:none!important}
+
+/* Favorites uses the existing collection/grid machinery instead of an iframe. */
+.srh-favorites-tabs{display:flex;gap:7px;padding:8px 10px;border-bottom:1px solid var(--line);background:var(--bg-elev)}
+.srh-favorites-tab{flex:1;min-height:38px;border:1px solid var(--line);border-radius:11px;background:var(--surface);color:var(--muted);font-size:10px;font-weight:800;cursor:pointer}
+.srh-favorites-tab.is-active{color:var(--text);border-color:var(--accent);background:color-mix(in srgb,var(--accent) 12%,var(--surface-2))}
+.srh-favorites-empty{padding:54px 18px;text-align:center;color:var(--muted);font-size:11px}
+#favoritesTopButton .srh-lite-icon{width:21px;height:21px}
+
+@media(max-width:680px){
+  .detail-head{top:max(8px,env(safe-area-inset-top));right:8px}
+  .detail-scroll{padding:8px}
+  .detail-title-row{padding-right:2px}
+  .srh-lite-action{width:40px;height:40px;min-width:40px;border-radius:12px}
+  .srh-lite-film-actions{margin-top:9px}
+  .srh-lite-film-actions .watch-button{min-height:40px;padding-inline:14px}
+  .srh-favorites-tabs{padding:7px 8px}
+}
