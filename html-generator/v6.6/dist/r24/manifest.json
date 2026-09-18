@@ -1,6 +1,6 @@
 {
-  "revision": "r24-ea79c12483e68bab",
-  "generatedAt": "2026-09-18T11:02:59.271Z",
+  "revision": "r24-bd52fa8a98ea8f31",
+  "generatedAt": "2026-09-18T11:20:01.322Z",
   "sourceCommit": "aefc61c6f386b16ac321df3a3c697baf3335c193",
   "architecture": "historical-modular-core+stable-feed-player",
   "stableFeedPatch": "poster-flow-v1",
