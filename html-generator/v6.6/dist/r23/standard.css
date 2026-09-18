@@ -384,8 +384,8 @@ body{font-family:var(--font-ui);font-weight:var(--font-weight-ui);background:var
 /* Textual pseudo-logo when TMDB has no clean logo. */
 .srh-art-brand__fallback{
   pointer-events:auto;
-  max-width:9.5ch;
-  max-height:82%;
+  max-width:96%;
+  max-height:none;
   margin:0;
   padding:0;
   border:0;
@@ -393,7 +393,7 @@ body{font-family:var(--font-ui);font-weight:var(--font-weight-ui);background:var
   color:#f2f0e8;
   text-align:left;
   white-space:normal;
-  overflow:hidden;
+  overflow:visible;
   font-family:Georgia,"Times New Roman",serif;
   font-size:clamp(18px,4.4vw,34px);
   font-weight:800;
@@ -460,7 +460,7 @@ body{font-family:var(--font-ui);font-weight:var(--font-weight-ui);background:var
 
 @media(max-width:680px){
   .srh-art-brand{padding:6px 7px 7px 8px}
-  .srh-art-brand__fallback{font-size:clamp(17px,6vw,27px);max-width:8.8ch}
+  .srh-art-brand__fallback{font-size:clamp(17px,6vw,27px);max-width:96%}
   .srh-full-title-reveal{font-size:13px}
   .detail-modal.is-series .season-box.srh-season-actions{gap:6px!important}
   .detail-modal.is-series .srh-series-season-actions{gap:5px!important}
@@ -502,4 +502,20 @@ body{font-family:var(--font-ui);font-weight:var(--font-weight-ui);background:var
 @keyframes srhResumeGate{
   0%{background-position:120% 0,0 0}
   100%{background-position:-120% 0,0 0}
+}
+
+
+/* Branding interactions: never clip a word mid-glyph; both clean and textual logos reveal the full provider title. */
+.srh-art-brand img[role="button"]{
+  pointer-events:auto!important;
+  cursor:pointer;
+}
+.srh-art-brand__fallback{
+  max-width:96%!important;
+  width:auto!important;
+  max-height:none!important;
+  overflow:visible!important;
+  word-break:normal!important;
+  overflow-wrap:normal!important;
+  hyphens:none!important;
 }

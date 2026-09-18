@@ -1,10 +1,10 @@
 {
-  "revision": "r23-bc0a38deee4f7566",
-  "generatedAt": "2026-09-18T14:39:28.958Z",
+  "revision": "r23-dfb1e43f3d5008bf",
+  "generatedAt": "2026-09-18T14:40:00.584Z",
   "diagnosticBaseline": {
     "standard": "46b9cd4-pre-aura"
   },
-  "standardLayer": "lite-ui-r7-logo-resume-polish",
+  "standardLayer": "lite-ui-r8-favorites-branding-fix",
   "standard": {
     "js": "standard.js",
     "css": "standard.css"
