@@ -259,3 +259,58 @@ body{font-family:var(--font-ui);font-weight:var(--font-weight-ui);background:var
   .srh-modal-loading .srh-shimmer-button--wide{width:96px}
   .srh-modal-loading .srh-skeleton-episodes .srh-shimmer-row{height:72px}
 }
+
+
+/* SRHELL rail skeletons — final card geometry exists before network data arrives. */
+.rail-skeleton-row{
+  display:flex;
+  align-items:stretch;
+  gap:9px;
+  width:100%;
+  overflow:hidden;
+  padding:0;
+  margin:0;
+}
+.rail-skeleton-card{
+  flex:0 0 var(--sk-w);
+  width:var(--sk-w);
+  height:var(--sk-h);
+  border:1px solid var(--banner-border);
+  border-radius:14px;
+  background:
+    linear-gradient(105deg,transparent 26%,rgba(235,241,248,.16) 45%,transparent 64%),
+    linear-gradient(145deg,var(--surface-2),var(--surface));
+  background-size:220% 100%,100% 100%;
+  background-position:120% 0,0 0;
+  animation:srhRailSkeleton 1.15s ease-in-out infinite;
+}
+@keyframes srhRailSkeleton{
+  0%{background-position:120% 0,0 0}
+  100%{background-position:-120% 0,0 0}
+}
+.rail-load-error{
+  min-height:72px;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  gap:10px;
+  padding:12px 14px;
+  border:1px solid var(--line);
+  border-radius:12px;
+  background:var(--surface);
+  color:var(--muted);
+  font-size:10px;
+}
+.rail-load-error button{
+  flex:0 0 auto;
+  min-height:34px;
+  padding:7px 10px;
+  border:1px solid var(--line);
+  border-radius:10px;
+  background:var(--surface-2);
+  color:var(--text);
+  font-weight:800;
+}
+@media(prefers-reduced-motion:reduce){
+  .rail-skeleton-card{animation:none;background-position:0 0,0 0}
+}

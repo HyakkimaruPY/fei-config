@@ -417,6 +417,122 @@ async function closeDetail(){
     finally{state.srhPendingDetailType=''}
   };
 
+  /* Stable rail loading: one category-map request per type, fixed-size shimmer
+     placeholders, abortable content requests and one controlled retry. */
+  const srhRailCategoryInflight=new Map();
+  function railCardMetrics(type){
+    const live=type==='live';
+    const w=innerWidth<680?(live?116:108):(live?146:132);
+    return{w,h:Math.round(w*(live?1:1.5)),gap:9};
+  }
+  function railSkeletonMarkup(type){
+    const m=railCardMetrics(type);
+    const available=Math.max(260,document.documentElement.clientWidth-(innerWidth<680?24:40));
+    const count=Math.max(3,Math.min(12,Math.ceil((available+m.gap)/(m.w+m.gap))+1));
+    return '<div class="rail-skeleton-row" style="--sk-w:'+m.w+'px;--sk-h:'+m.h+'px">'+Array.from({length:count},()=>'<span class="rail-skeleton-card"></span>').join('')+'</div>';
+  }
+  function railFetchJson(params,timeout=7200){
+    const target=apiUrl(params,CONFIG);
+    const urls=[target];
+    if(CONFIG.corsProxy)urls.push(proxyUrl(target,CONFIG));
+    let index=0,last=null;
+    const next=async()=>{
+      if(index>=urls.length)throw(last||new Error('Falha ao carregar categoria.'));
+      const url=urls[index++];
+      const ctrl=new AbortController();
+      const timer=setTimeout(()=>ctrl.abort(),timeout);
+      try{
+        const r=await fetch(url,{cache:'no-store',signal:ctrl.signal});
+        if(!r.ok)throw new Error('HTTP '+r.status);
+        return await r.json();
+      }catch(e){last=e;return next()}
+      finally{clearTimeout(timer)}
+    };
+    return next();
+  }
+  async function stableRailCategoryMap(type){
+    if(state.categoryMaps.has(type))return state.categoryMaps.get(type);
+    if(srhRailCategoryInflight.has(type))return srhRailCategoryInflight.get(type);
+    const p=railFetchJson({action:TYPE[type].categories},6500).then(raw=>{
+      const map=new Map((Array.isArray(raw)?raw:[]).map(c=>[String(c.category_name??c.name??''),String(c.category_id??c.id??'')]));
+      state.categoryMaps.set(type,map);
+      return map;
+    }).finally(()=>srhRailCategoryInflight.delete(type));
+    srhRailCategoryInflight.set(type,p);
+    return p;
+  }
+  async function stableLoadTargetItems(target){
+    const map=await stableRailCategoryMap(target.type);
+    const id=map.get(target.name);
+    if(!id)throw new Error('Categoria não encontrada: '+stripEmoji(target.name));
+    const raw=await railFetchJson({action:TYPE[target.type].content,category_id:id},7600);
+    return Array.isArray(raw)?raw:[];
+  }
+  function mountRailItems(section,target,items){
+    const body=section.querySelector('.rail-body');
+    body.innerHTML='<div class="rail-viewport"><div class="rail-track"></div></div>';
+    const v=new RailVirtualizer(section,target.type,items,openItem);
+    section._railV=v;
+    state.railInstances.push(v);
+    section.querySelector('[data-all]').onclick=()=>openCollection(target.name,target.type,items);
+  }
+  renderRail=async function(section,target,token){
+    if(token!==state.renderToken)return;
+    const body=section.querySelector('.rail-body');
+    body.innerHTML=railSkeletonMarkup(target.type);
+    let error=null;
+    for(let attempt=0;attempt<2;attempt++){
+      try{
+        const raw=await stableLoadTargetItems(target);
+        if(token!==state.renderToken)return;
+        const items=target.type==='live'?groupChannels(raw):uniqueById(raw,target.type);
+        if(!items.length){
+          body.innerHTML='<div class="skeleton">Sem conteúdos nesta categoria.</div>';
+          return;
+        }
+        mountRailItems(section,target,items);
+        return;
+      }catch(e){
+        error=e;
+        if(attempt===0){
+          await new Promise(resolve=>setTimeout(resolve,240));
+          body.innerHTML=railSkeletonMarkup(target.type);
+        }
+      }
+    }
+    if(token!==state.renderToken)return;
+    body.innerHTML='<div class="rail-load-error"><span>Não foi possível carregar esta categoria agora.</span><button type="button">Tentar novamente</button></div>';
+    body.querySelector('button').onclick=()=>{
+      section.dataset.loaded='1';
+      renderRail(section,target,state.renderToken);
+    };
+    console.warn('Rail load failed',target?.name,error);
+  };
+  evictRail=function(section){
+    if(!section||section.dataset.loaded!=='1'||state.collectionOpen)return;
+    const v=section._railV;
+    if(v){
+      v.destroy();
+      state.railInstances=state.railInstances.filter(x=>x!==v);
+      section._railV=null;
+    }
+    const idx=Number(section.dataset.target);
+    const target=targetsFor(state.activeType)[idx];
+    section.querySelector('.rail-body').innerHTML=railSkeletonMarkup(target?.type||state.activeType);
+    delete section.dataset.loaded;
+    state.categoryObserver?.observe(section);
+  };
+  const baseRenderActiveType=renderActiveType;
+  renderActiveType=function(){
+    baseRenderActiveType();
+    const targets=targetsFor(state.activeType);
+    el.content.querySelectorAll('.rail-section').forEach(section=>{
+      const target=targets[Number(section.dataset.target)];
+      const body=section.querySelector('.rail-body');
+      if(target&&body&&!section.dataset.loaded)body.innerHTML=railSkeletonMarkup(target.type);
+    });
+  };
+
   /* Favorites stays inside the existing collection view: one grid, no iframe. */
   const head=el.collectionTitle?.parentElement;
   const favTabs=document.createElement('div');
