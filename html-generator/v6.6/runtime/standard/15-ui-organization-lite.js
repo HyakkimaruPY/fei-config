@@ -411,72 +411,103 @@
     const name=String(entry?.title||'Série').replace(/\s+[—-]\s+Epis[oó]dio\s+\d+.*$/i,'').trim()||'Série';
     return{series_id:entry?.seriesId,name,cover:entry?.image||''};
   }
-  function freezeAtSavedFrame(video,position,onDone){
-    if(!video||!(Number(position)>0))return;
-    const target=Math.max(0,Number(position)||0);
-    let done=false,timer=0;
-    const finish=()=>{
-      if(done)return;
-      done=true;
-      clearTimeout(timer);
-      try{video.pause()}catch{}
-      try{video.muted=false}catch{}
-      onDone?.();
-    };
-    const seek=()=>{
-      try{
-        const end=Number.isFinite(video.duration)&&video.duration>0?Math.max(0,video.duration-.35):target;
-        video.currentTime=Math.min(target,end);
-      }catch{}
-    };
-    try{video.muted=true}catch{}
-    video.addEventListener('loadedmetadata',seek,{once:true});
-    video.addEventListener('seeked',()=>requestAnimationFrame(finish),{once:true});
-    video.addEventListener('playing',()=>{
-      if(Math.abs((video.currentTime||0)-target)<1.2)requestAnimationFrame(finish);
-    },{once:true});
-    timer=setTimeout(()=>{
-      seek();
-      setTimeout(finish,180);
-    },3200);
-    if(video.readyState>=1)seek();
+  function beginResumeGate(){
+    const modal=detailModal();
+    if(!modal)return()=>{};
+    modal.querySelector('.srh-resume-gate')?.remove();
+    const gate=document.createElement('div');
+    gate.className='srh-resume-gate';
+    gate.innerHTML='<div class="srh-resume-gate__art"></div><div class="srh-resume-gate__line"></div><div class="srh-resume-gate__line"></div><div class="srh-resume-gate__line"></div><div class="srh-resume-gate__actions"><span class="srh-resume-gate__button"></span><span class="srh-resume-gate__button"></span><span class="srh-resume-gate__button"></span></div>';
+    modal.appendChild(gate);
+    let done=false;
+    const release=()=>{if(done)return;done=true;gate.remove()};
+    setTimeout(release,8500);
+    return release;
   }
+
+  function waitForSavedFrame(video,position,onDone){
+    return new Promise(resolve=>{
+      if(!video||!(Number(position)>0)){onDone?.();resolve();return}
+      const target=Math.max(0,Number(position)||0);
+      let finished=false,timer=0;
+      const finish=()=>{
+        if(finished)return;
+        finished=true;
+        clearTimeout(timer);
+        try{video.pause()}catch{}
+        try{video.muted=false}catch{}
+        const final=()=>{onDone?.();resolve()};
+        if(typeof video.requestVideoFrameCallback==='function'){
+          let fired=false;
+          try{
+            video.requestVideoFrameCallback(()=>{if(fired)return;fired=true;final()});
+            setTimeout(()=>{if(fired)return;fired=true;final()},260);
+            return;
+          }catch{}
+        }
+        requestAnimationFrame(()=>requestAnimationFrame(final));
+      };
+      const seek=()=>{
+        try{
+          const end=Number.isFinite(video.duration)&&video.duration>0?Math.max(0,video.duration-.35):target;
+          const at=Math.min(target,end);
+          if(Math.abs((video.currentTime||0)-at)<.65&&video.readyState>=2){finish();return}
+          video.currentTime=at;
+        }catch{}
+      };
+      try{video.muted=true}catch{}
+      video.addEventListener('loadedmetadata',seek,{once:true});
+      video.addEventListener('seeked',finish,{once:true});
+      timer=setTimeout(()=>{seek();setTimeout(finish,350)},6200);
+      if(video.readyState>=1)seek();
+    });
+  }
+
   async function openContinueMovie(entry){
     const item=historyVodItem(entry);
     if(!item.stream_id)return;
-    await openFilm(item);
-    const watch=el.detailBody.querySelector('#watchFilm');
-    if(!watch)return;
-    watch.click();
-    const inline=state.detailInlineVideo;
-    if(!inline?.video)return;
-    freezeAtSavedFrame(inline.video,entry.position,()=>{
-      if(inline.status)inline.status.textContent='Pausado';
-    });
+    const release=beginResumeGate();
+    try{
+      await openFilm(item);
+      const watch=el.detailBody.querySelector('#watchFilm');
+      if(!watch){release();return}
+      watch.click();
+      const inline=state.detailInlineVideo;
+      if(!inline?.video){release();return}
+      await waitForSavedFrame(inline.video,entry.position,()=>{
+        if(inline.status)inline.status.textContent='Pausado';
+      });
+    }finally{release()}
   }
+
   async function openContinueSeries(entry){
     const item=historySeriesItem(entry);
     if(!item.series_id)return;
-    await openSeries(item);
-    const video=el.detailBody.querySelector('#seriesInlineVideo');
-    if(!video)return;
-    freezeAtSavedFrame(video,entry.position);
-    const season=String(entry.season??'');
-    if(season){
-      const option=[...el.detailBody.querySelectorAll('[data-season]')].find(b=>String(b.dataset.season)===season);
-      option?.click();
-    }
-    const episodeNo=String(entry.episodeNumber??'').trim();
-    let row=null;
-    if(episodeNo){
-      row=[...el.detailBody.querySelectorAll('.episode')].find(r=>{
-        const t=r.querySelector('.episode__title')?.textContent||'';
-        return new RegExp('Epis[oó]dio\\s+'+episodeNo+'(?:\\D|$)','i').test(t);
-      });
-    }
-    row=row||el.detailBody.querySelector('.episode');
-    row?.click();
+    const release=beginResumeGate();
+    try{
+      await openSeries(item);
+      const season=String(entry.season??'');
+      if(season){
+        const option=[...el.detailBody.querySelectorAll('[data-season]')].find(b=>String(b.dataset.season)===season);
+        option?.click();
+      }
+      const episodeNo=String(entry.episodeNumber??'').trim();
+      let row=null;
+      if(episodeNo){
+        row=[...el.detailBody.querySelectorAll('.episode')].find(r=>{
+          const t=r.querySelector('.episode__title')?.textContent||'';
+          return new RegExp('Epis[oó]dio\\s+'+episodeNo+'(?:\\D|$)','i').test(t);
+        });
+      }
+      row=row||el.detailBody.querySelector('.episode');
+      if(!row){release();return}
+      row.click();
+      const video=el.detailBody.querySelector('#seriesInlineVideo');
+      if(!video){release();return}
+      await waitForSavedFrame(video,entry.position);
+    }finally{release()}
   }
+
   async function openContinueEntry(entry,type){
     if(!entry)return;
     if(type==='series')return openContinueSeries(entry);
