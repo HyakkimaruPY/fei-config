@@ -64,12 +64,19 @@
         img.className='short-card__image';
         img.alt='';
         img.decoding='async';
-        let settled=false;
-        const done=async ok=>{
-          if(settled)return;
-          settled=true;
-          if(ok){try{await img.decode?.()}catch{}}
+        let committed=false,slotReleased=false;
+        const releaseSlot=()=>{
+          if(slotReleased)return;
+          slotReleased=true;
           loader.active=Math.max(0,loader.active-1);
+          pump();
+        };
+        const timeout=setTimeout(releaseSlot,2500);
+        const done=async ok=>{
+          if(committed)return;
+          committed=true;
+          clearTimeout(timeout);
+          if(ok){try{await img.decode?.()}catch{}}
           if(!loader.cancelled&&state.srhCoverLoader===loader&&card.isConnected){
             if(ok){
               card.appendChild(img);
@@ -78,7 +85,7 @@
               card.classList.add('is-cover-error');
             }
           }
-          pump();
+          releaseSlot();
         };
         img.onload=()=>done(true);
         img.onerror=()=>done(false);
