@@ -1,10 +1,10 @@
 {
   "revision": "r23-5de9458e209d5ab6",
-  "generatedAt": "2026-09-18T11:48:42.678Z",
+  "generatedAt": "2026-09-18T11:48:58.424Z",
   "diagnosticBaseline": {
     "standard": "46b9cd4-pre-aura"
   },
-  "standardLayer": "lite-ui-r3-modal-skeletons",
+  "standardLayer": "lite-ui-r4-favorites-flow-60s",
   "standard": {
     "js": "standard.js",
     "css": "standard.css"
