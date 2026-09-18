@@ -1,5 +1,7 @@
-/* SRHELL Shorts R24 — atomic-cover feed + poster-first player patch. */
-(function installR24FeedPlayerFix(){
+/* SRHELL Shorts R24 — clean normal-flow renderer.
+   Feed DOM is created once. No scroll virtualization, no IntersectionObserver,
+   no lazy images and no card replacement during scrolling. */
+(function installR24CleanRenderer(){
   const frame=el.shortVideo?.closest('.short-player__frame')||document.getElementById('shortFrame');
   const poster=document.createElement('div');
   poster.className='srh-r24-poster is-hidden';
@@ -40,102 +42,98 @@
     el.shortVideo.addEventListener('playing',hide,{once:true});
   }
 
-  function destroyCoverLoader(){
+  function stopCoverLoader(){
     const loader=state.srhCoverLoader;
-    if(loader?.observer)loader.observer.disconnect();
+    if(loader)loader.cancelled=true;
     state.srhCoverLoader=null;
   }
-  function pumpCoverQueue(loader){
-    if(state.srhCoverLoader!==loader)return;
-    while(loader.active<3&&loader.queue.length){
-      const card=loader.queue.shift();
-      if(!card?.isConnected||card.dataset.coverState==='done')continue;
-      const src=card.dataset.coverSrc||'';
-      if(!src){card.classList.add('is-cover-error');card.dataset.coverState='done';continue}
-      loader.active++;
-      card.dataset.coverState='loading';
-      const img=new Image();
-      img.className='short-card__image';
-      img.alt='';
-      img.decoding='async';
-      let settled=false;
-      const finish=async ok=>{
-        if(settled)return;
-        settled=true;
-        try{if(ok)await img.decode?.()}catch{}
-        loader.active=Math.max(0,loader.active-1);
-        if(state.srhCoverLoader===loader&&card.isConnected){
-          if(ok){
-            card.appendChild(img);
-            card.classList.add('is-cover-ready');
-          }else{
-            card.classList.add('is-cover-error');
-          }
-          card.dataset.coverState='done';
-        }
-        pumpCoverQueue(loader);
-      };
-      img.onload=()=>finish(true);
-      img.onerror=()=>finish(false);
-      img.src=src;
-    }
-  }
-  function queueCover(loader,card){
-    if(state.srhCoverLoader!==loader||!card||card.dataset.coverState)return;
-    card.dataset.coverState='queued';
-    loader.queue.push(card);
-    pumpCoverQueue(loader);
-  }
-  function installCoverLoader(cards){
-    destroyCoverLoader();
-    const loader={queue:[],active:0,observer:null};
+  function startCoverLoader(cards){
+    stopCoverLoader();
+    const loader={cards:[...cards],next:0,active:0,cancelled:false};
     state.srhCoverLoader=loader;
-    loader.observer=new IntersectionObserver(entries=>{
-      for(const entry of entries){
-        if(!entry.isIntersecting)continue;
-        loader.observer.unobserve(entry.target);
-        queueCover(loader,entry.target);
+
+    const pump=()=>{
+      if(loader.cancelled||state.srhCoverLoader!==loader)return;
+      while(loader.active<3&&loader.next<loader.cards.length){
+        const card=loader.cards[loader.next++];
+        if(!card?.isConnected)continue;
+        const src=card.dataset.coverSrc||'';
+        if(!src){card.classList.add('is-cover-error');continue}
+        loader.active++;
+        const img=new Image();
+        img.className='short-card__image';
+        img.alt='';
+        img.decoding='async';
+        let settled=false;
+        const done=async ok=>{
+          if(settled)return;
+          settled=true;
+          if(ok){try{await img.decode?.()}catch{}}
+          loader.active=Math.max(0,loader.active-1);
+          if(!loader.cancelled&&state.srhCoverLoader===loader&&card.isConnected){
+            if(ok){
+              card.appendChild(img);
+              card.classList.add('is-cover-ready');
+            }else{
+              card.classList.add('is-cover-error');
+            }
+          }
+          pump();
+        };
+        img.onload=()=>done(true);
+        img.onerror=()=>done(false);
+        img.src=src;
       }
-    },{root:el.feedScroller,rootMargin:'320px 0px',threshold:.01});
-    cards.forEach(card=>loader.observer.observe(card));
-    cards.slice(0,Math.min(6,cards.length)).forEach(card=>{
-      loader.observer.unobserve(card);
-      queueCover(loader,card);
-    });
+    };
+    pump();
   }
 
-  /* One persistent DOM tree. Scroll never replaces cards. Each card owns a
-     permanent fixed-size placeholder; only a fully decoded image is appended. */
   renderGrid=function(force=false){
     const items=currentShortItems();
     if(!items.length){
-      destroyCoverLoader();
+      stopCoverLoader();
       state.srhFlowSig='';
-      el.feedSpacer.classList.remove('srh-r24-flow');
+      el.feedSpacer.className='feed-spacer';
       el.feedSpacer.style.height='auto';
       el.feedSpacer.innerHTML='<div class="skeleton">Nenhum Short encontrado.</div>';
       return;
     }
+
     const sig=(state.filteredItems?'f:':'a:')+items.length+':'+itemId(items[0])+':'+itemId(items[items.length-1])+':'+(state.filteredItems?el.search.value:'');
-    if(sig===state.srhFlowSig&&el.feedSpacer.children.length)return;
+    if(sig===state.srhFlowSig&&el.feedSpacer.querySelector('.short-card'))return;
+
     state.srhFlowSig=sig;
     state.gridSig=sig;
     state.probeWanted=new Set();
     state.probeQueue=[];
+    state.probeQueued=new Set();
+    state.probeActive=0;
+
     const hmap=new Map(history().map(x=>[String(x.streamId),x]));
-    el.feedSpacer.classList.add('srh-r24-flow');
+    el.feedSpacer.className='feed-spacer srh-r24-flow';
     el.feedSpacer.style.height='auto';
     el.feedSpacer.innerHTML=items.map((item,idx)=>{
-      const id=itemId(item),sec=durationFor(item),count=arcCount(sec),h=hmap.get(id),pct=h?.duration?Math.min(100,h.position/h.duration*100):0,img=itemImage(item)||'';
+      const id=itemId(item);
+      const sec=durationFor(item);
+      const count=arcCount(sec);
+      const h=hmap.get(id);
+      const pct=h?.duration?Math.min(100,h.position/h.duration*100):0;
+      const img=itemImage(item)||'';
       return `<article class="short-card" data-index="${idx}" data-stream-id="${escapeHtml(id)}" data-cover-src="${escapeHtml(img)}"><div class="srh-r24-card-placeholder"></div><div class="arc-badge">${count?count+' arco'+(count>1?'s':''):'…'}</div>${pct>0?`<div class="card-progress"><span style="width:${pct}%"></span></div>`:''}</article>`;
     }).join('');
-    const cards=[...el.feedSpacer.querySelectorAll('[data-index]')];
-    cards.forEach(card=>card.onclick=()=>openShort(items[Number(card.dataset.index)],0));
-    installCoverLoader(cards);
+
+    const cards=[...el.feedSpacer.querySelectorAll('.short-card')];
+    cards.forEach(card=>{
+      card.onclick=()=>openShort(items[Number(card.dataset.index)],0);
+    });
+    startCoverLoader(cards);
   };
 
-  /* Faster failover for media sources. A bad source can no longer keep the
-     loading poster spinning indefinitely before the next candidate is tried. */
+  /* Disable the historical duration probe scheduler for feed cards. */
+  setProbeWindow=function(){state.probeWanted=new Set();state.probeQueue=[]};
+  queueDurationProbe=function(){};
+  runProbeQueue=function(){};
+
   attachCandidates=function(candidates,onReady,onError){
     let queue=uniqueMediaUrls(candidates);
     if(location.protocol==='https:')queue.sort((a,b)=>Number(/^https:/i.test(b))-Number(/^https:/i.test(a)));
@@ -210,7 +208,7 @@
     state.current=null;
     await Promise.race([
       Promise.resolve(leavePortraitFullscreen()).catch(()=>{}),
-      new Promise(resolve=>setTimeout(resolve,500))
+      new Promise(resolve=>setTimeout(resolve,450))
     ]);
     el.shortPlayer.classList.add('is-hidden');
     poster.classList.add('is-hidden');
