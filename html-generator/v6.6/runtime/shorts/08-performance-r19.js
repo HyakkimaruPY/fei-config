@@ -17,8 +17,17 @@ function srhR19Metrics(){
 }
 function srhR19RevealImage(img){
   if(!img||img.dataset.revealed==='1')return;
-  const done=()=>{if(!img.isConnected)return;img.dataset.revealed='1';img.classList.add('is-loaded')};
-  if(typeof img.decode==='function')img.decode().catch(()=>{}).finally(done);else done();
+  const done=()=>{
+    if(!img.isConnected||img.dataset.revealed==='1')return;
+    img.dataset.revealed='1';
+    img.classList.add('is-loaded');
+  };
+  if(typeof img.decode==='function'){
+    let settled=false;
+    const finish=()=>{if(settled)return;settled=true;done()};
+    img.decode().catch(()=>{}).finally(finish);
+    setTimeout(finish,2500);
+  }else done();
 }
 function srhR19CreateCard(item,idx,m,hmap){
   const id=itemId(item),sec=durationFor(item),count=arcCount(sec),h=hmap.get(id),pct=h?.duration?Math.min(100,h.position/h.duration*100):0;
@@ -31,7 +40,15 @@ function srhR19CreateCard(item,idx,m,hmap){
   badge.textContent=count?count+' arco'+(count>1?'s':''):'…';
   if(pct>0){progress.classList.remove('is-hidden');fill.style.transform=`scaleX(${pct/100})`}
   img.addEventListener('load',()=>srhR19RevealImage(img),{passive:true});
+  img.addEventListener('error',()=>{
+    if(img.dataset.fallback!=='1'){
+      img.dataset.fallback='1';
+      img.src=IMAGE_PLACEHOLDER;
+    }
+    srhR19RevealImage(img);
+  },{passive:true});
   img.src=itemImage(item)||IMAGE_PLACEHOLDER;
+  setTimeout(()=>srhR19RevealImage(img),2500);
   card.onclick=()=>{const items=currentShortItems(),current=items[Number(card.dataset.index)];if(current)openShort(current,0)};
   srhR19PositionCard(card,idx,m);
   return card;
@@ -42,6 +59,7 @@ function srhR19PositionCard(card,idx,m){
   card.style.top=(row*m.rowH)+'px';
   card.style.width=m.cardW+'px';
   card.style.height=(m.cardW*1.5)+'px';
+  card.style.zIndex=String(idx+1);
 }
 function srhR19ClearGrid(){
   for(const node of srhR19Grid.nodes.values())node.remove();
