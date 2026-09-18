@@ -260,9 +260,9 @@
   const baseCardDataImage=cardDataImage;
   cardDataImage=function(item,type){return item?.__tmdbPoster||baseCardDataImage(item,type)};
 
-  function queueCover(item,type,img){
+  function queueCover(item,type,img,force=false){
     if(!item||!img||!['vod','series'].includes(type))return;
-    if(baseCardDataImage(item,type))return;
+    if(!force&&baseCardDataImage(item,type))return;
     const key=type+':'+String(itemId(item,type)||itemTitle(item));
     if(item.__tmdbPoster||coverQueued.has(key))return;
     coverQueued.add(key);
@@ -286,14 +286,26 @@
     if(!v||!['vod','series'].includes(v.type))return;
     v.track.querySelectorAll('[data-index]').forEach(card=>{
       const idx=Number(card.dataset.index),item=v.items[idx],img=card.querySelector('img');
-      if(item&&img)queueCover(item,v.type,img);
+      if(item&&img){
+        queueCover(item,v.type,img,img.classList.contains('image-fallback'));
+        if(img.dataset.tmdbErrorHook!=='1'){
+          img.dataset.tmdbErrorHook='1';
+          img.addEventListener('error',()=>queueCover(item,v.type,img,true),{once:true});
+        }
+      }
     });
   }
   function inspectGrid(v){
     if(!v||!['vod','series'].includes(v.type))return;
     v.spacer.querySelectorAll('[data-index]').forEach(card=>{
       const idx=Number(card.dataset.index),item=v.items[idx],img=card.querySelector('img');
-      if(item&&img)queueCover(item,v.type,img);
+      if(item&&img){
+        queueCover(item,v.type,img,img.classList.contains('image-fallback'));
+        if(img.dataset.tmdbErrorHook!=='1'){
+          img.dataset.tmdbErrorHook='1';
+          img.addEventListener('error',()=>queueCover(item,v.type,img,true),{once:true});
+        }
+      }
     });
   }
   const tmdbRailRender=RailVirtualizer.prototype.render;
