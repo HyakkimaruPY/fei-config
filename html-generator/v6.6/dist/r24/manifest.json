@@ -1,8 +1,9 @@
 {
-  "revision": "r24-b77173ad405985b4",
-  "generatedAt": "2026-09-18T11:01:48.030Z",
+  "revision": "r24-ea79c12483e68bab",
+  "generatedAt": "2026-09-18T11:02:59.271Z",
   "sourceCommit": "aefc61c6f386b16ac321df3a3c697baf3335c193",
-  "architecture": "historical-modular-core",
+  "architecture": "historical-modular-core+stable-feed-player",
+  "stableFeedPatch": "poster-flow-v1",
   "arcSeconds": 120,
   "css": "shorts.css",
   "js": "shorts.js"
