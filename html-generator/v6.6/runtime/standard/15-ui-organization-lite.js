@@ -8,8 +8,48 @@
   const STAR='<svg class="srh-lite-icon srh-lite-icon--star" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.8l2.52 5.1 5.63.82-4.08 3.97.96 5.61L12 16.65 6.97 19.3l.96-5.61L3.85 9.72l5.63-.82L12 3.8z"/></svg>';
   const TRASH='<svg class="srh-lite-icon srh-lite-icon--trash" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8.2v9.1M12 8.2v9.1M16 8.2v9.1M5.5 6.1h13M9 4.3h6l.7 1.8H8.3L9 4.3zM6.7 6.1l.7 13.2h9.2l.7-13.2"/></svg>';
 
-  function readFavorites(){try{const v=JSON.parse(localStorage.getItem(FAVORITES_KEY)||'[]');return Array.isArray(v)?v:[]}catch{return[]}}
-  function writeFavorites(list){try{localStorage.setItem(FAVORITES_KEY,JSON.stringify(list.slice(0,160)));return true}catch{return false}}
+  const FAVORITES_MEMORY_KEY='__srhFavorites_'+APP_NS;
+  function readFavorites(){
+    try{
+      const raw=localStorage.getItem(FAVORITES_KEY);
+      if(raw!==null){
+        const v=JSON.parse(raw||'[]');
+        if(Array.isArray(v)){window[FAVORITES_MEMORY_KEY]=v;return v}
+      }
+    }catch{}
+    try{
+      const raw=sessionStorage.getItem(FAVORITES_KEY);
+      if(raw!==null){
+        const v=JSON.parse(raw||'[]');
+        if(Array.isArray(v)){window[FAVORITES_MEMORY_KEY]=v;return v}
+      }
+    }catch{}
+    return Array.isArray(window[FAVORITES_MEMORY_KEY])?window[FAVORITES_MEMORY_KEY]:[];
+  }
+  function clearDisposableStorage(){
+    try{
+      for(let i=localStorage.length-1;i>=0;i--){
+        const k=localStorage.key(i)||'';
+        if(/^srhell:tmdb:cache:/i.test(k))localStorage.removeItem(k);
+      }
+    }catch{}
+  }
+  function writeFavorites(list){
+    const compact=list.slice(0,160),raw=JSON.stringify(compact);
+    window[FAVORITES_MEMORY_KEY]=compact;
+    try{
+      localStorage.setItem(FAVORITES_KEY,raw);
+      return true;
+    }catch(e){
+      const quota=e?.name==='QuotaExceededError'||e?.name==='NS_ERROR_DOM_QUOTA_REACHED'||e?.code===22||e?.code===1014;
+      if(quota){
+        clearDisposableStorage();
+        try{localStorage.setItem(FAVORITES_KEY,raw);return true}catch{}
+      }
+      try{sessionStorage.setItem(FAVORITES_KEY,raw);return true}catch{}
+      return false;
+    }
+  }
   function favoriteKey(type,item){
     if(type==='live'){
       const id=item?.variants?.[0]?.stream_id||item?.variants?.[0]?.id||'';
