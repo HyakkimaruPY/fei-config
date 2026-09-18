@@ -126,7 +126,7 @@
       const h=hmap.get(id);
       const pct=h?.duration?Math.min(100,h.position/h.duration*100):0;
       const img=itemImage(item)||'';
-      return `<article class="short-card" data-index="${idx}" data-stream-id="${escapeHtml(id)}" data-cover-src="${escapeHtml(img)}"><div class="srh-r24-card-placeholder"></div><div class="arc-badge">${count?count+' arco'+(count>1?'s':''):'…'}</div>${pct>0?`<div class="card-progress"><span style="width:${pct}%"></span></div>`:''}</article>`;
+      return `<article class="short-card" data-index="${idx}" data-stream-id="${escapeHtml(id)}" data-cover-src="${escapeHtml(img)}" aria-label="${escapeHtml(itemTitle(item)||'Short')}"></article>`;
     }).join('');
 
     const cards=[...el.feedSpacer.querySelectorAll('.short-card')];
