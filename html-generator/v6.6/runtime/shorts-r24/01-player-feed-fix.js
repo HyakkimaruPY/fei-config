@@ -1,4 +1,4 @@
-/* SRHELL Shorts R24 — stable feed + poster-first player patch. */
+/* SRHELL Shorts R24 — atomic-cover feed + poster-first player patch. */
 (function installR24FeedPlayerFix(){
   const frame=el.shortVideo?.closest('.short-player__frame')||document.getElementById('shortFrame');
   const poster=document.createElement('div');
@@ -10,10 +10,18 @@
 
   function showPoster(item){
     const src=itemImage(item)||IMAGE_PLACEHOLDER;
-    posterToken++;
+    const token=++posterToken;
     poster.classList.remove('is-hidden','is-ready');
-    posterImg.dataset.fallback='';
-    posterImg.src=src;
+    posterImg.removeAttribute('src');
+    const preload=new Image();
+    preload.decoding='async';
+    preload.onload=async()=>{
+      try{await preload.decode?.()}catch{}
+      if(token!==posterToken)return;
+      posterImg.src=src;
+    };
+    preload.onerror=()=>{if(token===posterToken)posterImg.src=IMAGE_PLACEHOLDER};
+    preload.src=src;
   }
   function armFirstFrame(){
     const token=posterToken;
@@ -32,11 +40,76 @@
     el.shortVideo.addEventListener('playing',hide,{once:true});
   }
 
-  /* Static CSS grid: no innerHTML replacement while the user scrolls.
-     Browser-native lazy images now handle the feed. */
+  function destroyCoverLoader(){
+    const loader=state.srhCoverLoader;
+    if(loader?.observer)loader.observer.disconnect();
+    state.srhCoverLoader=null;
+  }
+  function pumpCoverQueue(loader){
+    if(state.srhCoverLoader!==loader)return;
+    while(loader.active<3&&loader.queue.length){
+      const card=loader.queue.shift();
+      if(!card?.isConnected||card.dataset.coverState==='done')continue;
+      const src=card.dataset.coverSrc||'';
+      if(!src){card.classList.add('is-cover-error');card.dataset.coverState='done';continue}
+      loader.active++;
+      card.dataset.coverState='loading';
+      const img=new Image();
+      img.className='short-card__image';
+      img.alt='';
+      img.decoding='async';
+      let settled=false;
+      const finish=async ok=>{
+        if(settled)return;
+        settled=true;
+        try{if(ok)await img.decode?.()}catch{}
+        loader.active=Math.max(0,loader.active-1);
+        if(state.srhCoverLoader===loader&&card.isConnected){
+          if(ok){
+            card.appendChild(img);
+            card.classList.add('is-cover-ready');
+          }else{
+            card.classList.add('is-cover-error');
+          }
+          card.dataset.coverState='done';
+        }
+        pumpCoverQueue(loader);
+      };
+      img.onload=()=>finish(true);
+      img.onerror=()=>finish(false);
+      img.src=src;
+    }
+  }
+  function queueCover(loader,card){
+    if(state.srhCoverLoader!==loader||!card||card.dataset.coverState)return;
+    card.dataset.coverState='queued';
+    loader.queue.push(card);
+    pumpCoverQueue(loader);
+  }
+  function installCoverLoader(cards){
+    destroyCoverLoader();
+    const loader={queue:[],active:0,observer:null};
+    state.srhCoverLoader=loader;
+    loader.observer=new IntersectionObserver(entries=>{
+      for(const entry of entries){
+        if(!entry.isIntersecting)continue;
+        loader.observer.unobserve(entry.target);
+        queueCover(loader,entry.target);
+      }
+    },{root:el.feedScroller,rootMargin:'320px 0px',threshold:.01});
+    cards.forEach(card=>loader.observer.observe(card));
+    cards.slice(0,Math.min(6,cards.length)).forEach(card=>{
+      loader.observer.unobserve(card);
+      queueCover(loader,card);
+    });
+  }
+
+  /* One persistent DOM tree. Scroll never replaces cards. Each card owns a
+     permanent fixed-size placeholder; only a fully decoded image is appended. */
   renderGrid=function(force=false){
     const items=currentShortItems();
     if(!items.length){
+      destroyCoverLoader();
       state.srhFlowSig='';
       el.feedSpacer.classList.remove('srh-r24-flow');
       el.feedSpacer.style.height='auto';
@@ -47,15 +120,18 @@
     if(sig===state.srhFlowSig&&el.feedSpacer.children.length)return;
     state.srhFlowSig=sig;
     state.gridSig=sig;
+    state.probeWanted=new Set();
+    state.probeQueue=[];
     const hmap=new Map(history().map(x=>[String(x.streamId),x]));
     el.feedSpacer.classList.add('srh-r24-flow');
     el.feedSpacer.style.height='auto';
     el.feedSpacer.innerHTML=items.map((item,idx)=>{
-      const id=itemId(item),sec=durationFor(item),count=arcCount(sec),h=hmap.get(id),pct=h?.duration?Math.min(100,h.position/h.duration*100):0,img=itemImage(item)||IMAGE_PLACEHOLDER;
-      return `<article class="short-card" data-index="${idx}" data-stream-id="${escapeHtml(id)}"><img class="short-card__image" src="${escapeHtml(img)}" alt="" loading="lazy" decoding="async"><div class="arc-badge">${count?count+' arco'+(count>1?'s':''):'…'}</div>${pct>0?`<div class="card-progress"><span style="width:${pct}%"></span></div>`:''}</article>`;
+      const id=itemId(item),sec=durationFor(item),count=arcCount(sec),h=hmap.get(id),pct=h?.duration?Math.min(100,h.position/h.duration*100):0,img=itemImage(item)||'';
+      return `<article class="short-card" data-index="${idx}" data-stream-id="${escapeHtml(id)}" data-cover-src="${escapeHtml(img)}"><div class="srh-r24-card-placeholder"></div><div class="arc-badge">${count?count+' arco'+(count>1?'s':''):'…'}</div>${pct>0?`<div class="card-progress"><span style="width:${pct}%"></span></div>`:''}</article>`;
     }).join('');
-    el.feedSpacer.querySelectorAll('[data-index]').forEach(card=>card.onclick=()=>openShort(items[Number(card.dataset.index)],0));
-    setProbeWindow(items.slice(0,Math.min(12,items.length)));
+    const cards=[...el.feedSpacer.querySelectorAll('[data-index]')];
+    cards.forEach(card=>card.onclick=()=>openShort(items[Number(card.dataset.index)],0));
+    installCoverLoader(cards);
   };
 
   /* Faster failover for media sources. A bad source can no longer keep the
@@ -132,7 +208,6 @@
     destroyHls();
     el.arcDrawer.classList.add('is-hidden');
     state.current=null;
-    /* The feed was never destroyed, so reveal it only after fullscreen exits. */
     await Promise.race([
       Promise.resolve(leavePortraitFullscreen()).catch(()=>{}),
       new Promise(resolve=>setTimeout(resolve,500))
