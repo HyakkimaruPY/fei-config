@@ -1,9 +1,10 @@
 /* SRHELL Shorts R19 — lighter feed/player + Aura bottom sheet */
 @media (pointer:coarse){body{background-attachment:scroll!important}}
 .feed-spacer{contain:strict!important}
-.short-card{content-visibility:visible!important;contain:layout paint style!important;will-change:auto!important;transition:border-color .12s ease!important}
-.short-card__image{content-visibility:visible!important;opacity:0;transition:opacity .12s ease;background:var(--surface-2)!important}
-.short-card__image.is-loaded{opacity:1}
+.short-card{content-visibility:visible!important;contain:layout paint style!important;isolation:isolate!important;will-change:auto!important;transition:border-color .12s ease!important}
+.short-card__image{position:relative;z-index:1;content-visibility:visible!important;opacity:0;transition:opacity .12s ease;background:var(--surface-2)!important}
+.short-card__image.is-loaded{opacity:1!important}
+.short-card__shade,.arc-badge,.card-progress{z-index:2}
 .card-progress span{width:100%!important;transform-origin:0 50%;will-change:transform}
 body.srh-r19-playing .feed-spacer{visibility:hidden!important}
 body.srh-r19-playing .feed-shell{contain:strict}
