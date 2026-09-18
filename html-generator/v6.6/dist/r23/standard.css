@@ -316,56 +316,140 @@ body{font-family:var(--font-ui);font-weight:var(--font-weight-ui);background:var
 }
 
 /* ===== runtime/standard/13-tmdb-enrichment.css ===== */
-/* TMDB enrichment — visual fallbacks for Standard details/cards. */
-.srh-tmdb-logo-box{
-  width:100%;
-  max-width:440px;
-  height:56px;
+/* TMDB enrichment — art branding + provider fallback.
+   Movie/series title branding lives only in the lower-left art quadrant. */
+
+.detail-art{position:relative}
+
+/* Lower-left quadrant reserved for the clean logo / textual fallback. */
+.srh-art-brand{
+  position:absolute;
+  z-index:4;
+  left:0;
+  bottom:0;
+  width:50%;
+  height:50%;
   display:flex;
-  align-items:center;
+  align-items:flex-end;
   justify-content:flex-start;
+  padding:8px 8px 9px 10px;
   overflow:hidden;
-  margin:2px 0 8px;
   pointer-events:none;
+  background:
+    radial-gradient(ellipse at 17% 92%,rgba(0,0,0,.72) 0,rgba(0,0,0,.47) 38%,rgba(0,0,0,.16) 67%,transparent 82%);
 }
-.srh-tmdb-logo-box img{
+.srh-art-brand img{
   display:block;
-  max-width:100%;
-  max-height:100%;
   width:auto;
   height:auto;
+  max-width:92%;
+  max-height:60%;
   object-fit:contain;
-  object-position:left center;
+  object-position:left bottom;
   transform:none!important;
+  transform-origin:left bottom!important;
   filter:none;
 }
-.srh-tmdb-logo-box.srh-logo-flare-light img{
-  filter:drop-shadow(0 0 2px rgba(255,255,255,.78)) drop-shadow(0 0 7px rgba(255,255,255,.34))!important;
+.srh-art-brand.is-square img{
+  max-width:88%;
+  max-height:88%;
 }
-.srh-tmdb-logo-box.srh-logo-flare-dark img{
-  filter:drop-shadow(0 0 2px rgba(0,0,0,.82)) drop-shadow(0 0 7px rgba(0,0,0,.38))!important;
+.srh-art-brand.is-compact img{
+  max-width:90%;
+  max-height:78%;
 }
-.detail-title-row.has-tmdb-logo .detail-title{
-  position:absolute!important;
-  width:1px!important;
-  height:1px!important;
-  overflow:hidden!important;
-  clip:rect(0 0 0 0)!important;
-  clip-path:inset(50%)!important;
-  white-space:nowrap!important;
+.srh-art-brand.srh-logo-flare-light img{
+  filter:drop-shadow(0 0 2px rgba(255,255,255,.88)) drop-shadow(0 0 7px rgba(255,255,255,.36))!important;
 }
-.detail-title-row.has-tmdb-logo .srh-tmdb-logo-box{
-  flex:1 1 auto;
-  min-width:0;
+.srh-art-brand.srh-logo-flare-dark img{
+  filter:drop-shadow(0 0 2px rgba(0,0,0,.9)) drop-shadow(0 0 7px rgba(0,0,0,.44))!important;
+}
+.detail-art.is-playing .srh-art-brand,
+.detail-art.srh-media-active .srh-art-brand{
+  display:none!important;
+}
+
+/* Textual pseudo-logo when TMDB has no clean logo. */
+.srh-art-brand__fallback{
+  pointer-events:auto;
+  max-width:9.5ch;
+  max-height:82%;
   margin:0;
+  padding:0;
+  border:0;
+  background:transparent;
+  color:#f2f0e8;
+  text-align:left;
+  white-space:normal;
+  overflow:hidden;
+  font-family:Georgia,"Times New Roman",serif;
+  font-size:clamp(18px,4.4vw,34px);
+  font-weight:800;
+  font-style:italic;
+  line-height:.9;
+  letter-spacing:-.045em;
+  text-shadow:0 2px 5px rgba(0,0,0,.9),0 0 12px rgba(0,0,0,.66);
+  cursor:pointer;
 }
+.srh-full-title-reveal{
+  margin:4px 1px 0;
+  color:var(--text);
+  font-family:Georgia,"Times New Roman",serif;
+  font-size:14px;
+  font-weight:800;
+  line-height:1.18;
+}
+.srh-full-title-reveal.is-hidden{display:none!important}
+
+/* Film: logo/fallback replaces the ordinary title row. */
+.detail-modal.is-vod.srh-branded-detail .detail-title-row{
+  display:none!important;
+}
+.detail-modal.is-vod.srh-branded-detail .synopsis{
+  margin-top:3px!important;
+}
+
+/* Series: title row also disappears; favorite/trash move beside Temporada. */
+.detail-modal.is-series.srh-branded-detail .detail-title-row{
+  display:none!important;
+}
+.detail-modal.is-series .season-box.srh-season-actions{
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) auto!important;
+  gap:8px!important;
+  align-items:center!important;
+}
+.detail-modal.is-series .season-box.srh-season-actions>.season-trigger{
+  grid-column:1!important;
+  min-width:0!important;
+}
+.detail-modal.is-series .srh-series-season-actions{
+  grid-column:2!important;
+  display:flex!important;
+  align-items:center!important;
+  gap:7px!important;
+}
+.detail-modal.is-series .srh-series-season-actions .srh-lite-action{
+  margin:0!important;
+}
+.detail-modal.is-series .season-box.srh-season-actions>.season-menu{
+  grid-column:1/-1!important;
+  width:100%!important;
+  margin-top:0!important;
+}
+
+/* TMDB fallbacks for cards and episode stills. */
 .poster-card__image.srh-tmdb-cover,
 .grid-card img.srh-tmdb-cover,
 .episode__thumb.srh-tmdb-still{
   opacity:1!important;
   visibility:visible!important;
 }
+
 @media(max-width:680px){
-  .srh-tmdb-logo-box{height:46px;max-width:72vw;margin-bottom:7px}
-  .detail-title-row.has-tmdb-logo .srh-tmdb-logo-box{max-width:calc(100% - 92px)}
+  .srh-art-brand{padding:6px 7px 7px 8px}
+  .srh-art-brand__fallback{font-size:clamp(17px,6vw,27px);max-width:8.8ch}
+  .srh-full-title-reveal{font-size:13px}
+  .detail-modal.is-series .season-box.srh-season-actions{gap:6px!important}
+  .detail-modal.is-series .srh-series-season-actions{gap:5px!important}
 }
