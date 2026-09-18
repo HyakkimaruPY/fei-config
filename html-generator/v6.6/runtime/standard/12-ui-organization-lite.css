@@ -6,12 +6,14 @@
 .poster-card__image,.grid-card img{aspect-ratio:auto!important;object-fit:cover}
 .poster-card--live .poster-card__image,.grid-card--live img{object-fit:contain!important;padding:8%!important;background:var(--surface-2)!important}
 
-/* Remove the old invisible tail below every cover row. */
-.rail-section{margin-bottom:12px!important}
-.rail-head{margin-bottom:7px!important}
-.rail-body,.rail-track{margin:0!important;padding:0!important}
-.rail-viewport{padding-bottom:0!important}
-.rail-track{display:block!important}
+/* Remove the legacy 218px rail-body floor that creates the large invisible
+   block below shorter cards. This is the same principle as the old spacing fix. */
+.rail-section{margin-bottom:16px!important}
+.rail-head{margin-bottom:8px!important}
+.rail-body{min-height:0!important;margin:0!important;padding:0!important}
+.rail-body>.media-loader,.rail-body>.skeleton{min-height:160px}
+.rail-body>.rail-viewport{min-height:0!important;height:auto!important;padding-bottom:0!important}
+.rail-track{display:block!important;margin:0!important;padding:0!important}
 
 /* Detail modal: remove duplicated header title and keep only a floating close control. */
 .detail-modal{position:relative}
@@ -34,12 +36,52 @@
 .srh-lite-action--favorite.is-active{color:#e7ca78;border-color:color-mix(in srgb,#e7ca78 62%,var(--line));background:color-mix(in srgb,#e7ca78 12%,var(--surface-2))}
 .srh-lite-action--favorite.is-active .srh-lite-icon--star path{fill:currentColor;stroke:currentColor}
 .srh-lite-action--trash{color:var(--danger,#d76f78)}
-.srh-lite-film-actions{display:flex;align-items:center;gap:8px;margin-top:10px}
-.srh-lite-film-actions .watch-button{margin-left:auto;min-height:42px}
+.srh-lite-film-actions{display:flex;align-items:center;justify-content:flex-end;gap:8px;margin-top:10px}
+.srh-lite-film-actions .srh-lite-actions{margin-left:auto}
+.srh-lite-film-actions .watch-button{margin-left:0!important;min-height:42px}
 .detail-modal.is-series .detail-title-row,.detail-modal.is-live .detail-title-row{align-items:center!important}
 
 /* The series modal already has its own modal close button. Keep only expand over inline video. */
 #seriesStop{display:none!important}
+
+/* Live modal quality selector: restore the wider/taller reference treatment
+   without importing the full Aura runtime. */
+.detail-modal.is-live .quality-list{
+  width:100%!important;
+  display:grid!important;
+  gap:8px!important;
+  margin:11px 0 0!important;
+  padding:0!important;
+}
+.detail-modal.is-live .quality-row{
+  width:100%!important;
+  min-height:50px!important;
+  display:flex!important;
+  align-items:center!important;
+  gap:12px!important;
+  padding:12px 14px!important;
+  border:1px solid var(--line)!important;
+  border-radius:12px!important;
+  background:color-mix(in srgb,var(--surface) 82%,transparent)!important;
+  text-align:left!important;
+}
+.detail-modal.is-live .quality-row__name{
+  min-width:0!important;
+  flex:1 1 auto!important;
+  font-size:12px!important;
+  font-weight:800!important;
+}
+.detail-modal.is-live .quality-row__quality{
+  flex:0 0 auto!important;
+  min-width:34px!important;
+  padding:5px 7px!important;
+  border-radius:8px!important;
+  background:color-mix(in srgb,var(--accent) 10%,var(--surface-2))!important;
+  color:var(--accent)!important;
+  font-size:10px!important;
+  font-weight:900!important;
+  text-align:center!important;
+}
 
 /* Favorites uses the existing collection/grid machinery instead of an iframe. */
 .srh-favorites-tabs{display:flex;gap:7px;padding:8px 10px;border-bottom:1px solid var(--line);background:var(--bg-elev)}
@@ -52,12 +94,17 @@
 /* Restore the pre-regression series detail behavior: content-sized modal,
    with only the episode region independently scrollable. */
 @media(max-width:680px){
+  .rail-section{margin-bottom:14px!important}
+  .rail-head{margin-bottom:8px!important}
+  .rail-body>.media-loader,.rail-body>.skeleton{min-height:132px}
   .detail-head{top:max(8px,env(safe-area-inset-top));right:8px}
   .detail-scroll{padding:8px}
   .detail-title-row{padding-right:2px}
   .srh-lite-action{width:40px;height:40px;min-width:40px;border-radius:12px}
   .srh-lite-film-actions{margin-top:9px}
   .srh-lite-film-actions .watch-button{min-height:40px;padding-inline:14px}
+  .detail-modal.is-live .quality-list{padding:0 4px 4px!important}
+  .detail-modal.is-live .quality-row{min-height:52px!important;padding:13px 14px!important}
   .srh-favorites-tabs{padding:7px 8px}
 
   .detail-modal.is-series{
