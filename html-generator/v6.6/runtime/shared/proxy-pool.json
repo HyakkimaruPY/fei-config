@@ -1,11 +1,11 @@
 {
-  "revision": "workflow-1789730477",
-  "generatedAt": "2026-09-18T11:21:17Z",
+  "revision": "workflow-1789748891",
+  "generatedAt": "2026-09-18T16:28:11Z",
   "sourceRevision": "2026-09-17-candidates-2",
   "validator": "github-actions-cors-v1.1",
   "probeTarget": "https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6/runtime/shared/proxy-probe.txt",
   "candidateCount": 6,
-  "validCount": 1,
+  "validCount": 2,
   "maxApiFallbacks": 2,
   "proxies": [
     {
@@ -13,11 +13,22 @@
       "name": "CORSProxy Render",
       "template": "https://corsproxy-latest.onrender.com/{rawUrl}",
       "priority": 5,
-      "latencyMs": 332,
+      "latencyMs": 141,
       "successRate": 1.0,
       "lastStatus": 200,
       "corsAllowOrigin": "*",
-      "validatedAt": "2026-09-18T11:20:50Z"
+      "validatedAt": "2026-09-18T16:27:43Z"
+    },
+    {
+      "id": "allorigins-raw",
+      "name": "AllOrigins Raw",
+      "template": "https://api.allorigins.win/raw?url={url}",
+      "priority": 20,
+      "latencyMs": 956,
+      "successRate": 0.667,
+      "lastStatus": 200,
+      "corsAllowOrigin": "https://srhell.local",
+      "validatedAt": "2026-09-18T16:27:54Z"
     }
   ]
 }
