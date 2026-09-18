@@ -314,3 +314,58 @@ body{font-family:var(--font-ui);font-weight:var(--font-weight-ui);background:var
 @media(prefers-reduced-motion:reduce){
   .rail-skeleton-card{animation:none;background-position:0 0,0 0}
 }
+
+/* ===== runtime/standard/13-tmdb-enrichment.css ===== */
+/* TMDB enrichment — visual fallbacks for Standard details/cards. */
+.srh-tmdb-logo-box{
+  width:100%;
+  max-width:440px;
+  height:56px;
+  display:flex;
+  align-items:center;
+  justify-content:flex-start;
+  overflow:hidden;
+  margin:2px 0 8px;
+  pointer-events:none;
+}
+.srh-tmdb-logo-box img{
+  display:block;
+  max-width:100%;
+  max-height:100%;
+  width:auto;
+  height:auto;
+  object-fit:contain;
+  object-position:left center;
+  transform:none!important;
+  filter:none;
+}
+.srh-tmdb-logo-box.srh-logo-flare-light img{
+  filter:drop-shadow(0 0 2px rgba(255,255,255,.78)) drop-shadow(0 0 7px rgba(255,255,255,.34))!important;
+}
+.srh-tmdb-logo-box.srh-logo-flare-dark img{
+  filter:drop-shadow(0 0 2px rgba(0,0,0,.82)) drop-shadow(0 0 7px rgba(0,0,0,.38))!important;
+}
+.detail-title-row.has-tmdb-logo .detail-title{
+  position:absolute!important;
+  width:1px!important;
+  height:1px!important;
+  overflow:hidden!important;
+  clip:rect(0 0 0 0)!important;
+  clip-path:inset(50%)!important;
+  white-space:nowrap!important;
+}
+.detail-title-row.has-tmdb-logo .srh-tmdb-logo-box{
+  flex:1 1 auto;
+  min-width:0;
+  margin:0;
+}
+.poster-card__image.srh-tmdb-cover,
+.grid-card img.srh-tmdb-cover,
+.episode__thumb.srh-tmdb-still{
+  opacity:1!important;
+  visibility:visible!important;
+}
+@media(max-width:680px){
+  .srh-tmdb-logo-box{height:46px;max-width:72vw;margin-bottom:7px}
+  .detail-title-row.has-tmdb-logo .srh-tmdb-logo-box{max-width:calc(100% - 92px)}
+}
