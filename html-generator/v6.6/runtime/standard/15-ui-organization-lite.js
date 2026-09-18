@@ -1,10 +1,10 @@
 /* SRHELL v6.6 — lightweight restoration of later UI organization.
-   This patch deliberately avoids MutationObserver, iframe favorites and extra network work. */
+   No MutationObserver, iframe favorites, extra transport or background network work. */
 (function installLiteUiOrganization(){
   const APP_NS=String(BASE_CONFIG.appId||BASE_CONFIG.appName||'app').replace(/[^a-z0-9_-]/gi,'_');
   const FAVORITES_KEY=`srhell:${APP_NS}:standard:favorites:v1`;
   const STAR='<svg class="srh-lite-icon srh-lite-icon--star" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.8l2.52 5.1 5.63.82-4.08 3.97.96 5.61L12 16.65 6.97 19.3l.96-5.61L3.85 9.72l5.63-.82L12 3.8z"/></svg>';
-  const SHARE='<svg class="srh-lite-icon" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 15.5V4.8M8.2 8.6L12 4.8l3.8 3.8M6.2 12.4H5.1A2.1 2.1 0 0 0 3 14.5v4.4A2.1 2.1 0 0 0 5.1 21h13.8a2.1 2.1 0 0 0 2.1-2.1v-4.4a2.1 2.1 0 0 0-2.1-2.1h-1.1"/></svg>';
+  const TRASH='<svg class="srh-lite-icon srh-lite-icon--trash" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8.2v9.1M12 8.2v9.1M16 8.2v9.1M5.5 6.1h13M9 4.3h6l.7 1.8H8.3L9 4.3zM6.7 6.1l.7 13.2h9.2l.7-13.2"/></svg>';
 
   function readFavorites(){try{const v=JSON.parse(localStorage.getItem(FAVORITES_KEY)||'[]');return Array.isArray(v)?v:[]}catch{return[]}}
   function writeFavorites(list){try{localStorage.setItem(FAVORITES_KEY,JSON.stringify(list.slice(0,160)));return true}catch{return false}}
@@ -33,26 +33,67 @@
     toast(active?'Adicionado aos Favoritos.':'Removido dos Favoritos.');
     return active;
   }
-  function mediaTitle(type,item){return type==='live'?String(item?.baseName||'Canal'):itemTitle(item)}
-  async function shareMedia(type,item){
-    const title=mediaTitle(type,item),text=type==='live'?`Canal: ${title}`:type==='series'?`Série: ${title}`:`Filme: ${title}`;
-    try{
-      if(navigator.share){await navigator.share({title,text});return}
-      if(navigator.clipboard?.writeText){await navigator.clipboard.writeText(text);toast('Título copiado para compartilhar.');return}
-      const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();document.execCommand('copy');ta.remove();toast('Título copiado para compartilhar.');
-    }catch(e){if(e?.name!=='AbortError')toast('Não foi possível compartilhar agora.')}
+
+  function startedEntry(type,item){
+    if(type==='vod'){
+      const key='vod:'+String(item?.stream_id??item?.id??'');
+      return getHistory('vod').find(x=>x.key===key&&Number(x.position)>5&&Number(x.duration)>0)||null;
+    }
+    if(type==='series'){
+      const sid=String(item?.series_id??item?.id??'');
+      return getHistory('series').find(x=>String(x.seriesId??'')===sid&&Number(x.position)>5&&Number(x.duration)>0)||null;
+    }
+    return null;
   }
+  function removeStarted(type,item){
+    if(type==='vod'){
+      const key='vod:'+String(item?.stream_id??item?.id??'');
+      removeHistory(key,'vod');
+      toast('Filme removido de Continuar assistindo.');
+      return;
+    }
+    if(type==='series'){
+      const sid=String(item?.series_id??item?.id??'');
+      try{
+        const next=getHistory('series').filter(x=>String(x.seriesId??'')!==sid);
+        localStorage.setItem(historyKey('series'),JSON.stringify(next));
+      }catch{}
+      renderContinue();
+      toast('Série removida de Continuar assistindo.');
+    }
+  }
+
   function actionButton(kind,type,item){
     const active=kind==='favorite'&&isFavorite(type,item),b=document.createElement('button');
-    b.type='button';b.className='srh-lite-action'+(active?' is-active':'');
-    b.setAttribute('aria-label',kind==='favorite'?(active?'Remover dos favoritos':'Adicionar aos favoritos'):'Compartilhar');
-    b.innerHTML=kind==='favorite'?STAR:SHARE;
-    if(kind==='favorite')b.onclick=e=>{e.stopPropagation();const on=toggleFavorite(type,item);b.classList.toggle('is-active',on);b.setAttribute('aria-label',on?'Remover dos favoritos':'Adicionar aos favoritos')};
-    else b.onclick=e=>{e.stopPropagation();shareMedia(type,item)};
+    b.type='button';b.className='srh-lite-action srh-lite-action--'+kind+(active?' is-active':'');
+    if(kind==='favorite'){
+      b.setAttribute('aria-label',active?'Remover dos favoritos':'Adicionar aos favoritos');
+      b.innerHTML=STAR;
+      b.onclick=e=>{
+        e.stopPropagation();
+        const on=toggleFavorite(type,item);
+        b.classList.toggle('is-active',on);
+        b.setAttribute('aria-label',on?'Remover dos favoritos':'Adicionar aos favoritos');
+      };
+    }else{
+      b.setAttribute('aria-label','Remover de Continuar assistindo');
+      b.innerHTML=TRASH;
+      b.onclick=e=>{e.stopPropagation();removeStarted(type,item);b.remove()};
+    }
     return b;
   }
-  function actionGroup(type,item){const g=document.createElement('div');g.className='srh-lite-actions';g.append(actionButton('favorite',type,item),actionButton('share',type,item));return g}
-  function markModal(type){const modal=detailModal();if(!modal)return;modal.classList.remove('is-vod','is-series','is-live');modal.classList.add('is-'+type);el.detailHeadTitle.textContent=''}
+  function actionGroup(type,item){
+    const g=document.createElement('div');g.className='srh-lite-actions';
+    if((type==='vod'||type==='series')&&startedEntry(type,item))g.appendChild(actionButton('trash',type,item));
+    g.appendChild(actionButton('favorite',type,item));
+    return g;
+  }
+  function markModal(type){
+    const modal=detailModal();if(!modal)return;
+    modal.classList.remove('is-vod','is-series','is-live');
+    modal.classList.add('is-'+type);
+    el.detailHeadTitle.textContent='';
+  }
   function decorateDetail(type,item){
     markModal(type);
     const body=el.detailBody,row=body.querySelector('.detail-title-row'),syn=body.querySelector('.synopsis');
@@ -62,7 +103,10 @@
     if(type==='vod'){
       const watch=row.querySelector('.watch-button')||body.querySelector('.watch-button');
       if(watch)watch.remove();
-      const actions=document.createElement('div');actions.className='srh-lite-film-actions';actions.appendChild(actionGroup(type,item));if(watch)actions.appendChild(watch);
+      const actions=document.createElement('div');
+      actions.className='srh-lite-film-actions';
+      actions.appendChild(actionGroup(type,item));
+      if(watch)actions.appendChild(watch);
       (syn||row).insertAdjacentElement('afterend',actions);
     }else{
       row.appendChild(actionGroup(type,item));
@@ -71,11 +115,18 @@
   }
 
   /* Poster/card geometry only. Keep the stable virtualizers and simply restore 2:3 math. */
-  RailVirtualizer.prototype.metrics=function(){const live=this.type==='live',w=innerWidth<680?(live?116:108):(live?146:132),gap=9,slot=w+gap,visible=Math.max(1,Math.ceil(this.viewport.clientWidth/slot));return{w,gap,slot,visible}};
+  RailVirtualizer.prototype.metrics=function(){
+    const live=this.type==='live',w=innerWidth<680?(live?116:108):(live?146:132),gap=9,slot=w+gap,visible=Math.max(1,Math.ceil(this.viewport.clientWidth/slot));
+    return{w,gap,slot,visible};
+  };
   RailVirtualizer.prototype.render=function(force=false){
     const m=this.metrics(),ratio=this.type==='live'?1:1.5,start=Math.max(0,Math.floor(this.viewport.scrollLeft/m.slot)-1),end=Math.min(this.items.length,start+m.visible*2+1),sig=[start,end,m.w,this.items.length,this.type].join(':');
-    if(!force&&sig===this.sig)return;this.sig=sig;this.track.style.width=Math.max(this.viewport.clientWidth,this.items.length*m.slot-m.gap)+'px';this.track.style.height=Math.round(m.w*ratio)+'px';
-    this.track.innerHTML=this.items.slice(start,end).map((item,off)=>cardHtml(item,this.type,'poster-card',start+off,(start+off)*m.slot,m.w).replace(/height:[^;"]+px/,`height:${Math.round(m.w*ratio)}px`)).join('');
+    if(!force&&sig===this.sig)return;
+    this.sig=sig;
+    const h=Math.round(m.w*ratio);
+    this.track.style.width=Math.max(this.viewport.clientWidth,this.items.length*m.slot-m.gap)+'px';
+    this.track.style.height=h+'px';
+    this.track.innerHTML=this.items.slice(start,end).map((item,off)=>cardHtml(item,this.type,'poster-card',start+off,(start+off)*m.slot,m.w).replace(/height:[^;"]+px/,`height:${h}px`)).join('');
     this.track.querySelectorAll('[data-index]').forEach(c=>c.onclick=()=>this.onOpen(this.items[Number(c.dataset.index)],this.type));
   };
   GridVirtualizer.prototype.metrics=function(){
@@ -92,7 +143,7 @@
   const baseOpenLive=openLive;
   openLive=function(group){const r=baseOpenLive(group);decorateDetail('live',group);return r};
 
-  /* Favorites stays inside the existing collection view: one grid, three tiny tabs, no iframe. */
+  /* Favorites stays inside the existing collection view: one grid, no iframe. */
   const head=el.collectionTitle?.parentElement;
   const favTabs=document.createElement('div');
   favTabs.className='srh-favorites-tabs is-hidden';
@@ -111,7 +162,8 @@
   function openFavorites(){
     closeDetail();closePlayer(false);state.searchDataset=null;destroyVirtualizers();el.content.innerHTML='';el.continueRow.innerHTML='';el.continueSection.classList.add('is-hidden');
     favoriteEntries=readFavorites();el.collectionTitle.textContent='Favoritos';el.collectionView.classList.remove('is-hidden');state.collectionOpen=true;freezePage(true);favTabs.classList.remove('is-hidden');
-    const first=['vod','series','live'].find(t=>favoriteEntries.some(x=>x.type===t))||'vod';renderFavoriteType(first);
+    const first=['vod','series','live'].find(t=>favoriteEntries.some(x=>x.type===t))||'vod';
+    renderFavoriteType(first);
   }
   favTabs.querySelectorAll('[data-fav-type]').forEach(b=>b.onclick=()=>renderFavoriteType(b.dataset.favType));
   const baseOpenCollection=openCollection;
@@ -120,6 +172,8 @@
   closeCollection=function(rebuild=true){favTabs.classList.add('is-hidden');return baseCloseCollection(rebuild)};
 
   if(!document.getElementById('favoritesTopButton')){
-    const b=document.createElement('button');b.type='button';b.className='icon-button';b.id='favoritesTopButton';b.setAttribute('aria-label','Favoritos');b.innerHTML=STAR;b.onclick=openFavorites;el.searchButton.insertAdjacentElement('afterend',b);
+    const b=document.createElement('button');
+    b.type='button';b.className='icon-button';b.id='favoritesTopButton';b.setAttribute('aria-label','Favoritos');b.innerHTML=STAR;b.onclick=openFavorites;
+    el.searchButton.insertAdjacentElement('afterend',b);
   }
 })();
