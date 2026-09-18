@@ -1,10 +1,10 @@
 {
-  "revision": "r23-50dd6c474b77afd3",
-  "generatedAt": "2026-09-18T11:18:36.360Z",
+  "revision": "r23-0b6b575576d11bc0",
+  "generatedAt": "2026-09-18T11:20:31.570Z",
   "diagnosticBaseline": {
     "standard": "46b9cd4-pre-aura"
   },
-  "standardLayer": "lite-ui-r2-trash-favorite-compact-series",
+  "standardLayer": "lite-ui-r3-modal-skeletons",
   "standard": {
     "js": "standard.js",
     "css": "standard.css"
