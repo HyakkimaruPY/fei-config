@@ -1,162 +1,7 @@
-/* SRHELL Shorts R24 — clean rendering layer.
-   Normal page flow, no composited feed scroller, no backdrop filters,
-   no paint containment, no moving overlay surfaces. */
+/* SRHELL Shorts R24 — player-only patch.
+   Catalog/feed rendering is intentionally left 100% to the first modular
+   Shorts core from aefc61c6. */
 
-html,body{
-  margin:0!important;
-  min-height:100%!important;
-  background:#090d12!important;
-  background-image:none!important;
-  background-attachment:scroll!important;
-}
-body{
-  overflow-x:hidden!important;
-  overflow-y:auto!important;
-  transform:none!important;
-  filter:none!important;
-  -webkit-filter:none!important;
-}
-.app{
-  width:min(100%,1480px)!important;
-  margin:0 auto!important;
-  padding:8px 10px 26px!important;
-  background:transparent!important;
-  transform:none!important;
-  filter:none!important;
-}
-.topbar{
-  position:relative!important;
-  top:auto!important;
-  z-index:20!important;
-  background:#090d12!important;
-  background-image:none!important;
-  -webkit-backdrop-filter:none!important;
-  backdrop-filter:none!important;
-  transform:none!important;
-  filter:none!important;
-  box-shadow:none!important;
-}
-.topbar *,
-.icon-button,
-.days-chip,
-.search,
-.settings-panel,
-.settings-panel *,
-.feed-shell,
-.feed-scroller,
-.feed-spacer{
-  -webkit-backdrop-filter:none!important;
-  backdrop-filter:none!important;
-  filter:none!important;
-  will-change:auto!important;
-}
-.icon-button,.days-chip,.search{
-  background:var(--surface)!important;
-  box-shadow:none!important;
-}
-.feed-shell{
-  width:min(100%,1420px)!important;
-  margin:0 auto!important;
-  border:1px solid var(--line)!important;
-  border-radius:16px!important;
-  background:var(--bg-elev)!important;
-  overflow:visible!important;
-  box-shadow:none!important;
-  transform:none!important;
-}
-.feed-shell::before,.feed-shell::after,
-.feed-scroller::before,.feed-scroller::after,
-.feed-spacer::before,.feed-spacer::after{
-  content:none!important;
-  display:none!important;
-}
-.feed-scroller{
-  height:auto!important;
-  min-height:0!important;
-  overflow:visible!important;
-  position:static!important;
-  padding:8px!important;
-  scrollbar-width:auto!important;
-  overscroll-behavior:auto!important;
-  transform:none!important;
-}
-.feed-spacer,
-.feed-spacer.srh-r24-flow{
-  position:static!important;
-  display:grid!important;
-  grid-template-columns:repeat(2,minmax(0,1fr))!important;
-  gap:8px!important;
-  width:100%!important;
-  height:auto!important;
-  min-height:0!important;
-  overflow:visible!important;
-  contain:none!important;
-  content-visibility:visible!important;
-  transform:none!important;
-  will-change:auto!important;
-  isolation:auto!important;
-}
-
-.feed-spacer.srh-r24-flow .short-card{
-  position:static!important;
-  display:block!important;
-  width:100%!important;
-  height:auto!important;
-  aspect-ratio:2/3!important;
-  min-width:0!important;
-  overflow:hidden!important;
-  contain:none!important;
-  content-visibility:visible!important;
-  transform:none!important;
-  transition:none!important;
-  will-change:auto!important;
-  box-shadow:none!important;
-  filter:none!important;
-  background:
-    linear-gradient(105deg,transparent 22%,rgba(235,241,248,.05) 40%,rgba(235,241,248,.16) 50%,rgba(235,241,248,.05) 60%,transparent 78%),
-    linear-gradient(145deg,var(--surface-2),var(--surface))!important;
-  background-size:220% 100%,100% 100%!important;
-  background-position:120% 0,0 0!important;
-  animation:srhR24CardShimmer 1.15s ease-in-out infinite!important;
-  border:1px solid var(--banner-border)!important;
-  border-radius:12px!important;
-}
-.feed-spacer.srh-r24-flow .short-card:active{transform:none!important}
-.feed-spacer.srh-r24-flow .short-card.is-cover-ready{
-  animation:none!important;
-  background:var(--surface-2)!important;
-}
-.feed-spacer.srh-r24-flow .short-card.is-cover-error{
-  animation:none!important;
-  background:linear-gradient(145deg,var(--surface-2),var(--surface))!important;
-}
-@keyframes srhR24CardShimmer{
-  0%{background-position:120% 0,0 0}
-  100%{background-position:-120% 0,0 0}
-}
-.feed-spacer.srh-r24-flow .short-card__image{
-  position:static!important;
-  display:block!important;
-  width:100%!important;
-  height:100%!important;
-  aspect-ratio:2/3!important;
-  object-fit:cover!important;
-  opacity:1!important;
-  visibility:visible!important;
-  background:var(--surface-2)!important;
-  border-radius:inherit!important;
-  transform:none!important;
-  filter:none!important;
-  will-change:auto!important;
-}
-.feed-spacer.srh-r24-flow .srh-r24-card-placeholder,
-.feed-spacer.srh-r24-flow .short-card__shade,
-.feed-spacer.srh-r24-flow .arc-badge,
-.feed-spacer.srh-r24-flow .card-progress{
-  display:none!important;
-}
-
-/* Player kept separate from the feed rendering layer. */
 .srh-r24-poster{
   position:absolute;
   z-index:4;
@@ -213,30 +58,15 @@ body{
   border-left:13px solid #fff;
 }
 @keyframes srhR24Spin{to{transform:rotate(360deg)}}
+
 .short-player__rail{top:57.5%!important}
-.short-action{
-  grid-template-rows:19px auto!important;
-  -webkit-backdrop-filter:none!important;
-  backdrop-filter:none!important;
-}
 .short-action .action-svg{
   width:16px!important;
   height:16px!important;
   transform:translateY(2px)!important;
 }
+.short-action{grid-template-rows:19px auto!important}
 
-@media(min-width:900px){
-  .feed-spacer,.feed-spacer.srh-r24-flow{
-    grid-template-columns:repeat(6,minmax(0,1fr))!important;
-    gap:10px!important;
-  }
-}
 @media(max-width:680px){
-  .app{padding:6px 7px 18px!important}
-  .feed-shell{border-left:0!important;border-right:0!important;border-radius:12px!important}
-  .feed-scroller{padding:7px!important}
   .short-player__rail{top:58%!important}
-}
-@media(prefers-reduced-motion:reduce){
-  .srh-r24-card-placeholder{animation:none!important}
 }
