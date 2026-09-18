@@ -6,7 +6,8 @@
   const CACHE_STORE='srhell:tmdb:cache:v3';
   const CONFIG_TTL=24*60*60*1000;
   const CACHE_TTL=7*24*60*60*1000;
-  const MAX_CACHE=100;
+  const MAX_CACHE=42;
+  const MAX_CACHE_BYTES=720000;
   let tmdbConfig=null;
   let coverActive=0;
   const coverQueue=[];
@@ -106,8 +107,20 @@
   function cacheWrite(key,data){
     const all=readJson(CACHE_STORE,{});
     all[key]={savedAt:Date.now(),data};
-    const entries=Object.entries(all).sort((a,b)=>Number(b[1].savedAt||0)-Number(a[1].savedAt||0)).slice(0,MAX_CACHE);
-    writeJson(CACHE_STORE,Object.fromEntries(entries));
+    const entries=Object.entries(all)
+      .sort((a,b)=>Number(b[1].savedAt||0)-Number(a[1].savedAt||0))
+      .slice(0,MAX_CACHE);
+    const out={};
+    let bytes=2;
+    for(const [k,v] of entries){
+      const piece=JSON.stringify({[k]:v});
+      if(bytes+piece.length>MAX_CACHE_BYTES)continue;
+      out[k]=v;bytes+=piece.length;
+    }
+    try{localStorage.setItem(CACHE_STORE,JSON.stringify(out))}
+    catch{
+      try{localStorage.removeItem(CACHE_STORE)}catch{}
+    }
   }
 
   function chooseLogo(logos=[]){
@@ -176,7 +189,10 @@
     const key='season:'+tvId+':'+season;
     const cached=cacheRead(key);if(cached)return cached;
     const data=await tmdbFetch('/tv/'+tvId+'/season/'+season,{language:'pt-BR'});
-    const out=Array.isArray(data?.episodes)?data:{episodes:[]};
+    const out={episodes:(Array.isArray(data?.episodes)?data.episodes:[]).map((ep,i)=>({
+      episode_number:ep?.episode_number??i+1,
+      still_path:ep?.still_path||null
+    }))};
     cacheWrite(key,out);
     return out;
   }
@@ -350,8 +366,26 @@
   }
 
   function pseudoLogoText(title){
-    const chars=Array.from(cleanTitle(title)||String(title||'').trim());
-    return chars.length>10?chars.slice(0,10).join('')+'…':chars.join('');
+    const clean=cleanTitle(title)||String(title||'').trim();
+    const words=clean.split(/\s+/).filter(Boolean);
+    if(words.length<=2)return clean;
+    const connectors=new Set(['a','o','e','ou','de','da','do','das','dos','em','no','na','nos','nas','por','para','com','sem','um','uma']);
+    const out=[];
+    let meaningful=0,i=0;
+    for(;i<words.length;i++){
+      const w=words[i];
+      out.push(w);
+      if(!connectors.has(w.toLocaleLowerCase('pt-BR')))meaningful++;
+      if(meaningful>=2){
+        while(i+1<words.length&&connectors.has(words[i+1].toLocaleLowerCase('pt-BR'))){
+          out.push(words[++i]);
+          if(i+1<words.length)out.push(words[++i]);
+          break;
+        }
+        break;
+      }
+    }
+    return out.join(' ')+(i<words.length-1?'…':'');
   }
 
   function collapseFullTitle(){
@@ -394,7 +428,8 @@
     art.querySelector('.srh-art-brand')?.remove();
     art.parentElement?.querySelector(':scope > .srh-full-title-reveal')?.remove();
 
-    const title=data?.title||itemTitle(item);
+    const providerTitle=itemTitle(item)||data?.title||'';
+    const title=data?.title||providerTitle;
     const box=document.createElement('div');
     box.className='srh-art-brand';
 
@@ -417,13 +452,20 @@
         const h=Number(img.dataset.srhH)||img.naturalHeight||1;
         fitLogo(box,img,w,h);
         tuneLogoContrast(img,box);
+        img.setAttribute('role','button');
+        img.setAttribute('tabindex','0');
+        img.setAttribute('aria-label','Mostrar título completo');
+        bindFallback(img,providerTitle,art);
+        img.onkeydown=e=>{
+          if(e.key==='Enter'||e.key===' '){e.preventDefault();img.click()}
+        };
       };
       img.onerror=()=>{
         box.replaceChildren();
         const b=document.createElement('button');
         b.type='button';b.className='srh-art-brand__fallback';b.textContent=pseudoLogoText(title);
         box.appendChild(b);
-        bindFallback(b,title,art);
+        bindFallback(b,providerTitle,art);
       };
       img.src=data.logo;
       box.appendChild(img);
@@ -433,7 +475,7 @@
       b.className='srh-art-brand__fallback';
       b.textContent=pseudoLogoText(title);
       box.appendChild(b);
-      bindFallback(b,title,art);
+      bindFallback(b,providerTitle,art);
     }
     art.appendChild(box);
 
@@ -465,7 +507,7 @@
   }
 
   detailModal()?.addEventListener('click',e=>{
-    if(e.target.closest?.('.srh-art-brand__fallback,.srh-full-title-reveal'))return;
+    if(e.target.closest?.('.srh-art-brand__fallback,.srh-art-brand img,.srh-full-title-reveal'))return;
     collapseFullTitle();
   },true);
 
