@@ -117,3 +117,5 @@ for(const bad of ['eval(','generator-r20.js','generator-r21.js','generator-r22.j
 if(/APP_R23|SHORTS_R25|runtimeRevision/.test(cleanBuilder))throw new Error('builder canônico ainda expõe sufixo de versão no arquivo gerado.');
 
 console.log(`R23 stable baseline + lightweight UI build OK: ${revision}`);
+
+// Canonical public generator checkpoint: gerador.html + builder/generator.js.
