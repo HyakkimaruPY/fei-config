@@ -1,4 +1,4 @@
-(()=>{const z=window.__srhA;if(!z||z.k!=="e4c98a71"||z.m!=="g")return;(()=>{
+(()=>{const z=window.__srhA;if(!z||z.k!=="e4c98a71"||z.m!=="g"||!Object.isFrozen(z)||typeof z.u!=='function'||typeof z.t!=='function')return;(()=>{
 'use strict';
 const A=window.__srhA;
 const BUILD='current';
