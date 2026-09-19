@@ -105,9 +105,18 @@ body.srh-main-stream-style .stream-hero__shade{
   position:absolute;
   inset:0;
   background:
-    linear-gradient(90deg,rgba(4,4,5,.93) 0%,rgba(4,4,5,.70) 23%,rgba(4,4,5,.19) 57%,rgba(4,4,5,.06) 74%),
-    linear-gradient(0deg,var(--bg) 0%,color-mix(in srgb,var(--bg) 72%,transparent) 12%,transparent 42%),
-    linear-gradient(180deg,rgba(5,5,6,.46) 0%,transparent 25%);
+    linear-gradient(90deg,
+      color-mix(in srgb,var(--bg) 95%,transparent) 0%,
+      color-mix(in srgb,var(--bg) 74%,transparent) 23%,
+      color-mix(in srgb,var(--bg) 22%,transparent) 57%,
+      color-mix(in srgb,var(--bg) 7%,transparent) 74%),
+    linear-gradient(0deg,
+      var(--bg) 0%,
+      color-mix(in srgb,var(--bg) 74%,transparent) 12%,
+      transparent 42%),
+    linear-gradient(180deg,
+      color-mix(in srgb,var(--bg) 50%,transparent) 0%,
+      transparent 25%);
 }
 body.srh-main-stream-style .stream-hero__content{
   position:absolute;
@@ -115,7 +124,7 @@ body.srh-main-stream-style .stream-hero__content{
   left:clamp(14px,4vw,62px);
   bottom:clamp(40px,9vh,92px);
   width:min(560px,55vw);
-  color:#fff;
+  color:var(--text);
 }
 body.srh-main-stream-style .stream-hero__logo{
   max-width:min(360px,70%);
@@ -131,21 +140,21 @@ body.srh-main-stream-style .stream-hero__title{
   line-height:.98;
   letter-spacing:-.045em;
   font-weight:900;
-  text-shadow:0 2px 16px rgba(0,0,0,.65);
+  text-shadow:0 2px 16px color-mix(in srgb,var(--bg) 72%,transparent);
 }
 body.srh-main-stream-style .stream-hero__meta{
   display:flex;
   gap:8px;
   align-items:center;
   margin-bottom:10px;
-  color:rgba(255,255,255,.78);
+  color:color-mix(in srgb,var(--text) 78%,transparent);
   font-size:12px;
   font-weight:750;
 }
 body.srh-main-stream-style .stream-hero__plot{
   max-width:52ch;
   margin:0 0 16px;
-  color:rgba(255,255,255,.84);
+  color:color-mix(in srgb,var(--text) 84%,transparent);
   font-size:clamp(12px,1.15vw,15px);
   line-height:1.45;
   display:-webkit-box;
@@ -186,7 +195,7 @@ body.srh-main-stream-style .stream-hero__dot{
   padding:0;
   border:0;
   border-radius:999px;
-  background:rgba(255,255,255,.28);
+  background:color-mix(in srgb,var(--text) 28%,transparent);
 }
 body.srh-main-stream-style .stream-hero__dot.is-active{background:var(--accent)}
 body.srh-main-stream-style .stream-hero__skeleton{
@@ -267,6 +276,7 @@ body.srh-main-stream-style .watch-button{
 /* Film action row: lower spacing mirrors its right-side spacing. */
 body.srh-main-stream-style .detail-modal.is-vod .srh-lite-film-actions{
   align-items:center!important;
+  margin-inline:clamp(12px,2vw,24px)!important;
   margin-bottom:clamp(12px,2vw,24px)!important;
 }
 body.srh-main-stream-style .detail-modal.is-vod .srh-lite-film-actions .srh-lite-actions{
@@ -293,7 +303,7 @@ body.srh-main-stream-style .detail-modal.is-vod .srh-lite-film-actions .watch-bu
   body.srh-main-stream-style .stream-hero__shade{
     background:
       linear-gradient(0deg,var(--bg) 0%,color-mix(in srgb,var(--bg) 78%,transparent) 17%,transparent 48%),
-      linear-gradient(90deg,rgba(5,5,6,.46),transparent 72%);
+      linear-gradient(90deg,color-mix(in srgb,var(--bg) 48%,transparent),transparent 72%);
   }
   body.srh-main-stream-style .stream-hero__content{
     left:14px;
