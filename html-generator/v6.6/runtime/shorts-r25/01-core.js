@@ -79,15 +79,32 @@ S.readFavorites=()=>{try{return new Set(JSON.parse(localStorage.getItem(favKey)|
 S.writeFavorites=set=>{try{localStorage.setItem(favKey,JSON.stringify([...set]));return true}catch{return false}};
 S.readHistory=()=>{try{const x=JSON.parse(localStorage.getItem(histKey)||'[]');return Array.isArray(x)?x:[]}catch{return[]}};
 S.writeHistory=list=>{try{localStorage.setItem(histKey,JSON.stringify(list.slice(0,80)));return true}catch{return false}};
-S.toggleFavorite=item=>{const id=S.id(item),set=S.state.favorites;if(set.has(id))set.delete(id);else set.add(id);S.writeFavorites(set);return set.has(id)};
+S.toggleFavorite=item=>{
+  const id=S.id(item),current=S.state.favorites,next=new Set(current);
+  if(next.has(id))next.delete(id);else next.add(id);
+  if(!S.writeFavorites(next))return current.has(id);
+  S.state.favorites=next;
+  S.refreshLibraryView?.();
+  return next.has(id)
+};
 S.historyFor=item=>S.state.history.find(x=>x.id===S.id(item))||null;
 S.saveProgress=(item,position,duration)=>{
-  if(!item||!Number.isFinite(position)||!Number.isFinite(duration)||duration<=0)return;
-  const id=S.id(item);let list=S.readHistory().filter(x=>x.id!==id);
-  if(position>=60&&position/duration<.97)list.unshift({id,title:S.title(item),image:S.image(item),position,duration,updatedAt:Date.now(),item:{stream_id:item.stream_id,id:item.id,name:item.name,title:item.title,stream_icon:item.stream_icon,movie_image:item.movie_image,cover:item.cover,container_extension:item.container_extension}});
-  S.writeHistory(list);S.state.history=S.readHistory()
+  if(!item||!Number.isFinite(position)||position<60)return false;
+  const id=S.id(item),safeDuration=Number.isFinite(duration)&&duration>0?duration:0;
+  const list=S.readHistory().filter(x=>x.id!==id);
+  list.unshift({id,title:S.title(item),image:S.image(item),position,duration:safeDuration,updatedAt:Date.now(),item:{stream_id:item.stream_id,id:item.id,name:item.name,title:item.title,stream_icon:item.stream_icon,movie_image:item.movie_image,cover:item.cover,container_extension:item.container_extension}});
+  if(!S.writeHistory(list))return false;
+  S.state.history=S.readHistory();
+  S.refreshLibraryView?.();
+  return true
 };
-S.removeHistory=item=>{S.writeHistory(S.readHistory().filter(x=>x.id!==S.id(item)));S.state.history=S.readHistory()};
+S.removeHistory=item=>{
+  const next=S.readHistory().filter(x=>x.id!==S.id(item));
+  if(!S.writeHistory(next))return false;
+  S.state.history=S.readHistory();
+  S.refreshLibraryView?.();
+  return true
+};
 S.lockZoom=()=>{
   document.addEventListener('gesturestart',e=>e.preventDefault(),{passive:false});
   document.addEventListener('touchmove',e=>{if(e.touches?.length>1)e.preventDefault()},{passive:false});

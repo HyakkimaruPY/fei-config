@@ -80,9 +80,9 @@ Leia este arquivo antes de qualquer tarefa em `html-generator/v6.6`. Ele existe 
 - Toda troca de aba Standard (live/filmes/séries) começa no topo; scroll de uma aba não vaza para outra.
 - Configurações fecham ao clicar/tocar fora e permanecem abertas ao interagir dentro.
 - Zoom por pinça/atalhos está bloqueado no app gerado, Standard e Shorts.
-- “Continuar assistindo” só guarda filme/série após pelo menos 60 s vistos.
+- “Continuar assistindo” só guarda conteúdo após pelo menos 60 s vistos. No Shorts, a gravação ocorre ao cruzar 60 s e depois periodicamente; não depender de contagem de eventos `timeupdate` nem exigir duração conhecida.
 - Lixeira de Continuar precisa remover de storage + memória + faixa imediatamente e impedir `pause/close` de salvar o mesmo item de novo.
-- Favoritos devem sobreviver a quota/cache; nunca reportar sucesso de remoção/adição se a persistência falhou.
+- Favoritos devem sobreviver a quota/cache; mutação é atômica: só alterar o `Set` em memória depois de `localStorage` gravar. Se Favoritos/Continuar estiver aberto, refletir a mudança imediatamente.
 - Em modal, destruir/parar player ao fechar; vídeo não pode seguir tocando em segundo plano.
 - Skeletons ocupam o espaço final; dados que chegam não devem abrir/empurrar a tela abruptamente.
 - Não criar “segunda camada”/overlay global para mascarar bugs de renderização. Placeholder pertence ao container do item.
@@ -166,7 +166,7 @@ Leia este arquivo antes de qualquer tarefa em `html-generator/v6.6`. Ele existe 
 - Gerador principal oferece Standard + “App Shorts”; internamente Shorts aponta para `shorts-r25.html`. A distribuição `generator_distro_no_shorts.html` continua Standard-only.
 - Família Flix/Fixed foi removida do gerador. A identidade visual promovida ficou no layout principal e os seis temas clássicos fornecem a paleta.
 - Standard recente: alinhamento de logo/título com sinopse, live header/estrela com respiro, remoção persistente de Continuar assistindo e proteção contra progresso antigo recriar item excluído.
-- Shorts recente: catálogo refeito sem virtualização absoluta; vídeo vertical cover-first; controles menores; tags/título removidos dos covers; category IDs incorporados; cache IndexedDB; first paint progressivo; de-duplicação de requests/proxy; HLS lazy.
+- Shorts recente: catálogo refeito sem virtualização absoluta; vídeo vertical cover-first; controles menores; tags/título removidos dos covers; category IDs incorporados; cache IndexedDB; first paint progressivo; de-duplicação de requests/proxy; HLS lazy; Continuar grava após 60 s; Favoritos/Continuar atualizam a biblioteca aberta; Arcos usam bottom sheet com backdrop inspirado no `aura-reels` e fecham ao tocar fora.
 - Workflows observados ao criar o guia: Pages e Validate CORS proxies concluíram com sucesso; último Build Shorts R25 concluído com sucesso. Isso não substitui teste manual em navegador/provedor.
 - Limite conhecido: esta documentação foi construída por inspeção do repositório, manifests, scripts e Actions. Não houve, nesta etapa documental, teste end-to-end com credenciais de provedor nem benchmark em todos os navegadores.
 

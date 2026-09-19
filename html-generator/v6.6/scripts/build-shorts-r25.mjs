@@ -5,8 +5,11 @@ const css=join(['01-foundation.css','02-catalog.css','03-player.css']),js=join([
 fs.writeFileSync(path.join(out,'shorts.css'),css);fs.writeFileSync(path.join(out,'shorts.js'),js);
 const chk=spawnSync(process.execPath,['--check',path.join(out,'shorts.js')],{encoding:'utf8'});if(chk.status!==0)throw new Error(chk.stderr||chk.stdout);
 if(/runtime\/shorts\//.test(css+js))throw new Error('R25 imported legacy Shorts runtime');
+if(!js.includes('position<60')||!js.includes('persistCurrentProgress'))throw new Error('R25 Continue Watching 60s contract missing');
+if(!js.includes('refreshLibraryView')||!js.includes('new Set(current)'))throw new Error('R25 favorites/history live persistence contract missing');
+if(!js.includes('arcBackdrop')||!css.includes('.srh25-arc-backdrop'))throw new Error('R25 Aura-style arc sheet contract missing');
 const rev='r25-'+crypto.createHash('sha256').update(css+'\n'+js).digest('hex').slice(0,16);
 const manifest={revision:rev,generatedAt:new Date().toISOString(),architecture:'fresh-native-flow-grid',legacyShortsImported:false,arcSeconds:120,css:'shorts.css',js:'shorts.js'};
 fs.writeFileSync(path.join(out,'manifest.json'),JSON.stringify(manifest,null,2)+'\n');
-const tpl=fs.readFileSync(path.join(root,'templates/shorts-r25.html'),'utf8');if(!tpl.includes('__APP_CONFIG__')||!tpl.includes('/dist/r25'))throw new Error('invalid R25 template');
+const tpl=fs.readFileSync(path.join(root,'templates/shorts-r25.html'),'utf8');if(!tpl.includes('__APP_CONFIG__')||!tpl.includes('/dist/r25')||!tpl.includes('id="arcBackdrop"'))throw new Error('invalid R25 template');
 console.log(JSON.stringify({revision:rev,cssBytes:Buffer.byteLength(css),jsBytes:Buffer.byteLength(js)},null,2));
