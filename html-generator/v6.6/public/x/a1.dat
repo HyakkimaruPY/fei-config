@@ -17,6 +17,16 @@
 <section class="modal-layer is-hidden" id="detailLayer"><article class="detail-modal"><header class="detail-head"><div class="detail-head__title" id="detailHeadTitle">Detalhes</div><button class="square-button" id="detailClose" aria-label="Fechar"><svg class="ui-svg" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg></button></header><div class="detail-scroll" id="detailScroll"><div id="detailBody"></div></div></article></section>
 <section class="player-layer is-hidden" id="playerLayer"><div class="player-panel"><header class="player-head"><div class="player-title" id="playerTitle">Player</div><button class="square-button" id="playerClose" aria-label="Fechar player"><svg class="ui-svg" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg></button></header><div class="player-wrap" id="playerWrap"><video class="player" id="videoPlayer" controls autoplay playsinline></video><button class="player-expand" id="playerExpand" aria-label="Expandir ou minimizar"><svg class="ui-svg" viewBox="0 0 24 24"><path d="M8.5 4.5h-4v4M15.5 4.5h4v4M8.5 19.5h-4v-4M15.5 19.5h4v-4"/></svg></button></div><div class="player-status" id="playerStatus">Carregando…</div></div></section><div class="toast" id="toast"></div>
 <script type="application/json" id="app-config">__APP_CONFIG__</script>
-<script src="https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6/public/r.js"></script>
+<script>
+(()=>{const d=document,u=[
+'https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6/public/r.js',
+'https://cdn.jsdelivr.net/gh/HyakkimaruPY/fei-config@main/html-generator/v6.6/public/r.js'
+],b=d.getElementById('srhBoot')||d.getElementById('srh25Boot'),c=d.getElementById('srhBootCard')||b?.querySelector('.srh-boot-card,.b'),l=b?.querySelector('#srhBootLabel,#bootLabel,#bootSub'),p=b?.querySelector('#srhBootPhase'),n=b?.querySelector('#srhBootPct'),f=b?.querySelector('#srhBootFill,#bootFill'),r=b?.querySelector('#srhBootRetry');let i=0;
+const v=(a,z,h)=>{if(l)l.textContent=a;if(p)p.textContent=z;if(n)n.textContent=h+'%';if(f)f.style.width=h+'%'};
+const e=a=>{if(c)c.classList.add('is-error');if(l)l.textContent=a;if(p)p.textContent='Falha no carregamento';if(n)n.textContent='—';if(r){r.style.display='block';r.onclick=()=>location.reload()}};
+const g=(a,o)=>{let q=false,t=setTimeout(()=>{if(q)return;q=true;o(Error('Tempo esgotado'))},10000),x=new XMLHttpRequest;x.open('GET',a+(a.includes('?')?'&':'?')+'t='+Date.now(),true);x.timeout=9500;x.onreadystatechange=()=>{if(x.readyState!==4||q)return;q=true;clearTimeout(t);if(x.status>=200&&x.status<300)o(null,x.responseText);else o(Error('HTTP '+x.status))};x.onerror=()=>{if(q)return;q=true;clearTimeout(t);o(Error('Falha de rede'))};x.ontimeout=()=>{if(q)return;q=true;clearTimeout(t);o(Error('Tempo esgotado'))};try{x.send()}catch(s){if(!q){q=true;clearTimeout(t);o(s)}}};
+const h=()=>{if(i>=u.length){e('Não foi possível carregar o aplicativo. Verifique a conexão e tente novamente.');return}v('Conectando ao aplicativo…','Rota '+(i+1)+' de '+u.length,12);const a=u[i++];g(a,(o,s)=>{if(o||!s){h();return}try{window.__srhPublicBase=a.slice(0,a.lastIndexOf('/')+1);const x=d.createElement('script');x.text=s;d.body.appendChild(x);setTimeout(()=>{if(window.__srhRouterState)v('Preparando módulos…','Router carregado',18);else h()},0)}catch(k){h()}})};
+if(r)r.onclick=()=>location.reload();h()})();
+</script>
 </body>
 </html>
