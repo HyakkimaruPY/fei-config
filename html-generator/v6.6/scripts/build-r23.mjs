@@ -59,6 +59,7 @@ checkFileJs(path.join(root,'builder/generator-r23-distro-no-shorts.js'),'generat
 const cleanBuilder=read('builder/generator-r23-clean.js');
 const canonicalBuilder=read('builder/generator.js');
 if(canonicalBuilder!==cleanBuilder)throw new Error('builder/generator.js divergiu do builder principal validado.');
+if(!cleanBuilder.includes('scrubShortsCardCopy'))throw new Error('builder canônico não remove descrição redundante do card Shorts em shells antigos.');
 const distroBuilder=read('builder/generator-r23-distro-no-shorts.js');
 for(const [label,src] of [['clean',cleanBuilder],['distro',distroBuilder]]){
   const pluralThemeBinding = '$'+'$'+'(\'input[name="theme"]\').forEach';
