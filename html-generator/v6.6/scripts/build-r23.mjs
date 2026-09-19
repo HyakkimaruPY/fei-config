@@ -118,4 +118,4 @@ if(/APP_R23|SHORTS_R25|runtimeRevision/.test(cleanBuilder))throw new Error('buil
 
 console.log(`R23 stable baseline + lightweight UI build OK: ${revision}`);
 
-// Canonical public generator checkpoint: gerador.html + builder/generator.js.
+// Canonical public generator checkpoint: gerador.html + builder/generator.js; visual copy synchronized.
