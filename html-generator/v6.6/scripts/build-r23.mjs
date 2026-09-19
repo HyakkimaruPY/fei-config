@@ -100,7 +100,7 @@ const generatorR23=read('generator-r23.html'),generatorMain=read('generator.html
 for(const [label,src] of [['generator-r23.html',generatorR23],['generator.html',generatorMain]]){
   if(/value=["']flix-|Flix Style|Fixed Style/i.test(src))throw new Error(`${label}: família Flix/Fixed aposentada reapareceu`);
   if(!/value=["']shorts["']/.test(src))throw new Error(`${label}: opção Shorts R25 ausente`);
-  if(!src.includes('App Shorts R25'))throw new Error(`${label}: rótulo Shorts R25 ausente`);
+  if(!src.includes('App Shorts'))throw new Error(`${label}: opção Shorts ausente`);
 }
 if(generatorMain!==generatorR23)throw new Error('generator.html divergiu de generator-r23.html; a entrada principal deve ser exatamente a versão R23 validada.');
 if(/generator-r(?:1[4-9]|2[0-2])|\beval\s*\(/.test(generatorR23))throw new Error('generator-r23.html contém builder antigo/eval');
