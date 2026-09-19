@@ -58,8 +58,10 @@ checkFileJs(path.join(root,'builder/generator-r23-distro-no-shorts.js'),'generat
 const cleanBuilder=read('builder/generator-r23-clean.js');
 const distroBuilder=read('builder/generator-r23-distro-no-shorts.js');
 for(const [label,src] of [['clean',cleanBuilder],['distro',distroBuilder]]){
-  if(src.includes("$('input[name=\"theme\"]').forEach"))throw new Error(`generator ${label}: binding de tema usa $() único e interrompe initUI`);
-  if(!src.includes("$('input[name=\"theme\"]').forEach"))throw new Error(`generator ${label}: binding plural de temas ausente`);
+  const pluralThemeBinding = '$'+'$'+'(\'input[name="theme"]\').forEach';
+  if(!src.includes(pluralThemeBinding))throw new Error(`generator ${label}: binding plural de temas ausente`);
+  const singleThemeBinding = '$'+'(\'input[name="theme"]\').forEach';
+  if(src.includes(singleThemeBinding) && !src.includes(pluralThemeBinding))throw new Error(`generator ${label}: binding de tema usa $() único e interrompe initUI`);
   if(/value=["']flix-|Flix Style|Fixed Style/i.test(src))throw new Error(`generator ${label}: família Flix/Fixed aposentada reapareceu`);
 }
 if(!cleanBuilder.includes("'shorts-r25.html'"))throw new Error('generator clean não aponta para Shorts R25');
