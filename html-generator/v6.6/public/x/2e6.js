@@ -1,4 +1,4 @@
-(()=>{const z=window.__srhA;if(!z||z.k!=="e4c98a71"||z.m!=="h")return;(()=>{'use strict';
+(()=>{const z=window.__srhA;if(!z||z.k!=="e4c98a71"||z.m!=="h"||!Object.isFrozen(z)||typeof z.u!=='function'||typeof z.t!=='function')return;(()=>{'use strict';
 const BASE_CONFIG=JSON.parse(document.getElementById('app-config').textContent);
 const $=s=>document.querySelector(s);
 const clean=s=>String(s??'').trim();
