@@ -328,3 +328,36 @@ body.srh-main-stream-style .detail-modal.is-vod .srh-lite-film-actions .watch-bu
     margin-bottom:12px!important;
   }
 }
+
+
+/* R13 detail alignment: branding/title reveal follows the same left guide as synopsis. */
+body.srh-main-stream-style .detail-modal{
+  --srh-detail-inline:clamp(12px,2vw,24px);
+}
+body.srh-main-stream-style .detail-modal .srh-art-brand{
+  left:var(--srh-detail-inline)!important;
+  width:calc(50% - var(--srh-detail-inline))!important;
+  padding-left:0!important;
+  box-sizing:border-box!important;
+}
+body.srh-main-stream-style .detail-modal .srh-full-title-reveal{
+  margin:4px var(--srh-detail-inline) 0!important;
+  padding:0!important;
+  box-sizing:border-box!important;
+}
+
+/* Live detail: title/favorite and quality rows share the same 4px inner guide. */
+body.srh-main-stream-style .detail-modal.is-live .detail-title-row{
+  margin-left:4px!important;
+  margin-right:4px!important;
+}
+body.srh-main-stream-style .detail-modal.is-live .quality-list{
+  box-sizing:border-box!important;
+  padding-left:4px!important;
+  padding-right:4px!important;
+}
+@media(max-width:680px){
+  body.srh-main-stream-style .detail-modal{
+    --srh-detail-inline:12px;
+  }
+}
