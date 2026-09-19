@@ -1,5 +1,5 @@
 (()=>{'use strict';const S=window.SRH25,$=S.$;
-const BATCH=30,CACHE_MAX_AGE=6*60*60*1000;let shown=0,observer=null,imgObserver=null,activeLibrary=null;
+const BATCH=30,CACHE_MAX_AGE=6*60*60*1000;let shown=0,observer=null,imgObserver=null,activeLibrary=null,updateCandidate=null,updateCategories=[],updateSelected=new Set();
 function cleanName(s){return String(s||'').replace(/[\uFE0F\u200D]/g,'').trim()}
 function normName(s){return cleanName(s).normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('pt-BR').replace(/[^a-z0-9]+/g,' ').trim()}
 function mergeUnique(base,extra){const seen=new Set(),out=[];for(const item of [...(base||[]),...(extra||[])]){const id=S.id(item);if(!id||seen.has(id))continue;seen.add(id);out.push(item)}return out}
@@ -7,6 +7,7 @@ const cacheKey='catalog:'+(S.cfg.appId||S.cfg.appName||'app');
 function openCache(){return new Promise((resolve,reject)=>{try{const q=indexedDB.open('srh-shorts-cache',1);q.onupgradeneeded=()=>{if(!q.result.objectStoreNames.contains('catalogs'))q.result.createObjectStore('catalogs')};q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error)}catch(e){reject(e)}})}
 async function cacheRead(){try{const db=await openCache();return await new Promise(resolve=>{const tx=db.transaction('catalogs','readonly'),r=tx.objectStore('catalogs').get(cacheKey);r.onsuccess=()=>resolve(r.result||null);r.onerror=()=>resolve(null)})}catch{return null}}
 async function cacheWrite(items){if(!items?.length)return;try{const db=await openCache();await new Promise(resolve=>{const tx=db.transaction('catalogs','readwrite');tx.objectStore('catalogs').put({time:Date.now(),items},cacheKey);tx.oncomplete=()=>resolve();tx.onerror=()=>resolve()})}catch{}}
+S.clearCatalogCache=async()=>{try{const db=await openCache();await new Promise(resolve=>{const tx=db.transaction('catalogs','readwrite');tx.objectStore('catalogs').delete(cacheKey);tx.oncomplete=()=>resolve();tx.onerror=()=>resolve()})}catch{}};
 async function resolveTargets(){
   const targets=(S.cfg.targets||[]).filter(t=>t.type==='vod');
   if(targets.every(t=>String(t.id??t.category_id??'').trim()))return targets.map(t=>({...t,_id:String(t.id??t.category_id)}));
@@ -45,8 +46,55 @@ function libraryItems(kind){if(kind==='favorites')return S.state.items.filter(x=
 function renderLibrary(kind){const grid=$('#libraryGrid'),title=$('#libraryTitle'),items=libraryItems(kind);title.textContent=kind==='favorites'?'Favoritos':'Continuar assistindo';grid.replaceChildren();if(!items.length){const e=document.createElement('div');e.className='srh25-empty';e.textContent='Nada aqui por enquanto.';grid.appendChild(e)}else items.forEach(x=>grid.appendChild(card(x)))}
 function openLibrary(kind){activeLibrary=kind;renderLibrary(kind);$('#libraryView').classList.remove('is-hidden')}
 S.refreshLibraryView=()=>{const view=$('#libraryView');if(activeLibrary&&!view.classList.contains('is-hidden'))renderLibrary(activeLibrary)}
+function ensureUpdateUi(){
+  const panel=$('#settingsPanel');if(!panel||$('#shortUpdate'))return;
+  const wrap=document.createElement('section');wrap.id='shortUpdate';wrap.className='srh25-update';
+  wrap.innerHTML='<button class="srh25-update__toggle" id="shortUpdateToggle" type="button"><span>Atualizar app</span><span id="shortUpdateIcon">⌄</span></button><div class="srh25-update__body is-hidden" id="shortUpdateBody"><input class="srh25-update__input" id="shortUpdateM3u" placeholder="Cole o novo M3U / login Xtream"><div class="srh25-update__actions"><button class="srh25-update__button" id="shortUpdateLoad" type="button">Ler categorias</button><button class="srh25-update__button srh25-update__button--accent" id="shortUpdateApply" type="button" disabled>Atualizar</button></div><div class="srh25-update__status" id="shortUpdateStatus">A atualização do Shorts usa somente categorias de filmes.</div><div class="srh25-update__list" id="shortUpdateList"></div></div>';
+  panel.appendChild(wrap)
+}
+function renderUpdateCategories(){
+  const list=$('#shortUpdateList'),apply=$('#shortUpdateApply');if(!list||!apply)return;list.replaceChildren();
+  if(!updateCategories.length){apply.disabled=true;return}
+  const frag=document.createDocumentFragment();
+  for(const c of updateCategories){
+    const label=document.createElement('label');label.className='srh25-update__option';
+    const input=document.createElement('input');input.type='checkbox';input.checked=updateSelected.has(c.id);
+    const span=document.createElement('span');span.textContent=cleanName(c.name)||'Categoria';
+    input.onchange=()=>{input.checked?updateSelected.add(c.id):updateSelected.delete(c.id);apply.disabled=!updateSelected.size};
+    label.append(input,span);frag.appendChild(label)
+  }
+  list.appendChild(frag);apply.disabled=!updateSelected.size
+}
+async function loadUpdateCategories(){
+  const input=$('#shortUpdateM3u'),load=$('#shortUpdateLoad'),status=$('#shortUpdateStatus'),list=$('#shortUpdateList'),apply=$('#shortUpdateApply');
+  updateCandidate=null;updateCategories=[];updateSelected.clear();if(list)list.replaceChildren();if(apply)apply.disabled=true;
+  try{
+    const login=S.parseLogin(input?.value||''),candidate={...S.cfg,...login};
+    if(status)status.textContent='Validando login e lendo categorias de filmes…';if(load)load.disabled=true;
+    const account=await S.requestWithConfig({},candidate),active=account?.user_info&&(String(account.user_info.auth)==='1'||String(account.user_info.status||'').toLowerCase()==='active');
+    if(!active)throw new Error('O novo login não retornou uma conta ativa.');
+    const raw=await S.requestWithConfig({action:'get_vod_categories'},candidate);
+    updateCategories=(Array.isArray(raw)?raw:[]).map((c,i)=>({type:'vod',id:String(c.category_id??c.id??i),name:String(c.category_name??c.name??('Categoria '+(i+1)))}));
+    updateCandidate=candidate;
+    const oldIds=new Set((S.cfg.targets||[]).filter(t=>t.type==='vod').map(t=>String(t.id??t.category_id??''))),oldNames=new Set((S.cfg.targets||[]).filter(t=>t.type==='vod').map(t=>normName(t.name)));
+    for(const c of updateCategories)if(oldIds.has(c.id)||oldNames.has(normName(c.name)))updateSelected.add(c.id);
+    renderUpdateCategories();if(status)status.textContent=updateCategories.length+' categorias de filmes disponíveis.'
+  }catch(e){if(status)status.textContent=e?.message||String(e)}
+  finally{if(load)load.disabled=false}
+}
+async function applyUpdate(){
+  const status=$('#shortUpdateStatus');if(!updateCandidate||!updateSelected.size)return;
+  const targets=updateCategories.filter(c=>updateSelected.has(c.id)).map(c=>({type:'vod',id:c.id,name:c.name}));
+  const runtime={server:updateCandidate.server,username:updateCandidate.username,password:updateCandidate.password,liveExtension:updateCandidate.liveExtension,targets};
+  if(!S.saveRuntime(runtime)){S.toast('O navegador bloqueou o armazenamento local.');return}
+  if(status)status.textContent='Atualização salva. Recarregando…';
+  await S.clearCatalogCache?.();S.toast('Lista atualizada. Recarregando…');setTimeout(()=>location.reload(),350)
+}
 S.bindShell=()=>{
-  ensureImageObserver();$('#searchButton').onclick=()=>{$('#searchWrap').classList.toggle('is-hidden');if(!$('#searchWrap').classList.contains('is-hidden'))$('#shortSearch').focus()};$('#shortSearch').oninput=filter;
+  ensureImageObserver();ensureUpdateUi();
+  $('#shortUpdateToggle').onclick=()=>{const body=$('#shortUpdateBody'),hidden=body.classList.toggle('is-hidden');$('#shortUpdateIcon').textContent=hidden?'⌄':'⌃'};
+  $('#shortUpdateLoad').onclick=loadUpdateCategories;$('#shortUpdateApply').onclick=applyUpdate;
+  $('#searchButton').onclick=()=>{$('#searchWrap').classList.toggle('is-hidden');if(!$('#searchWrap').classList.contains('is-hidden'))$('#shortSearch').focus()};$('#shortSearch').oninput=filter;
   $('#historyButton').onclick=()=>openLibrary('history');$('#favoritesButton').onclick=()=>openLibrary('favorites');$('#libraryClose').onclick=()=>{activeLibrary=null;$('#libraryView').classList.add('is-hidden')};
   $('#settingsButton').onclick=e=>{e.stopPropagation();$('#settingsPanel').classList.toggle('is-hidden')};document.addEventListener('click',e=>{const p=$('#settingsPanel');if(!p.classList.contains('is-hidden')&&!e.target.closest('#settingsPanel')&&!e.target.closest('#settingsButton'))p.classList.add('is-hidden')});
   observer=new IntersectionObserver(es=>{if(es.some(e=>e.isIntersecting)&&shown<S.state.filtered.length)appendBatch()},{rootMargin:'700px 0px'});observer.observe($('#feedSentinel'))
