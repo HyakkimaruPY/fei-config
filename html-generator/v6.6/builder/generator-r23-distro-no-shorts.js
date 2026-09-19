@@ -15,23 +15,6 @@ function normalizeServer(s){return String(s||'').trim().replace(/\/+$/,'')}
 function parseLogin(raw){let text=String(raw||'').trim();if(!text)throw new Error('Informe o M3U/login.');if(!/^https?:\/\//i.test(text))text='http://'+text;let u;try{u=new URL(text)}catch{throw new Error('URL inválida.')}let username=u.searchParams.get('username')||u.searchParams.get('user'),password=u.searchParams.get('password')||u.searchParams.get('pass');const parts=u.pathname.split('/').filter(Boolean);if((!username||!password)&&parts.length>=2&&!/\.php$/i.test(parts.at(-1)||'')){username=username||decodeURIComponent(parts[0]);password=password||decodeURIComponent(parts[1])}if(!username||!password)throw new Error('Não encontrei username e password.');return{server:normalizeServer(u.origin),username,password,liveExtension:(u.searchParams.get('output')||'m3u8').toLowerCase()==='ts'?'ts':'m3u8'}}
 function chosenMode(){return 'standard'}
 function chosenTheme(){return document.querySelector('input[name="theme"]:checked')?.value||'graphene'}
-function themeFamily(value){return String(value||'').startsWith('flix-')?'flix':'classic'}
-function setStyleFamily(family,selectDefault=true){
-  const fam=family==='flix'?'flix':'classic';
-  $$('[data-style-family-button]').forEach(b=>b.classList.toggle('is-active',b.dataset.styleFamilyButton===fam));
-  $$('.theme-card').forEach(card=>{
-    const input=card.querySelector('input[name="theme"]');
-    card.classList.toggle('is-family-hidden',themeFamily(input?.value)!==fam);
-  });
-  const checked=document.querySelector('input[name="theme"]:checked');
-  if(selectDefault&&(!checked||themeFamily(checked.value)!==fam)){
-    const next=document.querySelector('input[name="theme"][value="'+(fam==='flix'?'flix-red':'graphene')+'"]');
-    if(next){
-      next.checked=true;
-      el.styleCurrent.textContent=next.dataset.label||next.value;
-    }
-  }
-}
 function autoProxyEnabled(){return el.autoProxy?.checked!==false}
 function apiUrl(action=''){const u=new URL(normalizeServer(el.server.value)+'/player_api.php');u.searchParams.set('username',el.username.value.trim());u.searchParams.set('password',el.password.value.trim());if(action)u.searchParams.set('action',action);return u.toString()}
 function httpsTwin(url){try{const u=new URL(url);if(u.protocol!=='http:')return'';u.protocol='https:';return u.href}catch{return''}}
@@ -64,6 +47,6 @@ async function loadTemplate(){const url=BASE+'/templates/standard-r23.html?v='+e
 function safeFilename(v){return String(v||'app').normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-z0-9_-]+/gi,'_').replace(/^_+|_+$/g,'')||'app'}
 function configJson(cfg){return JSON.stringify(cfg).replace(/</g,'\\u003c').replace(/\u2028/g,'\\u2028').replace(/\u2029/g,'\\u2029')}
 async function generate(){const targets=selectedCategories().map(c=>({type:c.type,name:c.name}));if(!targets.length)return;const config={appId:'srh_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7),appMode:'standard',appName:el.appName.value.trim()||'Meu App',server:normalizeServer(el.server.value),username:el.username.value.trim(),password:el.password.value.trim(),liveExtension:el.liveExt.value,corsProxy:String(el.corsProxy.value||'').trim(),autoCorsProxy:autoProxyEnabled(),theme:chosenTheme(),targets};el.generate.disabled=true;setStatus('Gerando HTML R23…','busy');try{const template=await loadTemplate();if(!template.includes('__APP_CONFIG__'))throw new Error('Template R23 inválido: marcador de configuração ausente.');const html=template.replace('__APP_CONFIG__',configJson(config)),blob=new Blob([html],{type:'text/html;charset=utf-8'}),a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=safeFilename(config.appName)+'_APP_R23.html';document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(a.href),1200);setStatus('HTML R23 gerado com sucesso.','ok')}catch(e){setStatus(e.message,'err')}finally{el.generate.disabled=!state.authenticated||!selectedCategories().length}}
-function initUI(){el.loginToggle.onclick=()=>setLoginOpen(!el.loginPanel.classList.contains('is-open'));el.load.onclick=loadCategories;el.editLogin.onclick=()=>{setLoginOpen(true);el.loginPanel.scrollIntoView({behavior:'smooth',block:'start'})};el.search.oninput=renderCategories;el.all.onclick=()=>{state.categories.filter(c=>c.type===state.activeType).forEach(c=>state.selected.add(c.type+'::'+c.id));renderCategories();updateSelection()};el.clear.onclick=()=>{for(const c of state.categories.filter(c=>c.type===state.activeType))state.selected.delete(c.type+'::'+c.id);renderCategories();updateSelection()};$$('[data-type]').forEach(btn=>btn.onclick=()=>{if(btn.disabled)return;state.activeType=btn.dataset.type;renderTypeTabs();renderCategories()});el.styleToggle.onclick=()=>el.stylePanel.classList.toggle('is-open');$$('[data-style-family-button]').forEach(b=>b.onclick=()=>setStyleFamily(b.dataset.styleFamilyButton,true));$$('input[name="theme"]').forEach(r=>r.onchange=()=>{if(r.checked){el.styleCurrent.textContent=r.dataset.label||r.value;setStyleFamily(themeFamily(r.value),false)}});setStyleFamily(themeFamily(chosenTheme()),false);el.generate.onclick=generate;setStatus('Aguardando análise.');renderTypeTabs();updateSelection()}
+function initUI(){el.loginToggle.onclick=()=>setLoginOpen(!el.loginPanel.classList.contains('is-open'));el.load.onclick=loadCategories;el.editLogin.onclick=()=>{setLoginOpen(true);el.loginPanel.scrollIntoView({behavior:'smooth',block:'start'})};el.search.oninput=renderCategories;el.all.onclick=()=>{state.categories.filter(c=>c.type===state.activeType).forEach(c=>state.selected.add(c.type+'::'+c.id));renderCategories();updateSelection()};el.clear.onclick=()=>{for(const c of state.categories.filter(c=>c.type===state.activeType))state.selected.delete(c.type+'::'+c.id);renderCategories();updateSelection()};$$('[data-type]').forEach(btn=>btn.onclick=()=>{if(btn.disabled)return;state.activeType=btn.dataset.type;renderTypeTabs();renderCategories()});el.styleToggle.onclick=()=>el.stylePanel.classList.toggle('is-open');$('input[name="theme"]').forEach(r=>r.onchange=()=>{if(r.checked)el.styleCurrent.textContent=r.dataset.label||r.value});el.generate.onclick=generate;setStatus('Aguardando análise.');renderTypeTabs();updateSelection()}
 initUI();
 })();
