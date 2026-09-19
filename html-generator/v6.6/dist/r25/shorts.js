@@ -196,7 +196,7 @@ S.loadCatalog=async()=>{
 })();
 
 /* ===== 03-player.js ===== */
-(()=>{'use strict';const S=window.SRH25,$=S.$;const video=$('#shortVideo'),player=$('#shortPlayer'),poster=$('#shortPoster'),loading=$('#playerLoading'),arcDrawer=$('#arcDrawer'),arcGrid=$('#arcGrid'),arcBackdrop=$('#arcBackdrop');let startX=0,startY=0,lastSavedPosition=0,activeArc=-1;
+(()=>{'use strict';const S=window.SRH25,$=S.$;const video=$('#shortVideo'),player=$('#shortPlayer'),poster=$('#shortPoster'),loading=$('#playerLoading'),arcDrawer=$('#arcDrawer'),arcGrid=$('#arcGrid');let arcBackdrop=$('#arcBackdrop');let startX=0,startY=0,lastSavedPosition=0,activeArc=-1;
 let arcDragStartY=null;
 const fitKey='srh:shorts:fit:'+(S.cfg.appId||S.cfg.appName||'app');
 let fitMode='cover';try{fitMode=localStorage.getItem(fitKey)||'cover'}catch{}if(fitMode!=='contain')fitMode='cover';
@@ -219,13 +219,49 @@ function ensureHls(){
   return hlsLoader
 }
 function destroyHls(){try{S.state.hls?.destroy()}catch{}S.state.hls=null}
+function ensureArcSheetChrome(){
+  if(!arcBackdrop){
+    arcBackdrop=document.createElement('div');
+    arcBackdrop.id='arcBackdrop';
+    arcBackdrop.className='srh25-arc-backdrop is-hidden';
+    arcDrawer.parentNode?.insertBefore(arcBackdrop,arcDrawer);
+  }
+  let handle=arcDrawer.querySelector('.srh25-arcs__handle');
+  if(!handle){
+    handle=document.createElement('div');
+    handle.className='srh25-arcs__handle';
+    handle.setAttribute('aria-label','Arraste para baixo para fechar');
+    handle.innerHTML='<span></span>';
+    arcDrawer.prepend(handle);
+  }
+  let head=arcDrawer.querySelector('.srh25-arcs__head');
+  if(!head){
+    head=document.createElement('div');
+    head.className='srh25-arcs__head';
+    const title=document.createElement('h3');title.textContent='Arcos';
+    head.appendChild(title);
+    handle.insertAdjacentElement('afterend',head);
+  }
+  let close=head.querySelector('#arcClose');
+  if(!close){
+    close=document.createElement('button');
+    close.id='arcClose';
+    close.type='button';
+    close.className='srh25-arcs__close';
+    close.setAttribute('aria-label','Fechar arcos');
+    close.innerHTML='<svg viewBox="0 0 24 24"><path d="M7 7l10 10M17 7L7 17"/></svg>';
+    head.appendChild(close);
+  }
+  arcBackdrop.onclick=closeArcs;
+  close.onclick=closeArcs;
+}
 function closeArcs(){arcBackdrop?.classList.add('is-hidden');arcDrawer.classList.add('is-hidden')}
 function stop(){const cur=S.state.current;if(cur)S.saveProgress(cur.item,video.currentTime,video.duration);closeArcs();destroyHls();video.pause();video.removeAttribute('src');video.load();S.state.current=null;player.classList.add('is-hidden')}
 function setFavorite(){const cur=S.state.current;if(!cur)return;const on=S.toggleFavorite(cur.item);$('#playerFavorite').classList.toggle('is-active',on);$('#playerFavorite').querySelector('small').textContent=on?'Favoritado':'Favorito'}
 function arcIndex(){const d=video.duration;if(!Number.isFinite(d)||d<=0)return 0;return Math.max(0,Math.min(Math.ceil(d/120)-1,Math.floor((Number(video.currentTime)||0)/120)))}
 function syncArcSelection(scroll=false){if(arcDrawer.classList.contains('is-hidden'))return;const index=arcIndex();if(index===activeArc&&!scroll)return;activeArc=index;let active=null;arcGrid.querySelectorAll('[data-arc-index]').forEach(b=>{const on=Number(b.dataset.arcIndex)===index;b.classList.toggle('active',on);b.setAttribute('aria-current',on?'true':'false');if(on)active=b});if(scroll&&active)requestAnimationFrame(()=>active.scrollIntoView({block:'center',inline:'nearest',behavior:'auto'}))}
 function drawArcs(){const d=video.duration;if(!Number.isFinite(d)||d<=0){arcGrid.innerHTML='<div class="srh25-empty">Aguardando duração…</div>';return}const n=Math.max(1,Math.ceil(d/120));arcGrid.replaceChildren();for(let i=0;i<n;i++){const start=i*120,b=document.createElement('button');b.className='srh25-arc';b.dataset.arcIndex=String(i);b.innerHTML='<strong>Arco '+(i+1)+'</strong>';b.onclick=()=>{video.currentTime=Math.min(Math.max(0,d-.1),start);activeArc=i;closeArcs();video.play().catch(()=>{})};arcGrid.appendChild(b)}syncArcSelection(true)}
-function openArcs(){drawArcs();arcBackdrop?.classList.remove('is-hidden');arcDrawer.classList.remove('is-hidden');activeArc=-1;syncArcSelection(true)}
+function openArcs(){ensureArcSheetChrome();drawArcs();arcBackdrop.classList.remove('is-hidden');arcDrawer.classList.remove('is-hidden');activeArc=-1;syncArcSelection(true)}
 async function loadVideo(item,resume){
   const url=S.stream(item),ready=()=>{if(resume?.position>0&&resume.position<video.duration-3){video.currentTime=resume.position;const done=()=>{poster.classList.add('is-hidden');loading.classList.add('is-hidden');video.play().catch(()=>{})};video.addEventListener('seeked',done,{once:true})}else{poster.classList.add('is-hidden');loading.classList.add('is-hidden');video.play().catch(()=>{})}drawArcs()};
   if(/\.m3u8(?:$|\?)/i.test(url)){
@@ -243,8 +279,14 @@ video.onpause=()=>{if(!video.ended)persistCurrentProgress(true)};
 video.onended=()=>{if(S.state.current)S.removeHistory(S.state.current.item);lastSavedPosition=0};
 $('#playerClose').onclick=stop;$('#playerFavorite').onclick=setFavorite;
 $('#playerArcs').onclick=()=>arcDrawer.classList.contains('is-hidden')?openArcs():closeArcs();
-arcBackdrop?.addEventListener('click',closeArcs);
-$('#arcClose')?.addEventListener('click',closeArcs);
+ensureArcSheetChrome();
+document.addEventListener('pointerdown',e=>{
+  if(arcDrawer.classList.contains('is-hidden'))return;
+  if(arcDrawer.contains(e.target)||e.target.closest?.('#playerArcs'))return;
+  e.preventDefault();
+  e.stopPropagation();
+  closeArcs();
+},true);
 arcDrawer.addEventListener('pointerdown',e=>{if(!e.target.closest('.srh25-arcs__handle,.srh25-arcs__head'))return;arcDragStartY=e.clientY},{passive:true});
 arcDrawer.addEventListener('pointerup',e=>{if(arcDragStartY==null)return;const dy=e.clientY-arcDragStartY;arcDragStartY=null;if(dy>54)closeArcs()},{passive:true});
 arcDrawer.addEventListener('pointercancel',()=>{arcDragStartY=null},{passive:true});
