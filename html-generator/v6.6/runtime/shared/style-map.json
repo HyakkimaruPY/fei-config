@@ -1,0 +1,24 @@
+{
+  "enabled": true,
+  "runtime": "r23",
+  "contract": "srh66-style-v2",
+  "revision": "2026-09-flix-1",
+  "families": {
+    "classic": [
+      "graphene",
+      "obsidian",
+      "porcelain",
+      "jade",
+      "aurora",
+      "ember"
+    ],
+    "flix": [
+      "flix-red",
+      "flix-blue",
+      "flix-orange",
+      "flix-violet",
+      "flix-emerald",
+      "flix-rose"
+    ]
+  }
+}
