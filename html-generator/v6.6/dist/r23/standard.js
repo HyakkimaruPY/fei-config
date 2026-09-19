@@ -1575,6 +1575,23 @@ async function closeDetail(){
 (function installMainStreamStyle(){
   document.body.classList.add('srh-main-stream-style');
 
+  function resetMainStreamScroll(){
+    try{window.scrollTo({top:0,left:0,behavior:'auto'})}catch{window.scrollTo(0,0)}
+    if(document.scrollingElement)document.scrollingElement.scrollTop=0;
+    document.documentElement.scrollTop=0;
+    document.body.scrollTop=0;
+  }
+
+  document.addEventListener('click',e=>{
+    const tab=e.target.closest?.('.tab-button[data-type]');
+    if(!tab)return;
+    const next=tab.dataset.type;
+    if(next&&next!==state.activeType){
+      resetMainStreamScroll();
+      requestAnimationFrame(resetMainStreamScroll);
+    }
+  },true);
+
   let heroToken=0,heroTimer=0,heroItems=[],heroIndex=0,heroNode=null;
   const heroMeta=new Map();
 

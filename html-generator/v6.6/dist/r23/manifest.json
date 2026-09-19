@@ -1,10 +1,10 @@
 {
-  "revision": "r23-965b8edef6b9e015",
-  "generatedAt": "2026-09-19T01:55:36.311Z",
+  "revision": "r23-085f059976c28bfd",
+  "generatedAt": "2026-09-19T02:10:09.966Z",
   "diagnosticBaseline": {
     "standard": "46b9cd4-pre-aura"
   },
-  "standardLayer": "lite-ui-r11-main-stream-classic",
+  "standardLayer": "lite-ui-r12-main-stream-palette-scroll",
   "standard": {
     "js": "standard.js",
     "css": "standard.css"
