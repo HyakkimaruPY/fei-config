@@ -1,3 +1,0 @@
-/* SRHELL v6.6 — keep title/synopsis/actions visible; hide only redundant player close controls. */
-#seriesStop,
-.detail-inline-actions [data-inline-close]{display:none!important}
