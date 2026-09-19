@@ -56,7 +56,7 @@ const themeFiles=['graphene','obsidian','porcelain','jade','aurora','ember'].map
 const hash=crypto.createHash('sha256');
 for(const s of [standardJs,shortsJs,standardCssBundle,shortsCssBundle,...themeFiles.map(read)])hash.update(s);
 const revision='r23-'+hash.digest('hex').slice(0,16);
-const manifest={revision,generatedAt:new Date().toISOString(),diagnosticBaseline:{standard:'46b9cd4-pre-aura'},standardLayer:'lite-ui-r8-favorites-branding-fix',standard:{js:'standard.js',css:'standard.css'},shorts:{js:'shorts.js',css:'shorts.css'},themes:themeFiles.map(x=>path.basename(x,'.css'))};
+const manifest={revision,generatedAt:new Date().toISOString(),diagnosticBaseline:{standard:'46b9cd4-pre-aura'},standardLayer:'lite-ui-r9-zoom-settings-rail-queue',standard:{js:'standard.js',css:'standard.css'},shorts:{js:'shorts.js',css:'shorts.css'},themes:themeFiles.map(x=>path.basename(x,'.css'))};
 write('manifest.json',JSON.stringify(manifest,null,2));
 
 function checkJsText(source,label){
