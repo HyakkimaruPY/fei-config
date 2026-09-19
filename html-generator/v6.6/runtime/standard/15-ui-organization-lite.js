@@ -107,6 +107,11 @@
     try{
       localStorage.setItem(historyKey(bucket),raw);
       try{sessionStorage.removeItem(historyKey(bucket))}catch{}
+      /* Read-after-write keeps the memory mirror identical to persistent storage. */
+      try{
+        const verified=JSON.parse(localStorage.getItem(historyKey(bucket))||'[]');
+        contMemory[bucket]=Array.isArray(verified)?verified:compact;
+      }catch{contMemory[bucket]=compact}
       return true;
     }catch(e){
       const quota=e?.name==='QuotaExceededError'||e?.name==='NS_ERROR_DOM_QUOTA_REACHED'||e?.code===22||e?.code===1014;
@@ -181,20 +186,38 @@
     }
     return null;
   }
+  function detachRemovedCurrentMedia(type,started,item){
+    const media=state.currentMedia;
+    if(!media)return;
+    if(type==='vod'){
+      if(media.key===started?.key)state.currentMedia=null;
+      return;
+    }
+    if(type==='series'){
+      const sid=String(started?.seriesId??item?.series_id??item?.id??'');
+      if(String(media.seriesId??'')===sid)state.currentMedia=null;
+    }
+  }
+
   function removeStarted(type,item){
     const started=startedEntry(type,item);
     if(!started)return false;
     let ok=false;
     if(type==='vod'){
+      /* Clear the active paused resume object before any pause/close handler can
+         persist it again after deletion. */
+      detachRemovedCurrentMedia('vod',started,item);
       ok=removeHistory(started.key,'vod');
+      if(ok)renderContinue();
       toast(ok?'Filme removido de Continuar assistindo.':'Não foi possível remover o filme.');
       return ok;
     }
     if(type==='series'){
       const sid=String(started.seriesId??item?.series_id??item?.id??'');
+      detachRemovedCurrentMedia('series',started,item);
       const next=getHistory('series').filter(x=>String(x.seriesId??'')!==sid);
       ok=writeHistoryBucket('series',next);
-      renderContinue();
+      if(ok)renderContinue();
       toast(ok?'Série removida de Continuar assistindo.':'Não foi possível remover a série.');
       return ok;
     }
