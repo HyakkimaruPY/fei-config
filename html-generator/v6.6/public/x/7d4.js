@@ -1,4 +1,4 @@
-(()=>{const z=window.__srhA;if(!z||z.k!=="e4c98a71"||z.m!=="s")return;(() => {
+(()=>{const z=window.__srhA;if(!z||z.k!=="e4c98a71"||z.m!=="s"||!Object.isFrozen(z)||typeof z.u!=='function'||typeof z.t!=='function')return;(() => {
 'use strict';
 const BASE_CONFIG=JSON.parse(document.getElementById('app-config').textContent);
 const TYPE={live:{label:'Canais',categories:'get_live_categories',content:'get_live_streams'},vod:{label:'Filmes',categories:'get_vod_categories',content:'get_vod_streams'},series:{label:'Séries',categories:'get_series_categories',content:'get_series'}};
