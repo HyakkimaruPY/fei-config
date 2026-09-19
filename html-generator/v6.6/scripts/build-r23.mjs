@@ -53,6 +53,18 @@ for(const f of ['standard.js','shorts.js'])checkFileJs(path.join(outDir,f),f);
 checkFileJs(path.join(root,'builder/generator-r23-clean.js'),'generator-r23-clean.js');
 checkFileJs(path.join(root,'builder/generator-r23-distro-no-shorts.js'),'generator-r23-distro-no-shorts.js');
 
+/* Generator UI contract: the retired Flix/Fixed family must never return, and
+   theme bindings must use the list selector so initUI reaches Gerar HTML. */
+const cleanBuilder=read('builder/generator-r23-clean.js');
+const distroBuilder=read('builder/generator-r23-distro-no-shorts.js');
+for(const [label,src] of [['clean',cleanBuilder],['distro',distroBuilder]]){
+  if(src.includes("$('input[name=\"theme\"]').forEach"))throw new Error(`generator ${label}: binding de tema usa $() único e interrompe initUI`);
+  if(!src.includes("$('input[name=\"theme\"]').forEach"))throw new Error(`generator ${label}: binding plural de temas ausente`);
+  if(/value=["']flix-|Flix Style|Fixed Style/i.test(src))throw new Error(`generator ${label}: família Flix/Fixed aposentada reapareceu`);
+}
+if(!cleanBuilder.includes("'shorts-r25.html'"))throw new Error('generator clean não aponta para Shorts R25');
+
+
 const themeFiles=['graphene','obsidian','porcelain','jade','aurora','ember'].map(x=>`themes/${x}.css`);
 const hash=crypto.createHash('sha256');
 for(const s of [standardJs,shortsJs,standardCssBundle,shortsCssBundle,...themeFiles.map(read)])hash.update(s);
@@ -83,6 +95,11 @@ assertIds('runtime/shorts/01.js','templates/shorts-r23.html');
 assertIds('builder/generator-r23-clean.js','generator-r23.html');
 
 const generatorR23=read('generator-r23.html'),generatorMain=read('generator.html');
+for(const [label,src] of [['generator-r23.html',generatorR23],['generator.html',generatorMain]]){
+  if(/value=["']flix-|Flix Style|Fixed Style/i.test(src))throw new Error(`${label}: família Flix/Fixed aposentada reapareceu`);
+  if(!/value=["']shorts["']/.test(src))throw new Error(`${label}: opção Shorts R25 ausente`);
+  if(!src.includes('App Shorts R25'))throw new Error(`${label}: rótulo Shorts R25 ausente`);
+}
 if(generatorMain!==generatorR23)throw new Error('generator.html divergiu de generator-r23.html; a entrada principal deve ser exatamente a versão R23 validada.');
 if(/generator-r(?:1[4-9]|2[0-2])|\beval\s*\(/.test(generatorR23))throw new Error('generator-r23.html contém builder antigo/eval');
 inlineScripts(generatorR23).forEach((s,i)=>checkJsText(s,`generator-r23.html inline script ${i}`));
