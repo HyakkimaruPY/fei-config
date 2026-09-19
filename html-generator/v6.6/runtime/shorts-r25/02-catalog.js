@@ -11,11 +11,7 @@ function card(item){
   const b=document.createElement('button');b.type='button';b.className='srh25-card';b.dataset.id=S.id(item);
   const img=document.createElement('img');img.className='srh25-card__image';img.alt='';img.loading='lazy';img.decoding='async';
   const ph=document.createElement('div');ph.className='srh25-card__placeholder';
-  const shade=document.createElement('div');shade.className='srh25-card__shade';
-  const copy=document.createElement('div');copy.className='srh25-card__copy';
-  const title=document.createElement('div');title.className='srh25-card__title';title.textContent=S.title(item);
-  const arcs=document.createElement('span');arcs.className='srh25-card__arcs';arcs.textContent='Short';
-  copy.append(title,arcs);b.append(img,ph,shade,copy);
+  b.append(img,ph);
   img.onload=()=>img.classList.add('is-ready');img.onerror=()=>{img.removeAttribute('src');img.classList.remove('is-ready')};
   const src=S.image(item);if(src){img.dataset.src=src;if(imgObserver)imgObserver.observe(img);else img.src=src}
   b.onclick=()=>S.openPlayer?.(item);return b
