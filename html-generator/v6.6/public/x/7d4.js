@@ -1,4 +1,4 @@
-(()=>{const z=window.__srhA;if(!z||z.k!=='e4c98a71'||z.m!=='s')return;/* ===== runtime/standard/01.js ===== */
+(()=>{const z=window.__srhA;if(!z||z.k!=="e4c98a71"||z.m!=="s")return;/* ===== runtime/standard/01.js ===== */
 (() => {
 'use strict';
 const BASE_CONFIG=JSON.parse(document.getElementById('app-config').textContent);
@@ -103,8 +103,10 @@ function applyUpdate(){if(!state.updateCandidate||!state.updateSelected.size)ret
 el.settingsButton.onclick=()=>{const opening=el.settingsPanel.classList.contains('is-hidden');el.settingsPanel.classList.toggle('is-hidden');if(opening)refreshAccount()};el.updateAccordionButton.onclick=()=>{const hidden=el.updateAccordionBody.classList.toggle('is-hidden');el.updateAccordionIcon.textContent=hidden?'⌄':'⌃'};el.updateLoad.onclick=loadUpdateCategories;el.updateApply.onclick=applyUpdate;
 document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement&&isMobile())screen.orientation?.lock?.('portrait')?.catch?.(()=>{})});
 function init(){installImageFallback();document.body.dataset.theme=CONFIG.theme||'graphene';document.title=CONFIG.appName;el.title.textContent=CONFIG.appName;const types=selectedTypes();if(!types.length){el.homeStatus.textContent='Nenhuma categoria configurada.';return}state.activeType=types[0];renderActiveType();refreshAccount()}
-/* ===== DIAGNOSTIC MODULES ===== */
-/* ===== runtime/standard/04-fixes.js @ 46b9cd4bbf7d403a31634a4f46417856b6903e5a ===== */
+init();
+})();
+
+/* ===== runtime/standard/04-fixes-baseline.js ===== */
 /* SRHELL v6.6 detail/player fixes — loaded after standard/03.js */
 function srhFixInlineState(){
   return state.detailInlineVideo || null;
@@ -236,6 +238,7 @@ async function closeDetail(){
   state.synopsisExpanded=false;
   freezePage(!el.collectionView.classList.contains('is-hidden'));
 }
+
 /* ===== runtime/standard/15-ui-organization-lite.js ===== */
 /* SRHELL v6.6 — lightweight restoration of later UI organization.
    No MutationObserver, iframe favorites, extra transport or background network work. */
@@ -1761,8 +1764,4 @@ async function closeDetail(){
 
   if(state.activeType)buildHero(state.renderToken);
 })();
-
-init();
-})();
-
 })();
