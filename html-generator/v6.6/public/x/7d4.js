@@ -98,8 +98,6 @@ function applyUpdate(){if(!state.updateCandidate||!state.updateSelected.size)ret
 el.settingsButton.onclick=()=>{const opening=el.settingsPanel.classList.contains('is-hidden');el.settingsPanel.classList.toggle('is-hidden');if(opening)refreshAccount()};el.updateAccordionButton.onclick=()=>{const hidden=el.updateAccordionBody.classList.toggle('is-hidden');el.updateAccordionIcon.textContent=hidden?'⌄':'⌃'};el.updateLoad.onclick=loadUpdateCategories;el.updateApply.onclick=applyUpdate;
 document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement&&isMobile())screen.orientation?.lock?.('portrait')?.catch?.(()=>{})});
 function init(){installImageFallback();document.body.dataset.theme=CONFIG.theme||'graphene';document.title=CONFIG.appName;el.title.textContent=CONFIG.appName;const types=selectedTypes();if(!types.length){el.homeStatus.textContent='Nenhuma categoria configurada.';return}state.activeType=types[0];renderActiveType();refreshAccount()}
-init();
-})();
 /* SRHELL v6.6 detail/player fixes — loaded after standard/03.js */
 function srhFixInlineState(){
   return state.detailInlineVideo || null;
@@ -1750,5 +1748,7 @@ async function closeDetail(){
   };
 
   if(state.activeType)buildHero(state.renderToken);
+})();
+init();
 })();
 })();
