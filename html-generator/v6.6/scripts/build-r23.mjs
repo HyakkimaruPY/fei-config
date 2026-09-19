@@ -57,7 +57,7 @@ const themeFiles=['graphene','obsidian','porcelain','jade','aurora','ember','fli
 const hash=crypto.createHash('sha256');
 for(const s of [standardJs,shortsJs,standardCssBundle,shortsCssBundle,...themeFiles.map(read)])hash.update(s);
 const revision='r23-'+hash.digest('hex').slice(0,16);
-const manifest={revision,generatedAt:new Date().toISOString(),diagnosticBaseline:{standard:'46b9cd4-pre-aura'},standardLayer:'lite-ui-r10-continue-flix-contract',standard:{js:'standard.js',css:'standard.css'},shorts:{js:'shorts.js',css:'shorts.css'},themes:themeFiles.map(x=>path.basename(x,'.css'))};
+const manifest={revision,generatedAt:new Date().toISOString(),diagnosticBaseline:{standard:'46b9cd4-pre-aura'},standardLayer:'lite-ui-r10b-generator-family-fix',standard:{js:'standard.js',css:'standard.css'},shorts:{js:'shorts.js',css:'shorts.css'},themes:themeFiles.map(x=>path.basename(x,'.css'))};
 write('manifest.json',JSON.stringify(manifest,null,2));
 
 function checkJsText(source,label){
