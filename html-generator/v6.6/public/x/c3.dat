@@ -1,34 +1,11 @@
 {
-  "revision": "workflow-1789815906",
-  "generatedAt": "2026-09-19T11:05:06Z",
-  "sourceRevision": "2026-09-17-candidates-2",
-  "validator": "github-actions-cors-v1.1",
-  "probeTarget": "https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6/runtime/shared/proxy-probe.txt",
+  "revision": "workflow-1789839255",
+  "generatedAt": "2026-09-19T17:34:15Z",
+  "sourceRevision": "2026-09-19-private-router-1",
+  "validator": "github-actions-cors-v1.2",
+  "probeTarget": "https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6/public/x/e5.dat",
   "candidateCount": 6,
-  "validCount": 2,
+  "validCount": 0,
   "maxApiFallbacks": 2,
-  "proxies": [
-    {
-      "id": "corsproxy-render",
-      "name": "CORSProxy Render",
-      "template": "https://corsproxy-latest.onrender.com/{rawUrl}",
-      "priority": 5,
-      "latencyMs": 145,
-      "successRate": 1.0,
-      "lastStatus": 200,
-      "corsAllowOrigin": "*",
-      "validatedAt": "2026-09-19T11:04:39Z"
-    },
-    {
-      "id": "cors-lol",
-      "name": "CORS.lol",
-      "template": "https://api.cors.lol/?url={url}",
-      "priority": 10,
-      "latencyMs": 530,
-      "successRate": 1.0,
-      "lastStatus": 200,
-      "corsAllowOrigin": "*",
-      "validatedAt": "2026-09-19T11:04:40Z"
-    }
-  ]
+  "proxies": []
 }
