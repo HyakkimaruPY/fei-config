@@ -2,7 +2,7 @@
 (()=>{'use strict';
 const cfg=JSON.parse(document.getElementById('app-config').textContent);
 const $=s=>document.querySelector(s);
-const S={cfg,state:{items:[],filtered:[],history:[],favorites:new Set(),pool:null,proxy:null,hls:null,current:null},$};
+const S={cfg,state:{items:[],filtered:[],history:[],favorites:new Set(),pool:null,proxy:null,hls:null,current:null,requests:new Map()},$};
 window.SRH25=S;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const clean=s=>String(s??'').trim();
@@ -14,14 +14,15 @@ S.image=item=>clean(item?.stream_icon||item?.movie_image||item?.cover||'');
 S.stream=item=>`${server()}/movie/${enc(cfg.username)}/${enc(cfg.password)}/${S.id(item)}.${clean(item?.container_extension)||'mp4'}`;
 S.toast=msg=>{const n=$('#toast');if(!n)return;n.textContent=msg;n.classList.add('is-on');clearTimeout(S.toast.t);S.toast.t=setTimeout(()=>n.classList.remove('is-on'),1800)};
 function parseJson(t){let s=String(t??'').replace(/^\uFEFF/,'').trim();try{return JSON.parse(s)}catch{}const a=s.indexOf('{'),b=s.indexOf('['),i=a<0?b:b<0?a:Math.min(a,b);if(i>=0){const j=s.lastIndexOf(s[i]==='{'?'}':']');if(j>i)return JSON.parse(s.slice(i,j+1))}throw new Error('Resposta inválida')}
-async function fetchText(url,timeout=5000){const c=new AbortController(),t=setTimeout(()=>c.abort(),timeout);try{const r=await fetch(url,{cache:'no-store',redirect:'follow',credentials:'omit',signal:c.signal});if(!r.ok)throw new Error('HTTP '+r.status);return await r.text()}finally{clearTimeout(t)}}
+async function fetchText(url,timeout=5000){const c=new AbortController(),t=setTimeout(()=>c.abort(),timeout);try{const r=await fetch(url,{cache:'no-cache',redirect:'follow',credentials:'omit',signal:c.signal});if(!r.ok)throw new Error('HTTP '+r.status);return await r.text()}finally{clearTimeout(t)}}
 function httpsTwin(url){try{const u=new URL(url);if(u.protocol!=='http:')return'';u.protocol='https:';return u.href}catch{return''}}
 function proxyUrl(template,target){const b=clean(template),raw=clean(target),e=enc(raw);if(!b)return'';if(b.includes('{rawUrl}'))return b.replaceAll('{rawUrl}',raw);if(b.includes('{raw}'))return b.replaceAll('{raw}',raw);if(b.includes('{url}'))return b.replaceAll('{url}',e);if(b.endsWith('=')||b.endsWith('?'))return b+e;try{const u=new URL(b),k=['url','target','uri','q'].find(x=>u.searchParams.has(x))||'url';u.searchParams.set(k,raw);return u.toString()}catch{return''}}
 function apiUrl(params={}){const u=new URL(server()+'/player_api.php');u.searchParams.set('username',cfg.username);u.searchParams.set('password',cfg.password);for(const [k,v] of Object.entries(params))if(v!==undefined&&v!==null&&v!=='')u.searchParams.set(k,v);return u.toString()}
-async function loadPool(){if(S.state.pool)return S.state.pool;const r=await fetch('https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6/runtime/shared/proxy-pool.json?t='+Date.now(),{cache:'no-store'});if(!r.ok)throw new Error('Pool '+r.status);const j=await r.json();return S.state.pool=(Array.isArray(j.proxies)?j.proxies:[]).filter(x=>x&&x.template&&x.valid!==false&&x.enabled!==false).sort((a,b)=>(+a.latencyMs||9e9)-(+b.latencyMs||9e9))}
+async function loadPool(){if(S.state.pool)return S.state.pool;const r=await fetch('https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6/runtime/shared/proxy-pool.json',{cache:'default'});if(!r.ok)throw new Error('Pool '+r.status);const j=await r.json();return S.state.pool=(Array.isArray(j.proxies)?j.proxies:[]).filter(x=>x&&x.template&&x.valid!==false&&x.enabled!==false).sort((a,b)=>(+a.latencyMs||9e9)-(+b.latencyMs||9e9))}
 function proxyKey(){let h='host';try{h=new URL(server()).host}catch{}return 'srh25:proxy:'+(cfg.appId||cfg.appName||'app')+':'+h}
 function readProxy(){try{return JSON.parse(localStorage.getItem(proxyKey())||'null')}catch{return null}}
 function saveProxy(x){try{localStorage.setItem(proxyKey(),JSON.stringify(x))}catch{}}
+function clearProxy(){try{localStorage.removeItem(proxyKey())}catch{}}
 async function chooseProxy(target){
   const saved=readProxy();
   if(saved?.template&&Number(saved.uses||0)<3){saved.uses=Number(saved.uses||0)+1;saveProxy(saved);return saved.template}
@@ -31,13 +32,38 @@ async function chooseProxy(target){
   if(!ok)throw new Error('Nenhum proxy CORS respondeu');
   saveProxy({template:ok.p.template,id:ok.p.id||'',uses:1,at:Date.now()});return ok.p.template
 }
-S.request=async params=>{
-  const target=apiUrl(params),candidates=[target,httpsTwin(target)].filter(Boolean);
-  let last;
-  for(const u of candidates){try{return parseJson(await fetchText(u,5200))}catch(e){last=e}}
-  if(cfg.corsProxy){try{return parseJson(await fetchText(proxyUrl(cfg.corsProxy,target),6000))}catch(e){last=e}}
-  if(cfg.autoCorsProxy!==false){const p=await chooseProxy(target);try{return parseJson(await fetchText(proxyUrl(p,target),6200))}catch(e){last=e}}
-  throw last||new Error('Falha de conexão')
+S.request=params=>{
+  const target=apiUrl(params),key=target;
+  if(S.state.requests.has(key))return S.state.requests.get(key);
+  const job=(async()=>{
+    const candidates=[target,httpsTwin(target)].filter(Boolean);
+    let last;
+    if(candidates.length){
+      try{
+        return await Promise.any(candidates.map(async u=>parseJson(await fetchText(u,1900))));
+      }catch(e){last=e}
+    }
+    if(cfg.corsProxy){
+      try{return parseJson(await fetchText(proxyUrl(cfg.corsProxy,target),3600))}catch(e){last=e}
+    }
+    if(cfg.autoCorsProxy!==false){
+      const saved=readProxy();
+      if(saved?.template){
+        try{
+          saved.uses=Number(saved.uses||0)+1;saveProxy(saved);
+          return parseJson(await fetchText(proxyUrl(saved.template,target),3600));
+        }catch(e){last=e;clearProxy()}
+      }
+      try{
+        const p=await chooseProxy(target);
+        return parseJson(await fetchText(proxyUrl(p,target),4200));
+      }catch(e){last=e}
+    }
+    throw last||new Error('Falha de conexão')
+  })();
+  S.state.requests.set(key,job);
+  job.finally(()=>S.state.requests.delete(key));
+  return job
 };
 const ns=String(cfg.appId||cfg.appName||'app').replace(/[^a-z0-9_-]/gi,'_');
 const favKey='srh25:'+ns+':favorites',histKey='srh25:'+ns+':history';
@@ -61,7 +87,7 @@ S.lockZoom=()=>{
   window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&['+','-','=','0'].includes(e.key))e.preventDefault()});
 };
 S.account=async()=>{try{const a=await S.request({}),raw=a?.user_info?.exp_date,n=Number(raw);if(n>0){const d=new Date(n*1000),days=Math.ceil((d-Date.now())/86400000);$('#expiryDate').textContent=d.toLocaleDateString('pt-BR');$('#expiryDays').textContent=days+' dias';$('#appMeta').textContent=(a?.user_info?.status||'Active')+' · '+days+' dias restantes'}else $('#appMeta').textContent=a?.user_info?.status||'Active'}catch{$('#appMeta').textContent='Conta conectada'}};
-S.boot=async()=>{document.body.dataset.theme=cfg.theme||'graphene';$('#appTitle').textContent=cfg.appName||'Meu App';S.lockZoom();S.state.favorites=S.readFavorites();S.state.history=S.readHistory();S.bindShell?.();S.account();await S.loadCatalog?.();window.dispatchEvent(new Event('srh25:ready'))};
+S.boot=async()=>{document.body.dataset.theme=cfg.theme||'graphene';$('#appTitle').textContent=cfg.appName||'Meu App';S.lockZoom();S.state.favorites=S.readFavorites();S.state.history=S.readHistory();S.bindShell?.();await S.loadCatalog?.();window.dispatchEvent(new Event('srh25:ready'));setTimeout(()=>S.account(),0)};
 })();
 
 /* ===== 02-catalog.js ===== */
