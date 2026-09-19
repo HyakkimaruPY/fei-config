@@ -1570,23 +1570,21 @@ async function closeDetail(){
   getTmdbConfig().catch(()=>{});
 })();
 
-/* ===== runtime/standard/17-flix-style.js ===== */
-/* SRHELL Flix Style — featured carousel + responsive streaming layout. */
-(function installFlixStyle(){
-  const isFlix=()=>String(CONFIG.theme||BASE_CONFIG.theme||'').startsWith('flix-');
-  if(!isFlix())return;
+/* ===== runtime/standard/17-main-stream-style.js ===== */
+/* SRHELL Main Stream Style — default presentation for every classic palette. */
+(function installMainStreamStyle(){
+  document.body.classList.add('srh-main-stream-style');
 
-  document.body.classList.add('srh-flix-style');
   let heroToken=0,heroTimer=0,heroItems=[],heroIndex=0,heroNode=null;
   const heroMeta=new Map();
 
   function heroHost(){
     if(heroNode?.isConnected)return heroNode;
     heroNode=document.createElement('section');
-    heroNode.className='flix-hero';
-    heroNode.innerHTML='<div class="flix-hero__skeleton"></div><div class="flix-hero__bg"></div><div class="flix-hero__shade"></div><div class="flix-hero__content"><img class="flix-hero__logo is-hidden" alt=""><h2 class="flix-hero__title"></h2><div class="flix-hero__meta"></div><p class="flix-hero__plot"></p><div class="flix-hero__actions"><button class="flix-hero__action" data-flix-open>▶ <span>Abrir</span></button><button class="flix-hero__action flix-hero__action--ghost" data-flix-next>Próximo</button></div></div><div class="flix-hero__dots"></div>';
+    heroNode.className='stream-hero';
+    heroNode.innerHTML='<div class="stream-hero__skeleton"></div><div class="stream-hero__bg"></div><div class="stream-hero__shade"></div><div class="stream-hero__content"><img class="stream-hero__logo is-hidden" alt=""><h2 class="stream-hero__title"></h2><div class="stream-hero__meta"></div><p class="stream-hero__plot"></p><div class="stream-hero__actions"><button class="stream-hero__action" data-stream-open>▶ <span>Abrir</span></button><button class="stream-hero__action stream-hero__action--ghost" data-stream-next>Próximo</button></div></div><div class="stream-hero__dots"></div>';
     el.homeStatus.insertAdjacentElement('afterend',heroNode);
-    heroNode.querySelector('[data-flix-next]').onclick=()=>showHero((heroIndex+1)%Math.max(1,heroItems.length),true);
+    heroNode.querySelector('[data-stream-next]').onclick=()=>showHero((heroIndex+1)%Math.max(1,heroItems.length),true);
     return heroNode;
   }
 
@@ -1625,8 +1623,8 @@ async function closeDetail(){
 
   function dots(){
     if(!heroNode)return;
-    heroNode.querySelector('.flix-hero__dots').innerHTML=heroItems.map((_,i)=>'<button class="flix-hero__dot'+(i===heroIndex?' is-active':'')+'" data-flix-dot="'+i+'" aria-label="Destaque '+(i+1)+'"></button>').join('');
-    heroNode.querySelectorAll('[data-flix-dot]').forEach(b=>b.onclick=()=>showHero(Number(b.dataset.flixDot),true));
+    heroNode.querySelector('.stream-hero__dots').innerHTML=heroItems.map((_,i)=>'<button class="stream-hero__dot'+(i===heroIndex?' is-active':'')+'" data-stream-dot="'+i+'" aria-label="Destaque '+(i+1)+'"></button>').join('');
+    heroNode.querySelectorAll('[data-stream-dot]').forEach(b=>b.onclick=()=>showHero(Number(b.dataset.streamDot),true));
   }
 
   async function showHero(index,user=false){
@@ -1634,7 +1632,7 @@ async function closeDetail(){
     if(!heroItems.length)return;
     heroIndex=((index%heroItems.length)+heroItems.length)%heroItems.length;
     const local=++heroToken,item=heroItems[heroIndex],type=state.activeType,node=heroHost();
-    const bg=node.querySelector('.flix-hero__bg'),title=node.querySelector('.flix-hero__title'),plot=node.querySelector('.flix-hero__plot'),metaNode=node.querySelector('.flix-hero__meta'),logo=node.querySelector('.flix-hero__logo'),skeleton=node.querySelector('.flix-hero__skeleton');
+    const bg=node.querySelector('.stream-hero__bg'),title=node.querySelector('.stream-hero__title'),plot=node.querySelector('.stream-hero__plot'),metaNode=node.querySelector('.stream-hero__meta'),logo=node.querySelector('.stream-hero__logo'),skeleton=node.querySelector('.stream-hero__skeleton');
     skeleton?.classList.remove('is-hidden');
     logo.classList.add('is-hidden');logo.removeAttribute('src');
     title.textContent=type==='live'?(item.baseName||'Canal'):itemTitle(item);
@@ -1643,7 +1641,7 @@ async function closeDetail(){
     const initial=heroImage(item,type,null);
     bg.classList.toggle('is-live',type==='live');
     bg.style.backgroundImage=initial?'url("'+String(initial).replace(/"/g,'%22')+'")':'none';
-    node.querySelector('[data-flix-open]').onclick=()=>openItem(item,type);
+    node.querySelector('[data-stream-open]').onclick=()=>openItem(item,type);
     dots();
 
     if(type!=='live'){
@@ -1665,7 +1663,7 @@ async function closeDetail(){
 
   async function buildHero(token){
     const node=heroHost(),type=state.activeType;
-    node.querySelector('.flix-hero__skeleton')?.classList.remove('is-hidden');
+    node.querySelector('.stream-hero__skeleton')?.classList.remove('is-hidden');
     const targets=targetsFor(type).slice(0,Math.min(5,targetsFor(type).length));
     const lists=[];
     for(const target of targets){
@@ -1682,7 +1680,9 @@ async function closeDetail(){
     const seen=new Set();
     items=items.filter(item=>{
       const key=type==='live'?(item.baseName||itemTitle(item)):String(itemId(item,type)||itemTitle(item));
-      if(!key||seen.has(key))return false;seen.add(key);return true;
+      if(!key||seen.has(key))return false;
+      seen.add(key);
+      return true;
     });
     heroItems=stableShuffle(items,type).slice(0,10);
     heroIndex=0;
@@ -1694,10 +1694,10 @@ async function closeDetail(){
     showHero(0);
   }
 
-  const flixBaseRenderActiveType=renderActiveType;
+  const baseRenderActiveType=renderActiveType;
   renderActiveType=function(){
     clearTimeout(heroTimer);
-    const out=flixBaseRenderActiveType();
+    const out=baseRenderActiveType();
     const token=state.renderToken;
     buildHero(token);
     return out;
@@ -1705,7 +1705,6 @@ async function closeDetail(){
 
   const baseRailMetrics=RailVirtualizer.prototype.metrics;
   RailVirtualizer.prototype.metrics=function(){
-    if(!isFlix())return baseRailMetrics.call(this);
     const live=this.type==='live';
     const w=innerWidth<680?(live?124:116):(live?178:168);
     const gap=innerWidth<680?8:10,slot=w+gap,visible=Math.max(1,Math.ceil(this.viewport.clientWidth/slot));
@@ -1714,7 +1713,6 @@ async function closeDetail(){
 
   const baseGridMetrics=GridVirtualizer.prototype.metrics;
   GridVirtualizer.prototype.metrics=function(){
-    if(!isFlix())return baseGridMetrics.call(this);
     const cs=getComputedStyle(this.scroller),pad=parseFloat(cs.paddingLeft||0)+parseFloat(cs.paddingRight||0),available=Math.max(1,this.scroller.clientWidth-pad),gap=innerWidth<680?8:12,live=this.type==='live',base=live?150:142;
     const cols=innerWidth<680?3:Math.max(4,Math.floor((available+gap)/(base+gap)));
     const w=(available-gap*(cols-1))/cols,ratio=live?1:1.5,h=w*ratio,rowH=h+gap;
