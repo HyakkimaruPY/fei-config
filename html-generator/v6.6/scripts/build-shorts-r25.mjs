@@ -9,7 +9,7 @@ if(!js.includes('position<60')||!js.includes('persistCurrentProgress'))throw new
 if(!js.includes('refreshLibraryView')||!js.includes('new Set(current)'))throw new Error('R25 favorites/history live persistence contract missing');
 if(!js.includes('arcBackdrop')||!css.includes('.srh25-arc-backdrop'))throw new Error('R25 Aura-style arc sheet contract missing');
 if(/<small>\d/.test(js)||js.includes("Math.floor(start/60)"))throw new Error('R25 arc buttons must not render time labels');
-if(!js.includes("arcClose")||!js.includes("dy>54")||!css.includes(".srh25-arcs__close"))throw new Error('R25 arc sheet close controls missing');
+if(!js.includes("ensureArcSheetChrome")||!js.includes("document.addEventListener('pointerdown'")||!js.includes("arcClose")||!js.includes("dy>54")||!css.includes(".srh25-arcs__close"))throw new Error('R25 arc sheet close controls missing');
 const rev='r25-'+crypto.createHash('sha256').update(css+'\n'+js).digest('hex').slice(0,16);
 const manifest={revision:rev,generatedAt:new Date().toISOString(),architecture:'fresh-native-flow-grid',legacyShortsImported:false,arcSeconds:120,css:'shorts.css',js:'shorts.js'};
 fs.writeFileSync(path.join(out,'manifest.json'),JSON.stringify(manifest,null,2)+'\n');
