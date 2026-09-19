@@ -162,8 +162,8 @@ body.srh-main-stream-style .stream-hero__action{
   gap:8px;
   border:0;
   border-radius:6px;
-  background:var(--button-bg);
-  color:var(--button-fg);
+  background:var(--button-bg,var(--accent));
+  color:var(--button-fg,var(--bg));
   font-weight:850;
   cursor:pointer;
 }
@@ -258,8 +258,8 @@ body.srh-main-stream-style .quality-row{
   border-color:var(--line)!important;
 }
 body.srh-main-stream-style .watch-button{
-  background:var(--button-bg)!important;
-  color:var(--button-fg)!important;
+  background:var(--button-bg,var(--accent))!important;
+  color:var(--button-fg,var(--bg))!important;
   border:0!important;
   box-shadow:none!important;
 }
