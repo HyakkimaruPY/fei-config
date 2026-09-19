@@ -13,7 +13,17 @@ const server=(source=cfg)=>clean(source?.server).replace(/\/+$/,'');
 const enc=encodeURIComponent;
 S.id=item=>String(item?.stream_id??item?.id??item?.movie_id??item?.name??'');
 S.title=item=>clean(item?.name||item?.title||'Sem título');
-S.image=item=>clean(item?.stream_icon||item?.movie_image||item?.cover||'');
+function highQualityImage(item){
+  const backdrop=Array.isArray(item?.backdrop_path)?item.backdrop_path[0]:item?.backdrop_path;
+  let src=clean(item?.cover_big||item?.movie_image||item?.cover||backdrop||item?.stream_icon||'');
+  if(!src)return'';
+  try{
+    const u=new URL(src,location.href);
+    if(/(^|[.])image[.]tmdb[.]org$/i.test(u.hostname))u.pathname=u.pathname.replace(new RegExp('/t/p/(?:w[0-9]+|h[0-9]+|original)/','i'),'/t/p/original/');
+    return u.href
+  }catch{return src}
+}
+S.image=highQualityImage;
 S.stream=item=>`${server()}/movie/${enc(cfg.username)}/${enc(cfg.password)}/${S.id(item)}.${clean(item?.container_extension)||'mp4'}`;
 S.toast=msg=>{const n=$('#toast');if(!n)return;n.textContent=msg;n.classList.add('is-on');clearTimeout(S.toast.t);S.toast.t=setTimeout(()=>n.classList.remove('is-on'),1800)};
 S.parseLogin=raw=>{let text=clean(raw);if(!text)throw new Error('Informe o novo M3U / login Xtream.');if(!/^https?:\/\//i.test(text))text='http://'+text;let u;try{u=new URL(text)}catch{throw new Error('URL inválida.')}let username=u.searchParams.get('username')||u.searchParams.get('user'),password=u.searchParams.get('password')||u.searchParams.get('pass');const parts=u.pathname.split('/').filter(Boolean);if((!username||!password)&&parts.length>=2&&!/\.php$/i.test(parts.at(-1)||'')){username=username||decodeURIComponent(parts[0]);password=password||decodeURIComponent(parts[1])}if(!username||!password)throw new Error('Não encontrei username e password.');return{server:u.origin.replace(/\/+$/,''),username,password,liveExtension:(u.searchParams.get('output')||cfg.liveExtension||'m3u8').toLowerCase()==='ts'?'ts':'m3u8'}};
@@ -139,10 +149,20 @@ async function resolveTargets(){
   return targets.map(t=>({...t,_id:String(t.id??t.category_id??exact.get(cleanName(t.name))??normalized.get(normName(t.name))??'')}));
 }
 async function fetchItems(onGroup){
-  const targets=await resolveTargets(),jobs=targets.filter(t=>t._id).map(async t=>{
-    try{const r=await S.request({action:'get_vod_streams',category_id:t._id}),items=Array.isArray(r)?r:[];if(items.length)onGroup?.(items,t);return items}catch{return[]}
-  });
-  const groups=await Promise.all(jobs);return mergeUnique([],groups.flat())
+  const targets=(await resolveTargets()).filter(t=>t._id),merged=[];let failed=0;
+  for(let index=0;index<targets.length;index++){
+    const t=targets[index];let items=null;
+    for(let attempt=0;attempt<2;attempt++){
+      try{const r=await S.request({action:'get_vod_streams',category_id:t._id});items=Array.isArray(r)?r:[];break}
+      catch(e){if(attempt===0)await new Promise(resolve=>setTimeout(resolve,220))}
+    }
+    if(items===null){failed++;continue}
+    const next=mergeUnique(merged,items);merged.splice(0,merged.length,...next);
+    onGroup?.(items,t,{index:index+1,total:targets.length,merged:merged.slice(),failed})
+  }
+  if(!merged.length&&failed)throw new Error('As categorias selecionadas não responderam.');
+  if(failed)S.toast(failed+' categoria(s) não responderam; exibindo as demais.');
+  return merged
 }
 function card(item){
   const b=document.createElement('button');b.type='button';b.className='srh25-card';b.dataset.id=S.id(item);
@@ -228,9 +248,13 @@ S.loadCatalog=async()=>{
   if(painted){renderItems(cached.items);$('#feedStatus').textContent='Atualizando catálogo…'}
   const refresh=(async()=>{
     try{
-      const items=await fetchItems(group=>{
+      const items=await fetchItems((group,target,progress)=>{
         partial=mergeUnique(partial,group);
-        if(!painted&&partial.length){painted=true;renderItems(partial);firstResolve?.();firstResolve=null}
+        if(partial.length){
+          renderItems(partial);
+          $('#feedStatus').textContent='Mesclando categorias · '+progress.index+' de '+progress.total;
+          if(!painted){painted=true;firstResolve?.();firstResolve=null}
+        }
       });
       if(items.length){renderItems(items);await cacheWrite(items);return items}
       if(!painted)throw new Error('Nenhum conteúdo retornado')
@@ -315,7 +339,7 @@ async function loadVideo(item,resume){
   const url=S.stream(item),ready=()=>{if(resume?.position>0&&resume.position<video.duration-3){video.currentTime=resume.position;const done=()=>{poster.classList.add('is-hidden');loading.classList.add('is-hidden');video.play().catch(()=>{})};video.addEventListener('seeked',done,{once:true})}else{poster.classList.add('is-hidden');loading.classList.add('is-hidden');video.play().catch(()=>{})}drawArcs()};
   if(/\.m3u8(?:$|\?)/i.test(url)){
     if(video.canPlayType('application/vnd.apple.mpegurl')){video.src=url;video.onloadedmetadata=ready;video.onerror=()=>S.toast('Mídia indisponível');video.load();return}
-    try{const H=await ensureHls();if(H?.isSupported?.()){const h=new H({enableWorker:true,maxBufferLength:20});S.state.hls=h;h.loadSource(url);h.attachMedia(video);h.on(H.Events.MANIFEST_PARSED,ready);h.on(H.Events.ERROR,(_,d)=>{if(d.fatal)S.toast('Falha ao iniciar o vídeo')});return}}catch(e){S.toast(e?.message||'HLS indisponível')}
+    try{const H=await ensureHls();if(H?.isSupported?.()){const h=new H({enableWorker:true,maxBufferLength:30,capLevelToPlayerSize:false,startLevel:-1});S.state.hls=h;h.loadSource(url);h.attachMedia(video);h.on(H.Events.MANIFEST_PARSED,()=>{const highest=Math.max(0,(h.levels?.length||1)-1);h.autoLevelCapping=highest;h.currentLevel=highest;h.nextLevel=highest;ready()});h.on(H.Events.LEVEL_SWITCHED,()=>{const highest=Math.max(0,(h.levels?.length||1)-1);if(h.currentLevel!==highest)h.nextLevel=highest});h.on(H.Events.ERROR,(_,d)=>{if(d.fatal)S.toast('Falha ao iniciar o vídeo')});return}}catch(e){S.toast(e?.message||'HLS indisponível')}
   }
   video.src=url;video.onloadedmetadata=ready;video.onerror=()=>S.toast('Mídia indisponível');video.load()
 }
