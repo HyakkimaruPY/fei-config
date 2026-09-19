@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "apiKey": "54a47dfd36406757c9a6b7a0e3fd9cdc",
+  "apiBase": "https://api.themoviedb.org/3",
+  "imageBase": "https://image.tmdb.org/t/p"
+}
