@@ -1,4 +1,4 @@
-(()=>{const q=window.__srhDelivery;if(!q||q.k!=='d7a41f93'||q.m!=='s')return;/* ===== runtime/standard/01.js ===== */
+(()=>{const z=window.__srhA;if(!z||z.k!=='e4c98a71'||z.m!=='s')return;/* ===== runtime/standard/01.js ===== */
 (() => {
 'use strict';
 const BASE_CONFIG=JSON.parse(document.getElementById('app-config').textContent);
@@ -965,7 +965,7 @@ async function closeDetail(){
 /* ===== runtime/standard/16-tmdb-enrichment.js ===== */
 /* TMDB enrichment — TMDB-first detail render + art branding. */
 (function installTmdbEnrichment(){
-  const TMDB_CONFIG_URL='https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6/runtime/shared/tmdb-config.json';
+  const TMDB_CONFIG_URL=window.__srhA.u('m');
   const KEY_STORE='srhell:tmdb:key:v1';
   const KEY_META='srhell:tmdb:key-meta:v1';
   const CACHE_STORE='srhell:tmdb:cache:v3';
