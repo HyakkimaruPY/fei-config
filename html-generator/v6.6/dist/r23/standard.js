@@ -244,6 +244,22 @@ async function closeDetail(){
   const FAVORITES_KEY=`srhell:${APP_NS}:standard:favorites:v1`;
   const FAVORITES_TAB_KEY=`srhell:${APP_NS}:standard:favorites:tab:v1`;
   const MIN_CONTINUE_SECONDS=60;
+  function installPageZoomLock(){
+    if(window.__srhZoomLock)return;
+    window.__srhZoomLock=true;
+    const style=document.createElement('style');
+    style.textContent='html,body{touch-action:pan-x pan-y!important;-ms-touch-action:pan-x pan-y!important}';
+    document.head.appendChild(style);
+    const stop=e=>{e.preventDefault()};
+    ['gesturestart','gesturechange','gestureend'].forEach(type=>document.addEventListener(type,stop,{passive:false}));
+    document.addEventListener('touchmove',e=>{if(e.touches&&e.touches.length>1)e.preventDefault()},{passive:false});
+    document.addEventListener('wheel',e=>{if(e.ctrlKey||e.metaKey)e.preventDefault()},{passive:false});
+    document.addEventListener('keydown',e=>{
+      if(!(e.ctrlKey||e.metaKey))return;
+      if(['+','-','=','_','0'].includes(e.key))e.preventDefault();
+    },true);
+  }
+  installPageZoomLock();
   const STAR='<svg class="srh-lite-icon srh-lite-icon--star" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.8l2.52 5.1 5.63.82-4.08 3.97.96 5.61L12 16.65 6.97 19.3l.96-5.61L3.85 9.72l5.63-.82L12 3.8z"/></svg>';
   const TRASH='<svg class="srh-lite-icon srh-lite-icon--trash" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8.2v9.1M12 8.2v9.1M16 8.2v9.1M5.5 6.1h13M9 4.3h6l.7 1.8H8.3L9 4.3zM6.7 6.1l.7 13.2h9.2l.7-13.2"/></svg>';
 
@@ -478,9 +494,42 @@ async function closeDetail(){
     finally{state.srhPendingDetailType=''}
   };
 
+  /* Settings behaves as a dismissible popover: interactions inside it keep it open,
+     while any pointer press elsewhere closes it. */
+  if(!window.__srhSettingsClickAway){
+    window.__srhSettingsClickAway=true;
+    document.addEventListener('pointerdown',e=>{
+      if(el.settingsPanel?.classList.contains('is-hidden'))return;
+      const target=e.target;
+      if(el.settingsPanel?.contains(target)||el.settingsButton?.contains(target))return;
+      el.settingsPanel.classList.add('is-hidden');
+    },true);
+    document.addEventListener('keydown',e=>{
+      if(e.key==='Escape'&&!el.settingsPanel?.classList.contains('is-hidden'))el.settingsPanel.classList.add('is-hidden');
+    },true);
+  }
+
   /* Stable rail loading: one category-map request per type, fixed-size shimmer
      placeholders, abortable content requests and one controlled retry. */
   const srhRailCategoryInflight=new Map();
+  const srhRailScheduler={active:0,max:2,queue:[]};
+  function pumpRailQueue(){
+    while(srhRailScheduler.active<srhRailScheduler.max&&srhRailScheduler.queue.length){
+      const job=srhRailScheduler.queue.shift();
+      if(job.token!==state.renderToken){job.resolve([]);continue}
+      srhRailScheduler.active++;
+      Promise.resolve().then(job.task).then(job.resolve,job.reject).finally(()=>{
+        srhRailScheduler.active=Math.max(0,srhRailScheduler.active-1);
+        pumpRailQueue();
+      });
+    }
+  }
+  function scheduleRailTask(task,token){
+    return new Promise((resolve,reject)=>{
+      srhRailScheduler.queue.push({task,token,resolve,reject});
+      pumpRailQueue();
+    });
+  }
   function railCardMetrics(type){
     const live=type==='live';
     const w=innerWidth<680?(live?116:108):(live?146:132);
@@ -522,12 +571,15 @@ async function closeDetail(){
     srhRailCategoryInflight.set(type,p);
     return p;
   }
-  async function stableLoadTargetItems(target){
+  async function stableLoadTargetItems(target,token=state.renderToken){
     const map=await stableRailCategoryMap(target.type);
     const id=map.get(target.name);
     if(!id)throw new Error('Categoria não encontrada: '+stripEmoji(target.name));
-    const raw=await railFetchJson({action:TYPE[target.type].content,category_id:id},7600);
-    return Array.isArray(raw)?raw:[];
+    return scheduleRailTask(async()=>{
+      if(token!==state.renderToken)return[];
+      const raw=await railFetchJson({action:TYPE[target.type].content,category_id:id},10500);
+      return Array.isArray(raw)?raw:[];
+    },token);
   }
   function mountRailItems(section,target,items){
     const body=section.querySelector('.rail-body');
@@ -544,7 +596,7 @@ async function closeDetail(){
     let error=null;
     for(let attempt=0;attempt<2;attempt++){
       try{
-        const raw=await stableLoadTargetItems(target);
+        const raw=await stableLoadTargetItems(target,token);
         if(token!==state.renderToken)return;
         const items=target.type==='live'?groupChannels(raw):uniqueById(raw,target.type);
         if(!items.length){
@@ -556,7 +608,7 @@ async function closeDetail(){
       }catch(e){
         error=e;
         if(attempt===0){
-          await new Promise(resolve=>setTimeout(resolve,240));
+          await new Promise(resolve=>setTimeout(resolve,320));
           body.innerHTML=railSkeletonMarkup(target.type);
         }
       }
@@ -585,6 +637,7 @@ async function closeDetail(){
   };
   const baseRenderActiveType=renderActiveType;
   renderActiveType=function(){
+    srhRailScheduler.queue.splice(0).forEach(job=>job.resolve([]));
     baseRenderActiveType();
     const targets=targetsFor(state.activeType);
     el.content.querySelectorAll('.rail-section').forEach(section=>{
