@@ -1,10 +1,10 @@
 {
   "revision": "r23-63c5d4815f3b0ca3",
-  "generatedAt": "2026-09-19T01:29:18.677Z",
+  "generatedAt": "2026-09-19T01:29:48.090Z",
   "diagnosticBaseline": {
     "standard": "46b9cd4-pre-aura"
   },
-  "standardLayer": "lite-ui-r10-continue-flix-contract",
+  "standardLayer": "lite-ui-r10b-generator-family-fix",
   "standard": {
     "js": "standard.js",
     "css": "standard.css"
