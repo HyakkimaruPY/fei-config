@@ -1155,8 +1155,18 @@ async function closeDetail(){
       const probe=kind==='movie'
         ?{...movie,...info,name:movie.name||info.name||info.title||''}
         :{...info,name:info.name||info.title||data.name||''};
-      const tmdb=await resolveTmdb(kind,probe,data);
-      if(!tmdb)return data;
+      const tmdbPromise=resolveTmdb(kind,probe,data);
+      const tmdb=state.srhOpeningContinue
+        ?await Promise.race([tmdbPromise,new Promise(resolve=>setTimeout(()=>resolve(null),1600))])
+        :await tmdbPromise;
+      if(!tmdb){
+        if(state.srhOpeningContinue)tmdbPromise.then(x=>{
+          if(!x)return;
+          const id=params?.vod_id??params?.series_id??probe.stream_id??probe.series_id;
+          if(id!==undefined)detailTmdb.set((kind==='movie'?'vod:':'series:')+String(id),x);
+        }).catch(()=>{});
+        return data;
+      }
       data.__tmdb=tmdb;
 
       if(kind==='movie'){
@@ -1179,7 +1189,7 @@ async function closeDetail(){
 
         const collections=episodeCollections(data);
         const firstSeason=Object.keys(collections).sort((a,b)=>Number(a)-Number(b))[0];
-        if(firstSeason){
+        if(firstSeason&&!state.srhOpeningContinue){
           try{
             const season=await seasonData(tmdb.id,firstSeason);
             const byNo=new Map((season.episodes||[]).map((e,i)=>[String(e.episode_number??i+1),e]));
