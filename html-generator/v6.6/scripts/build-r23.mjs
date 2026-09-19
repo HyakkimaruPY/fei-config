@@ -51,11 +51,14 @@ write('standard.js',standardJs);write('shorts.js',shortsJs);write('standard.css'
 function checkFileJs(full,label){const r=spawnSync(process.execPath,['--check',full],{encoding:'utf8'});if(r.status!==0)throw new Error(`${label} falhou no node --check:\n${r.stderr||r.stdout}`)}
 for(const f of ['standard.js','shorts.js'])checkFileJs(path.join(outDir,f),f);
 checkFileJs(path.join(root,'builder/generator-r23-clean.js'),'generator-r23-clean.js');
+checkFileJs(path.join(root,'builder/generator.js'),'generator.js');
 checkFileJs(path.join(root,'builder/generator-r23-distro-no-shorts.js'),'generator-r23-distro-no-shorts.js');
 
 /* Generator UI contract: the retired Flix/Fixed family must never return, and
    theme bindings must use the list selector so initUI reaches Gerar HTML. */
 const cleanBuilder=read('builder/generator-r23-clean.js');
+const canonicalBuilder=read('builder/generator.js');
+if(canonicalBuilder!==cleanBuilder)throw new Error('builder/generator.js divergiu do builder principal validado.');
 const distroBuilder=read('builder/generator-r23-distro-no-shorts.js');
 for(const [label,src] of [['clean',cleanBuilder],['distro',distroBuilder]]){
   const pluralThemeBinding = '$'+'$'+'(\'input[name="theme"]\').forEach';
@@ -96,18 +99,21 @@ assertIds('runtime/standard/01.js','templates/standard-r23.html');
 assertIds('runtime/shorts/01.js','templates/shorts-r23.html');
 assertIds('builder/generator-r23-clean.js','generator-r23.html');
 
-const generatorR23=read('generator-r23.html'),generatorMain=read('generator.html');
+const generatorR23=read('generator-r23.html'),generatorMain=read('generator.html'),generatorPublic=read('gerador.html');
 for(const [label,src] of [['generator-r23.html',generatorR23],['generator.html',generatorMain]]){
   if(/value=["']flix-|Flix Style|Fixed Style/i.test(src))throw new Error(`${label}: família Flix/Fixed aposentada reapareceu`);
   if(!/value=["']shorts["']/.test(src))throw new Error(`${label}: opção Shorts R25 ausente`);
   if(!src.includes('App Shorts'))throw new Error(`${label}: opção Shorts ausente`);
 }
-if(generatorMain!==generatorR23)throw new Error('generator.html divergiu de generator-r23.html; a entrada principal deve ser exatamente a versão R23 validada.');
+if(generatorMain!==generatorR23)throw new Error('generator.html divergiu de generator-r23.html.');
+if(generatorPublic!==generatorMain)throw new Error('gerador.html divergiu da entrada principal validada.');
+if(/R23|R25|NO[_ -]?SHORTS|no[_ -]?shorts/i.test(generatorPublic))throw new Error('gerador.html expõe rótulo/sufixo de versionamento de distribuição.');
 if(/generator-r(?:1[4-9]|2[0-2])|\beval\s*\(/.test(generatorR23))throw new Error('generator-r23.html contém builder antigo/eval');
 inlineScripts(generatorR23).forEach((s,i)=>checkJsText(s,`generator-r23.html inline script ${i}`));
 const generatorDistro=read('generator_distro_no_shorts.html');
 if(/value=["']shorts["']|shorts-r\d+\.html/i.test(generatorDistro))throw new Error('generator_distro_no_shorts.html contém opção/referência Shorts');
 inlineScripts(generatorDistro).forEach((src,i)=>checkJsText(src,`generator_distro_no_shorts.html inline script ${i}`));
 for(const bad of ['eval(','generator-r20.js','generator-r21.js','generator-r22.js'])if(read('builder/generator-r23-clean.js').includes(bad))throw new Error(`builder R23 contém dependência proibida: ${bad}`);
+if(/APP_R23|SHORTS_R25|runtimeRevision/.test(cleanBuilder))throw new Error('builder canônico ainda expõe sufixo de versão no arquivo gerado.');
 
 console.log(`R23 stable baseline + lightweight UI build OK: ${revision}`);
