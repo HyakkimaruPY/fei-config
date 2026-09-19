@@ -1,5 +1,4 @@
-(()=>{const z=window.__srhA;if(!z||z.k!=="e4c98a71"||z.m!=="h")return;/* ===== runtime/shorts/01-core.js ===== */
-(()=>{'use strict';
+(()=>{const z=window.__srhA;if(!z||z.k!=="e4c98a71"||z.m!=="h")return;(()=>{'use strict';
 const BASE_CONFIG=JSON.parse(document.getElementById('app-config').textContent);
 const $=s=>document.querySelector(s);
 const clean=s=>String(s??'').trim();
@@ -121,8 +120,6 @@ S.lockZoom=()=>{
 S.account=async()=>{try{const a=await S.request({}),raw=a?.user_info?.exp_date,n=Number(raw);if(n>0){const d=new Date(n*1000),days=Math.ceil((d-Date.now())/86400000);$('#expiryDate').textContent=d.toLocaleDateString('pt-BR');$('#expiryDays').textContent=days+' dias';$('#appMeta').textContent=(a?.user_info?.status||'Active')+' · '+days+' dias restantes'}else $('#appMeta').textContent=a?.user_info?.status||'Active'}catch{$('#appMeta').textContent='Conta conectada'}};
 S.boot=async()=>{document.body.dataset.theme=cfg.theme||'graphene';$('#appTitle').textContent=cfg.appName||'Meu App';S.lockZoom();S.state.favorites=S.readFavorites();S.state.history=S.readHistory();S.bindShell?.();await S.loadCatalog?.();window.dispatchEvent(new Event('srh25:ready'));setTimeout(()=>S.account(),0)};
 })();
-
-/* ===== runtime/shorts/02-catalog.js ===== */
 (()=>{'use strict';const S=window.SRH25,$=S.$;
 const BATCH=30,CACHE_MAX_AGE=6*60*60*1000;let shown=0,observer=null,imgObserver=null,activeLibrary=null,updateCandidate=null,updateCategories=[],updateSelected=new Set();
 function cleanName(s){return String(s||'').replace(/[\uFE0F\u200D]/g,'').trim()}
@@ -248,8 +245,6 @@ S.loadCatalog=async()=>{
   await Promise.race([firstPaint,refresh]);return S.state.items
 };
 })();
-
-/* ===== runtime/shorts/03-player.js ===== */
 (()=>{'use strict';const S=window.SRH25,$=S.$;const video=$('#shortVideo'),player=$('#shortPlayer'),poster=$('#shortPoster'),loading=$('#playerLoading'),arcDrawer=$('#arcDrawer'),arcGrid=$('#arcGrid');let arcBackdrop=$('#arcBackdrop');let startX=0,startY=0,lastSavedPosition=0,activeArc=-1;
 let arcDragStartY=null;
 const fitKey='srh:shorts:fit:'+(S.cfg.appId||S.cfg.appName||'app');
