@@ -36,5 +36,5 @@
 </div></section>
 <div class="srh25-toast" id="toast"></div>
 <script id="app-config" type="application/json">__APP_CONFIG__</script>
-<script src="https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6/public/r.js" data-x="a"></script>
+<script src="https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6/public/r.js"></script>
 </body></html>
