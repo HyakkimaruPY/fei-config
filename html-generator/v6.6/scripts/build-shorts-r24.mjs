@@ -51,6 +51,6 @@ writeFileSync(cssPath,css);
 writeFileSync(jsPath,js);
 execFileSync(process.execPath,['--check',jsPath],{stdio:'inherit'});
 
-const manifest={revision,generatedAt:new Date().toISOString(),sourceCommit:OLD,architecture:'historical-modular-core+stable-feed-player',stableFeedPatch:'first-modular-catalog-player-current',arcSeconds:120,css:'shorts.css',js:'shorts.js'};
+const manifest={revision,generatedAt:new Date().toISOString(),sourceCommit:OLD,architecture:'historical-modular-core+stable-feed-player',stableFeedPatch:'first-modular-catalog-player-current+zoom-lock',arcSeconds:120,css:'shorts.css',js:'shorts.js'};
 writeFileSync(join(DIST,'manifest.json'),JSON.stringify(manifest,null,2)+'\n');
 console.log(JSON.stringify({revision,cssBytes:Buffer.byteLength(css),jsBytes:Buffer.byteLength(js)},null,2));
