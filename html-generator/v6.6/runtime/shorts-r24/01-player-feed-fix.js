@@ -1,5 +1,21 @@
 /* SRHELL Shorts R24 — keep current player behavior, restore first modular catalog renderer. */
 (function installR24PlayerOnlyPatch(){
+  function installShortsZoomLock(){
+    if(window.__srhZoomLock)return;
+    window.__srhZoomLock=true;
+    const style=document.createElement('style');
+    style.textContent='html,body{touch-action:pan-x pan-y!important;-ms-touch-action:pan-x pan-y!important}';
+    document.head.appendChild(style);
+    const stop=e=>e.preventDefault();
+    ['gesturestart','gesturechange','gestureend'].forEach(type=>document.addEventListener(type,stop,{passive:false}));
+    document.addEventListener('touchmove',e=>{if(e.touches&&e.touches.length>1)e.preventDefault()},{passive:false});
+    document.addEventListener('wheel',e=>{if(e.ctrlKey||e.metaKey)e.preventDefault()},{passive:false});
+    document.addEventListener('keydown',e=>{
+      if(!(e.ctrlKey||e.metaKey))return;
+      if(['+','-','=','_','0'].includes(e.key))e.preventDefault();
+    },true);
+  }
+  installShortsZoomLock();
   const frame=el.shortVideo?.closest('.short-player__frame')||document.getElementById('shortFrame');
   const poster=document.createElement('div');
   poster.className='srh-r24-poster is-hidden';
