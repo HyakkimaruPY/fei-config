@@ -1,4 +1,4 @@
-(()=>{const q=window.__srhDelivery;if(!q||q.k!=='d7a41f93'||q.m!=='h')return;/* ===== 01-core.js ===== */
+(()=>{const z=window.__srhA;if(!z||z.k!=='e4c98a71'||z.m!=='h')return;/* ===== 01-core.js ===== */
 (()=>{'use strict';
 const BASE_CONFIG=JSON.parse(document.getElementById('app-config').textContent);
 const $=s=>document.querySelector(s);
@@ -27,7 +27,7 @@ function apiUrl(params={},source=cfg){const u=new URL(server(source)+'/player_ap
 async function loadPool(){
   if(S.state.pool)return S.state.pool;
   if(S.state.poolPromise)return S.state.poolPromise;
-  S.state.poolPromise=(async()=>{const r=await fetch('https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6/runtime/shared/proxy-pool.json',{cache:'default'});if(!r.ok)throw new Error('Pool '+r.status);const j=await r.json();return S.state.pool=(Array.isArray(j.proxies)?j.proxies:[]).filter(x=>x&&x.template&&x.valid!==false&&x.enabled!==false).sort((a,b)=>(+a.latencyMs||9e9)-(+b.latencyMs||9e9))})();
+  S.state.poolPromise=(async()=>{const r=await fetch(window.__srhA.u('p'),{cache:'default'});if(!r.ok)throw new Error('Pool '+r.status);const j=await r.json();return S.state.pool=(Array.isArray(j.proxies)?j.proxies:[]).filter(x=>x&&x.template&&x.valid!==false&&x.enabled!==false).sort((a,b)=>(+a.latencyMs||9e9)-(+b.latencyMs||9e9))})();
   try{return await S.state.poolPromise}finally{S.state.poolPromise=null}
 }
 function proxyKey(source=cfg){let h='host';try{h=new URL(server(source)).host}catch{}return 'srh25:proxy:'+(source.appId||BASE_CONFIG.appId||source.appName||BASE_CONFIG.appName||'app')+':'+h}
