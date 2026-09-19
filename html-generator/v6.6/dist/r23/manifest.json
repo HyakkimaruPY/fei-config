@@ -1,10 +1,10 @@
 {
-  "revision": "r23-f8c12604651b723b",
-  "generatedAt": "2026-09-19T01:17:34.793Z",
+  "revision": "r23-63c5d4815f3b0ca3",
+  "generatedAt": "2026-09-19T01:17:57.123Z",
   "diagnosticBaseline": {
     "standard": "46b9cd4-pre-aura"
   },
-  "standardLayer": "lite-ui-r9-zoom-settings-rail-queue",
+  "standardLayer": "lite-ui-r10-continue-flix-contract",
   "standard": {
     "js": "standard.js",
     "css": "standard.css"
@@ -19,6 +19,12 @@
     "porcelain",
     "jade",
     "aurora",
-    "ember"
+    "ember",
+    "flix-red",
+    "flix-blue",
+    "flix-orange",
+    "flix-violet",
+    "flix-emerald",
+    "flix-rose"
   ]
 }

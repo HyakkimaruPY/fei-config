@@ -519,3 +519,314 @@ body{font-family:var(--font-ui);font-weight:var(--font-weight-ui);background:var
   overflow-wrap:normal!important;
   hyphens:none!important;
 }
+
+/* ===== runtime/standard/14-flix-style.css ===== */
+/* SRHELL Flix Style — streaming-inspired responsive layout.
+   Activated only for themes whose name starts with "flix-". */
+body[data-theme^="flix-"]{
+  background:var(--texture)!important;
+  --flix-hero-h:min(54dvh,560px);
+  --flix-hero-radius:18px;
+}
+body[data-theme^="flix-"] .app{
+  width:100%!important;
+  max-width:none!important;
+  padding:0 0 34px!important;
+}
+body[data-theme^="flix-"] .topbar{
+  padding:8px clamp(12px,3vw,44px) 0!important;
+  background:linear-gradient(180deg,rgba(5,5,6,.97) 0%,rgba(5,5,6,.82) 72%,transparent 100%)!important;
+}
+body[data-theme^="flix-"] .topbar__row{min-height:58px!important}
+body[data-theme^="flix-"] .brand__title{
+  font-size:clamp(18px,2.1vw,29px)!important;
+  font-weight:900!important;
+  letter-spacing:-.035em!important;
+}
+body[data-theme^="flix-"] .brand__meta{display:none!important}
+body[data-theme^="flix-"] .days-chip,
+body[data-theme^="flix-"] .icon-button{
+  background:rgba(12,12,14,.72)!important;
+  border-color:rgba(255,255,255,.15)!important;
+  backdrop-filter:none!important;
+}
+body[data-theme^="flix-"] .settings-panel{
+  margin:0 clamp(12px,3vw,44px) 12px!important;
+  background:#141416!important;
+  border-color:rgba(255,255,255,.12)!important;
+  backdrop-filter:none!important;
+}
+body[data-theme^="flix-"] .home-status{
+  margin:5px clamp(12px,3vw,44px) 9px!important;
+  color:rgba(255,255,255,.55)!important;
+}
+body[data-theme^="flix-"] .continue,
+body[data-theme^="flix-"] #contentRoot{
+  padding-inline:clamp(12px,3vw,44px)!important;
+}
+body[data-theme^="flix-"] .continue{margin-top:14px!important}
+body[data-theme^="flix-"] .section-title,
+body[data-theme^="flix-"] .rail-title{
+  color:#fff!important;
+  font-weight:820!important;
+  font-size:clamp(14px,1.4vw,19px)!important;
+}
+body[data-theme^="flix-"] .rail-section{margin-bottom:28px!important}
+body[data-theme^="flix-"] .rail-head{margin-bottom:8px!important}
+body[data-theme^="flix-"] .rail-all{
+  color:rgba(255,255,255,.65)!important;
+  font-weight:700!important;
+}
+body[data-theme^="flix-"] .poster-card,
+body[data-theme^="flix-"] .grid-card,
+body[data-theme^="flix-"] .continue-card{
+  border:0!important;
+  border-radius:7px!important;
+  background:#161618!important;
+  box-shadow:none!important;
+}
+body[data-theme^="flix-"] .poster-card{
+  transition:transform .16s ease,box-shadow .16s ease!important;
+}
+@media(hover:hover) and (pointer:fine){
+  body[data-theme^="flix-"] .poster-card:hover{
+    transform:scale(1.045)!important;
+    z-index:8!important;
+    box-shadow:0 18px 42px rgba(0,0,0,.48)!important;
+  }
+}
+body[data-theme^="flix-"] .continue-card{
+  flex-basis:clamp(190px,19vw,260px)!important;
+}
+body[data-theme^="flix-"] .continue-card img{aspect-ratio:16/9!important}
+body[data-theme^="flix-"] .progress__bar{background:var(--accent)!important}
+
+body[data-theme^="flix-"] .flix-hero{
+  position:relative;
+  width:100%;
+  height:var(--flix-hero-h);
+  min-height:330px;
+  margin:-70px 0 18px;
+  overflow:hidden;
+  background:#080808;
+  isolation:isolate;
+}
+body[data-theme^="flix-"] .flix-hero__bg{
+  position:absolute;
+  inset:0;
+  background-position:center 30%;
+  background-size:cover;
+  background-repeat:no-repeat;
+  transform:scale(1.01);
+  transition:opacity .28s ease,background-image .2s ease;
+}
+body[data-theme^="flix-"] .flix-hero__bg.is-live{
+  background-size:min(42vw,420px) auto;
+  background-position:center 42%;
+  background-color:#080808;
+}
+body[data-theme^="flix-"] .flix-hero__shade{
+  position:absolute;
+  inset:0;
+  background:
+    linear-gradient(90deg,rgba(4,4,5,.94) 0%,rgba(4,4,5,.74) 23%,rgba(4,4,5,.22) 57%,rgba(4,4,5,.08) 74%),
+    linear-gradient(0deg,var(--bg) 0%,rgba(5,5,6,.74) 12%,transparent 42%),
+    linear-gradient(180deg,rgba(5,5,6,.52) 0%,transparent 25%);
+}
+body[data-theme^="flix-"] .flix-hero__content{
+  position:absolute;
+  z-index:2;
+  left:clamp(14px,4vw,62px);
+  bottom:clamp(40px,9vh,92px);
+  width:min(560px,55vw);
+  color:#fff;
+}
+body[data-theme^="flix-"] .flix-hero__logo{
+  max-width:min(360px,70%);
+  max-height:112px;
+  object-fit:contain;
+  object-position:left bottom;
+  margin-bottom:12px;
+  filter:drop-shadow(0 2px 10px rgba(0,0,0,.48));
+}
+body[data-theme^="flix-"] .flix-hero__title{
+  margin:0 0 9px;
+  font-size:clamp(27px,4vw,52px);
+  line-height:.98;
+  letter-spacing:-.045em;
+  font-weight:900;
+  text-shadow:0 2px 16px rgba(0,0,0,.65);
+}
+body[data-theme^="flix-"] .flix-hero__meta{
+  display:flex;
+  gap:8px;
+  align-items:center;
+  margin-bottom:10px;
+  color:rgba(255,255,255,.78);
+  font-size:12px;
+  font-weight:750;
+}
+body[data-theme^="flix-"] .flix-hero__plot{
+  max-width:52ch;
+  margin:0 0 16px;
+  color:rgba(255,255,255,.84);
+  font-size:clamp(12px,1.15vw,15px);
+  line-height:1.45;
+  display:-webkit-box;
+  -webkit-line-clamp:3;
+  -webkit-box-orient:vertical;
+  overflow:hidden;
+}
+body[data-theme^="flix-"] .flix-hero__actions{display:flex;gap:9px}
+body[data-theme^="flix-"] .flix-hero__action{
+  min-height:42px;
+  padding:0 17px;
+  display:inline-flex;
+  align-items:center;
+  gap:8px;
+  border:0;
+  border-radius:6px;
+  background:#fff;
+  color:#111;
+  font-weight:850;
+  cursor:pointer;
+}
+body[data-theme^="flix-"] .flix-hero__action--ghost{
+  background:rgba(84,84,88,.72);
+  color:#fff;
+}
+body[data-theme^="flix-"] .flix-hero__dots{
+  position:absolute;
+  z-index:3;
+  right:clamp(14px,3vw,42px);
+  bottom:38px;
+  display:flex;
+  gap:5px;
+}
+body[data-theme^="flix-"] .flix-hero__dot{
+  width:18px;
+  height:3px;
+  padding:0;
+  border:0;
+  border-radius:999px;
+  background:rgba(255,255,255,.28);
+}
+body[data-theme^="flix-"] .flix-hero__dot.is-active{background:var(--accent)}
+body[data-theme^="flix-"] .flix-hero__skeleton{
+  position:absolute;inset:0;
+  background:linear-gradient(105deg,#101012 22%,#1c1c20 44%,#101012 66%);
+  background-size:220% 100%;
+  animation:flixShimmer 1.15s ease infinite;
+}
+@keyframes flixShimmer{to{background-position:-120% 0}}
+
+body[data-theme^="flix-"] .bottom-nav{
+  background:rgba(8,8,9,.94)!important;
+  border-color:rgba(255,255,255,.12)!important;
+  backdrop-filter:none!important;
+}
+body[data-theme^="flix-"] .tab-button.is-active{
+  background:color-mix(in srgb,var(--accent) 18%,#171719)!important;
+  border-color:color-mix(in srgb,var(--accent) 48%,transparent)!important;
+  color:#fff!important;
+}
+
+body[data-theme^="flix-"] .modal-layer{
+  background:rgba(0,0,0,.78)!important;
+  backdrop-filter:blur(7px)!important;
+}
+body[data-theme^="flix-"] .detail-modal{
+  width:min(calc(100% - 28px),980px)!important;
+  max-height:min(92dvh,900px)!important;
+  border:1px solid rgba(255,255,255,.13)!important;
+  border-radius:16px!important;
+  background:#111113!important;
+  box-shadow:0 28px 90px rgba(0,0,0,.68)!important;
+}
+body[data-theme^="flix-"] .detail-scroll{padding:0!important}
+body[data-theme^="flix-"] .detail-content{width:100%!important;max-width:none!important}
+body[data-theme^="flix-"] .detail-art{
+  border:0!important;
+  border-radius:0!important;
+  border-bottom-left-radius:14px!important;
+  border-bottom-right-radius:14px!important;
+  box-shadow:none!important;
+}
+body[data-theme^="flix-"] .detail-art:after{
+  content:"";
+  position:absolute;
+  inset:auto 0 0;
+  height:28%;
+  z-index:2;
+  pointer-events:none;
+  background:linear-gradient(0deg,#111113,transparent);
+}
+body[data-theme^="flix-"] .synopsis,
+body[data-theme^="flix-"] .season-box,
+body[data-theme^="flix-"] .episode-container,
+body[data-theme^="flix-"] .srh-lite-film-actions{
+  margin-inline:clamp(12px,2vw,24px)!important;
+}
+body[data-theme^="flix-"] .synopsis{
+  border:0!important;
+  background:transparent!important;
+  color:rgba(255,255,255,.78)!important;
+  padding:4px 0 9px!important;
+}
+body[data-theme^="flix-"] .season-trigger,
+body[data-theme^="flix-"] .episode,
+body[data-theme^="flix-"] .quality-row{
+  background:#1a1a1d!important;
+  border-color:rgba(255,255,255,.1)!important;
+}
+body[data-theme^="flix-"] .watch-button{
+  background:var(--accent)!important;
+  color:var(--button-fg)!important;
+  border:0!important;
+  box-shadow:none!important;
+}
+
+@media(min-width:900px){
+  body[data-theme^="flix-"] .bottom-nav{
+    top:70px!important;
+    bottom:auto!important;
+  }
+}
+@media(max-width:680px){
+  body[data-theme^="flix-"]{
+    --flix-hero-h:min(58dvh,520px);
+    --flix-hero-radius:0;
+  }
+  body[data-theme^="flix-"] .topbar{
+    padding:6px 10px 0!important;
+    background:#080809!important;
+  }
+  body[data-theme^="flix-"] .flix-hero{
+    margin:-62px 0 14px;
+    min-height:360px;
+  }
+  body[data-theme^="flix-"] .flix-hero__shade{
+    background:
+      linear-gradient(0deg,var(--bg) 0%,rgba(5,5,6,.78) 17%,transparent 48%),
+      linear-gradient(90deg,rgba(5,5,6,.48),transparent 72%);
+  }
+  body[data-theme^="flix-"] .flix-hero__content{
+    left:14px;
+    right:14px;
+    bottom:52px;
+    width:auto;
+  }
+  body[data-theme^="flix-"] .flix-hero__logo{max-width:62%;max-height:76px;margin-bottom:8px}
+  body[data-theme^="flix-"] .flix-hero__title{font-size:30px;max-width:82%}
+  body[data-theme^="flix-"] .flix-hero__plot{-webkit-line-clamp:2;font-size:12px;max-width:44ch}
+  body[data-theme^="flix-"] .flix-hero__dots{right:14px;bottom:24px}
+  body[data-theme^="flix-"] .continue,
+  body[data-theme^="flix-"] #contentRoot{padding-inline:10px!important}
+  body[data-theme^="flix-"] .rail-section{margin-bottom:22px!important}
+  body[data-theme^="flix-"] .detail-modal{
+    width:calc(100% - 12px)!important;
+    max-height:91dvh!important;
+    border-radius:14px!important;
+  }
+  body[data-theme^="flix-"] .episode-container{margin-inline:8px!important}
+}
