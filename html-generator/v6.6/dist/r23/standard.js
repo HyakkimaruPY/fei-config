@@ -335,18 +335,77 @@ async function closeDetail(){
     return active;
   }
 
-  const baseSaveHistory=saveHistory;
-  saveHistory=function(entry){
-    if(!entry||entry.type==='live')return;
-    if(Number(entry.position)<MIN_CONTINUE_SECONDS)return;
-    return baseSaveHistory(entry);
+  const CONT_MEMORY_KEY='__srhContinue_'+APP_NS;
+  const contMemory=window[CONT_MEMORY_KEY]||(window[CONT_MEMORY_KEY]={vod:[],series:[]});
+
+  function writeHistoryBucket(type,list){
+    const bucket=type==='series'?'series':'vod';
+    const compact=(Array.isArray(list)?list:[]).slice(0,40);
+    contMemory[bucket]=compact;
+    const raw=JSON.stringify(compact);
+    try{
+      localStorage.setItem(historyKey(bucket),raw);
+      try{sessionStorage.removeItem(historyKey(bucket))}catch{}
+      return true;
+    }catch(e){
+      const quota=e?.name==='QuotaExceededError'||e?.name==='NS_ERROR_DOM_QUOTA_REACHED'||e?.code===22||e?.code===1014;
+      if(quota){
+        clearDisposableStorage();
+        try{localStorage.setItem(historyKey(bucket),raw);return true}catch{}
+      }
+      try{sessionStorage.setItem(historyKey(bucket),raw);return true}catch{}
+      return false;
+    }
+  }
+
+  const baseGetHistory=getHistory;
+  getHistory=function(type){
+    if(type==='live')return[];
+    const bucket=type==='series'?'series':'vod';
+    try{
+      const raw=localStorage.getItem(historyKey(bucket));
+      if(raw!==null){
+        const list=JSON.parse(raw||'[]');
+        if(Array.isArray(list)){contMemory[bucket]=list;return list}
+      }
+    }catch{}
+    try{
+      const raw=sessionStorage.getItem(historyKey(bucket));
+      if(raw!==null){
+        const list=JSON.parse(raw||'[]');
+        if(Array.isArray(list)){contMemory[bucket]=list;return list}
+      }
+    }catch{}
+    const fallback=baseGetHistory(bucket);
+    if(Array.isArray(fallback)&&fallback.length){contMemory[bucket]=fallback;return fallback}
+    return Array.isArray(contMemory[bucket])?contMemory[bucket]:[];
   };
+
+  saveHistory=function(entry){
+    if(!entry||entry.type==='live')return false;
+    if(Number(entry.position)<MIN_CONTINUE_SECONDS)return false;
+    const bucket=entry.type==='series'?'series':'vod';
+    let list=getHistory(bucket).filter(x=>x.key!==entry.key);
+    list.unshift(entry);
+    const ok=writeHistoryBucket(bucket,list);
+    renderContinue();
+    return ok;
+  };
+
+  removeHistory=function(key,type){
+    if(type==='live')return false;
+    const bucket=type==='series'?'series':'vod';
+    const next=getHistory(bucket).filter(x=>x.key!==key);
+    const ok=writeHistoryBucket(bucket,next);
+    renderContinue();
+    return ok;
+  };
+
   (function pruneShortContinueEntries(){
     for(const type of ['vod','series']){
-      try{
-        const list=getHistory(type),clean=list.filter(x=>Number(x.position)>=MIN_CONTINUE_SECONDS&&Number(x.duration)>0);
-        if(clean.length!==list.length)localStorage.setItem(historyKey(type),JSON.stringify(clean.slice(0,40)));
-      }catch{}
+      const list=getHistory(type);
+      const clean=list.filter(x=>Number(x.position)>=MIN_CONTINUE_SECONDS&&Number(x.duration)>0);
+      if(clean.length!==list.length)writeHistoryBucket(type,clean);
     }
   })();
 
@@ -362,21 +421,23 @@ async function closeDetail(){
     return null;
   }
   function removeStarted(type,item){
+    const started=startedEntry(type,item);
+    if(!started)return false;
+    let ok=false;
     if(type==='vod'){
-      const key='vod:'+String(item?.stream_id??item?.id??'');
-      removeHistory(key,'vod');
-      toast('Filme removido de Continuar assistindo.');
-      return;
+      ok=removeHistory(started.key,'vod');
+      toast(ok?'Filme removido de Continuar assistindo.':'Não foi possível remover o filme.');
+      return ok;
     }
     if(type==='series'){
-      const sid=String(item?.series_id??item?.id??'');
-      try{
-        const next=getHistory('series').filter(x=>String(x.seriesId??'')!==sid);
-        localStorage.setItem(historyKey('series'),JSON.stringify(next));
-      }catch{}
+      const sid=String(started.seriesId??item?.series_id??item?.id??'');
+      const next=getHistory('series').filter(x=>String(x.seriesId??'')!==sid);
+      ok=writeHistoryBucket('series',next);
       renderContinue();
-      toast('Série removida de Continuar assistindo.');
+      toast(ok?'Série removida de Continuar assistindo.':'Não foi possível remover a série.');
+      return ok;
     }
+    return false;
   }
 
   function actionButton(kind,type,item){
@@ -394,7 +455,10 @@ async function closeDetail(){
     }else{
       b.setAttribute('aria-label','Remover de Continuar assistindo');
       b.innerHTML=TRASH;
-      b.onclick=e=>{e.stopPropagation();removeStarted(type,item);b.remove()};
+      b.onclick=e=>{
+        e.stopPropagation();
+        if(removeStarted(type,item))b.remove();
+      };
     }
     return b;
   }
@@ -840,10 +904,21 @@ async function closeDetail(){
     }finally{release()}
   }
 
+  let continueOpenSeq=0;
   async function openContinueEntry(entry,type){
-    if(!entry)return;
-    if(type==='series')return openContinueSeries(entry);
-    return openContinueMovie(entry);
+    if(!entry||state.srhContinueOpening)return;
+    const seq=++continueOpenSeq;
+    state.srhContinueOpening=true;
+    state.srhOpeningContinue=true;
+    try{
+      if(type==='series')await openContinueSeries(entry);
+      else await openContinueMovie(entry);
+    }finally{
+      if(seq===continueOpenSeq){
+        state.srhContinueOpening=false;
+        state.srhOpeningContinue=false;
+      }
+    }
   }
 
   renderContinue=function(){
@@ -856,6 +931,7 @@ async function closeDetail(){
     el.continueSection.classList.remove('is-hidden');
     el.continueRow.innerHTML=list.map((x,i)=>`<article class="continue-card" data-history="${i}"><img src="${escapeHtml(x.image||'')}" alt="" loading="lazy"><div class="progress"><div class="progress__bar" style="width:${Math.min(100,x.position/x.duration*100)}%"></div></div><div class="continue-card__body"><div class="continue-card__title">${escapeHtml(x.title)}</div><div class="continue-card__meta">${Math.round(x.position/x.duration*100)}%</div></div></article>`).join('');
     el.continueRow.querySelectorAll('[data-history]').forEach(c=>c.onclick=()=>{
+      if(state.srhContinueOpening)return;
       const x=list[Number(c.dataset.history)];
       if(x)openContinueEntry(x,type);
     });
