@@ -1,0 +1,53 @@
+name: Build Shorts R25
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - 'html-generator/v6.6/runtime/shorts-r25/**'
+      - 'html-generator/v6.6/templates/shorts-r25.html'
+      - 'html-generator/v6.6/scripts/build-shorts-r25.mjs'
+      - '.github/workflows/build-shorts-r25.yml'
+permissions:
+  contents: write
+concurrency:
+  group: shorts-r25
+  cancel-in-progress: true
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Build fresh Shorts R25
+        run: node html-generator/v6.6/scripts/build-shorts-r25.mjs
+      - name: Validate clean architecture
+        shell: bash
+        run: |
+          node --check html-generator/v6.6/dist/r25/shorts.js
+          node - <<'NODE'
+          const fs=require('fs');
+          const m=JSON.parse(fs.readFileSync('html-generator/v6.6/dist/r25/manifest.json','utf8'));
+          if(m.legacyShortsImported!==false) throw new Error('legacy Shorts unexpectedly imported');
+          if(m.architecture!=='fresh-native-flow-grid') throw new Error('wrong R25 architecture');
+          if(m.arcSeconds!==120) throw new Error('wrong arc size');
+          NODE
+          wc -c html-generator/v6.6/dist/r25/*
+      - name: Commit validated R25 distribution
+        shell: bash
+        run: |
+          if [ -z "$(git status --porcelain -- html-generator/v6.6/dist/r25)" ]; then
+            echo 'R25 distribution already current.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add html-generator/v6.6/dist/r25
+          git commit -m 'Build validated Shorts R25 distribution'
+          git pull --rebase origin main
+          git push

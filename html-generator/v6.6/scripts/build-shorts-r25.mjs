@@ -1,0 +1,12 @@
+import fs from 'node:fs';import path from 'node:path';import crypto from 'node:crypto';import {spawnSync} from 'node:child_process';
+const root=path.resolve('html-generator/v6.6'),src=path.join(root,'runtime/shorts-r25'),out=path.join(root,'dist/r25');fs.mkdirSync(out,{recursive:true});
+const read=p=>fs.readFileSync(path.join(src,p),'utf8'),join=xs=>xs.map(x=>`/* ===== ${x} ===== */\n${read(x).trim()}\n`).join('\n');
+const css=join(['01-foundation.css','02-catalog.css','03-player.css']),js=join(['01-core.js','02-catalog.js','03-player.js']);
+fs.writeFileSync(path.join(out,'shorts.css'),css);fs.writeFileSync(path.join(out,'shorts.js'),js);
+const chk=spawnSync(process.execPath,['--check',path.join(out,'shorts.js')],{encoding:'utf8'});if(chk.status!==0)throw new Error(chk.stderr||chk.stdout);
+if(/runtime\/shorts\//.test(css+js))throw new Error('R25 imported legacy Shorts runtime');
+const rev='r25-'+crypto.createHash('sha256').update(css+'\n'+js).digest('hex').slice(0,16);
+const manifest={revision:rev,generatedAt:new Date().toISOString(),architecture:'fresh-native-flow-grid',legacyShortsImported:false,arcSeconds:120,css:'shorts.css',js:'shorts.js'};
+fs.writeFileSync(path.join(out,'manifest.json'),JSON.stringify(manifest,null,2)+'\n');
+const tpl=fs.readFileSync(path.join(root,'templates/shorts-r25.html'),'utf8');if(!tpl.includes('__APP_CONFIG__')||!tpl.includes('/dist/r25'))throw new Error('invalid R25 template');
+console.log(JSON.stringify({revision:rev,cssBytes:Buffer.byteLength(css),jsBytes:Buffer.byteLength(js)},null,2));

@@ -1,0 +1,27 @@
+/* Shorts R25 — fresh foundation. No legacy Shorts CSS is imported. */
+:root{color-scheme:dark}
+*{box-sizing:border-box;-webkit-tap-highlight-color:transparent}
+html,body{margin:0;min-height:100%;overscroll-behavior:none}
+body{background:var(--texture,var(--bg,#090d12));color:var(--text,#eef1f5);font-family:var(--font-ui,system-ui,-apple-system,"Segoe UI",sans-serif);-webkit-font-smoothing:antialiased}
+button,input{font:inherit;color:inherit}
+button{border:0;cursor:pointer;touch-action:manipulation}
+.is-hidden{display:none!important}
+.srh25-app{min-height:100dvh;background:var(--bg,#090d12)}
+.srh25-topbar{position:sticky;top:0;z-index:40;display:flex;align-items:center;gap:12px;min-height:68px;padding:8px 14px;background:color-mix(in srgb,var(--bg,#090d12) 94%,transparent);border-bottom:1px solid var(--line,rgba(255,255,255,.12));backdrop-filter:blur(14px);-webkit-backdrop-filter:blur(14px)}
+.srh25-brand{min-width:0;flex:1}
+.srh25-title{margin:0;font-size:21px;font-weight:850;letter-spacing:-.035em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.srh25-meta{margin-top:3px;color:var(--muted,#929aa5);font-size:11px}
+.srh25-actions{display:flex;gap:7px}
+.srh25-icon{width:42px;height:42px;border:1px solid var(--line,rgba(255,255,255,.14));border-radius:13px;background:var(--surface,#111820);display:grid;place-items:center;color:var(--text,#eef1f5)}
+.srh25-icon svg{width:21px;height:21px;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.srh25-settings{position:sticky;top:68px;z-index:36;margin:0 12px 8px;padding:12px;border:1px solid var(--line,rgba(255,255,255,.13));border-radius:15px;background:var(--bg-elev,var(--surface,#111820));box-shadow:0 18px 55px rgba(0,0,0,.32)}
+.srh25-settings-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.srh25-stat{padding:10px;border:1px solid var(--line,rgba(255,255,255,.10));border-radius:11px;background:var(--surface-2,#151b23)}
+.srh25-stat small{display:block;color:var(--muted,#929aa5);font-size:9px;text-transform:uppercase;letter-spacing:.1em}
+.srh25-stat strong{display:block;margin-top:4px;font-size:12px}
+.srh25-search{padding:10px 12px 0}
+.srh25-search input{width:100%;height:44px;padding:0 14px;border:1px solid var(--line,rgba(255,255,255,.14));border-radius:13px;outline:0;background:var(--surface,#111820)}
+.srh25-status{padding:10px 14px 4px;color:var(--muted,#929aa5);font-size:11px}
+.srh25-toast{position:fixed;z-index:120;left:50%;bottom:24px;transform:translate(-50%,18px);opacity:0;pointer-events:none;max-width:min(88vw,420px);padding:10px 14px;border:1px solid var(--line,rgba(255,255,255,.13));border-radius:999px;background:var(--bg-elev,#10161d);box-shadow:0 18px 55px rgba(0,0,0,.38);transition:.2s}
+.srh25-toast.is-on{opacity:1;transform:translate(-50%,0)}
+@media(max-width:560px){.srh25-topbar{padding-inline:10px}.srh25-icon{width:40px;height:40px}.srh25-title{font-size:19px}}
