@@ -2,7 +2,7 @@
 (()=>{'use strict';
 const cfg=JSON.parse(document.getElementById('app-config').textContent);
 const $=s=>document.querySelector(s);
-const S={cfg,state:{items:[],filtered:[],history:[],favorites:new Set(),pool:null,proxy:null,hls:null,current:null,requests:new Map()},$};
+const S={cfg,state:{items:[],filtered:[],history:[],favorites:new Set(),pool:null,poolPromise:null,proxy:null,proxyChoice:null,hls:null,current:null,requests:new Map()},$};
 window.SRH25=S;
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const clean=s=>String(s??'').trim();
@@ -18,19 +18,28 @@ async function fetchText(url,timeout=5000){const c=new AbortController(),t=setTi
 function httpsTwin(url){try{const u=new URL(url);if(u.protocol!=='http:')return'';u.protocol='https:';return u.href}catch{return''}}
 function proxyUrl(template,target){const b=clean(template),raw=clean(target),e=enc(raw);if(!b)return'';if(b.includes('{rawUrl}'))return b.replaceAll('{rawUrl}',raw);if(b.includes('{raw}'))return b.replaceAll('{raw}',raw);if(b.includes('{url}'))return b.replaceAll('{url}',e);if(b.endsWith('=')||b.endsWith('?'))return b+e;try{const u=new URL(b),k=['url','target','uri','q'].find(x=>u.searchParams.has(x))||'url';u.searchParams.set(k,raw);return u.toString()}catch{return''}}
 function apiUrl(params={}){const u=new URL(server()+'/player_api.php');u.searchParams.set('username',cfg.username);u.searchParams.set('password',cfg.password);for(const [k,v] of Object.entries(params))if(v!==undefined&&v!==null&&v!=='')u.searchParams.set(k,v);return u.toString()}
-async function loadPool(){if(S.state.pool)return S.state.pool;const r=await fetch('https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6/runtime/shared/proxy-pool.json',{cache:'default'});if(!r.ok)throw new Error('Pool '+r.status);const j=await r.json();return S.state.pool=(Array.isArray(j.proxies)?j.proxies:[]).filter(x=>x&&x.template&&x.valid!==false&&x.enabled!==false).sort((a,b)=>(+a.latencyMs||9e9)-(+b.latencyMs||9e9))}
+async function loadPool(){
+  if(S.state.pool)return S.state.pool;
+  if(S.state.poolPromise)return S.state.poolPromise;
+  S.state.poolPromise=(async()=>{const r=await fetch('https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6/runtime/shared/proxy-pool.json',{cache:'default'});if(!r.ok)throw new Error('Pool '+r.status);const j=await r.json();return S.state.pool=(Array.isArray(j.proxies)?j.proxies:[]).filter(x=>x&&x.template&&x.valid!==false&&x.enabled!==false).sort((a,b)=>(+a.latencyMs||9e9)-(+b.latencyMs||9e9))})();
+  try{return await S.state.poolPromise}finally{S.state.poolPromise=null}
+}
 function proxyKey(){let h='host';try{h=new URL(server()).host}catch{}return 'srh25:proxy:'+(cfg.appId||cfg.appName||'app')+':'+h}
 function readProxy(){try{return JSON.parse(localStorage.getItem(proxyKey())||'null')}catch{return null}}
 function saveProxy(x){try{localStorage.setItem(proxyKey(),JSON.stringify(x))}catch{}}
 function clearProxy(){try{localStorage.removeItem(proxyKey())}catch{}}
 async function chooseProxy(target){
-  const saved=readProxy();
-  if(saved?.template&&Number(saved.uses||0)<3){saved.uses=Number(saved.uses||0)+1;saveProxy(saved);return saved.template}
-  const pool=(await loadPool()).slice(0,5);
-  const tests=await Promise.all(pool.map(async p=>{const u=proxyUrl(p.template,target),t=performance.now();try{parseJson(await fetchText(u,3200));return{p,ms:performance.now()-t}}catch{return null}}));
-  const ok=tests.filter(Boolean).sort((a,b)=>a.ms-b.ms)[0];
-  if(!ok)throw new Error('Nenhum proxy CORS respondeu');
-  saveProxy({template:ok.p.template,id:ok.p.id||'',uses:1,at:Date.now()});return ok.p.template
+  if(S.state.proxyChoice)return S.state.proxyChoice;
+  const job=(async()=>{
+    const pool=(await loadPool()).slice(0,4);
+    const tests=await Promise.all(pool.map(async p=>{const u=proxyUrl(p.template,target),t=performance.now();try{parseJson(await fetchText(u,2600));return{p,ms:performance.now()-t}}catch{return null}}));
+    const ok=tests.filter(Boolean).sort((a,b)=>a.ms-b.ms)[0];
+    if(!ok)throw new Error('Nenhum proxy CORS respondeu');
+    saveProxy({template:ok.p.template,id:ok.p.id||'',uses:1,at:Date.now()});return ok.p.template
+  })();
+  S.state.proxyChoice=job;
+  job.then(()=>{S.state.proxyChoice=null},()=>{S.state.proxyChoice=null});
+  return job
 }
 S.request=params=>{
   const target=apiUrl(params),key=target;
@@ -62,7 +71,7 @@ S.request=params=>{
     throw last||new Error('Falha de conexão')
   })();
   S.state.requests.set(key,job);
-  job.finally(()=>S.state.requests.delete(key));
+  job.then(()=>S.state.requests.delete(key),()=>S.state.requests.delete(key));
   return job
 };
 const ns=String(cfg.appId||cfg.appName||'app').replace(/[^a-z0-9_-]/gi,'_');
