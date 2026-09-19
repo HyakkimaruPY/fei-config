@@ -27,13 +27,13 @@ Leia este arquivo antes de qualquer tarefa em `html-generator/v6.6`. Ele existe 
 
 ## Entradas e builders
 
-- `generator.html` é a entrada principal e deve permanecer idêntico a `generator-r23.html`; o build R23 valida essa igualdade.
-- Builder principal: `builder/generator-r23-clean.js`.
+- `generator.html` é a entrada principal e deve permanecer idêntico a `generator-r23.html`; `gerador.html` é a cópia canônica distribuível, sem rótulos públicos de versão, e o build valida a igualdade entre os três.
+- Builder principal validado: `builder/generator-r23-clean.js`. Para distribuição, `builder/generator.js` é um alias idêntico e sem versionamento no caminho usado por `gerador.html`.
 - Distribuição estável sem Shorts: `generator_distro_no_shorts.html` + `builder/generator-r23-distro-no-shorts.js`. Ela não pode adquirir opção, template ou runtime Shorts por acidente.
 - `builder/generator.css` estiliza o gerador. A antiga família separada “Flix/Fixed Style” foi aposentada. Os temas disponíveis são Graphene, Obsidian, Porcelain, Jade, Aurora e Ember.
 - O gerador não deve incorporar catálogos nos HTMLs. Ele grava configuração, credenciais e categorias escolhidas; o runtime/catálogo continuam remotos.
 - Ao gerar configuração de categoria, preservar `type`, `id` e `name`. O ID evita remapear categorias por nome em toda abertura, especialmente no Shorts.
-- Shorts aceita apenas VOD/filmes no gerador. Standard aceita live, VOD e séries.
+- Shorts aceita apenas VOD/filmes no gerador. Standard aceita live, VOD e séries. Dentro do app Shorts, “Atualizar app” também consulta exclusivamente `get_vod_categories`, permite escolher categorias de filmes e persiste novo DNS/username/password/targets no `localStorage` antes de recarregar.
 - “Gerar HTML” só é considerado funcional se o `initUI()` concluir e o handler `el.generate.onclick=generate` for registrado. O erro histórico `$('input[name="theme"]').forEach` quebra a inicialização; a coleção deve usar `$$`.
 
 ## Arquitetura ativa — Standard
@@ -166,7 +166,7 @@ Leia este arquivo antes de qualquer tarefa em `html-generator/v6.6`. Ele existe 
 - Gerador principal oferece Standard + “App Shorts”; internamente Shorts aponta para `shorts-r25.html`. A distribuição `generator_distro_no_shorts.html` continua Standard-only.
 - Família Flix/Fixed foi removida do gerador. A identidade visual promovida ficou no layout principal e os seis temas clássicos fornecem a paleta.
 - Standard recente: alinhamento de logo/título com sinopse, live header/estrela com respiro, remoção persistente de Continuar assistindo e proteção contra progresso antigo recriar item excluído.
-- Shorts recente: catálogo refeito sem virtualização absoluta; vídeo vertical cover-first; controles menores; tags/título removidos dos covers; category IDs incorporados; cache IndexedDB; first paint progressivo; de-duplicação de requests/proxy; HLS lazy; Continuar grava após 60 s; Favoritos/Continuar atualizam a biblioteca aberta; Arcos usam bottom sheet com backdrop inspirado no `aura-reels`; os botões mostram apenas `Arco N` (sem tempo) e a folha fecha ao tocar fora, pelo X ou arrastando o cabeçalho para baixo. O runtime deve injetar backdrop/X quando um HTML Shorts antigo não possuir esse markup, para que HTMLs já gerados também recebam a correção.
+- Shorts recente: catálogo refeito sem virtualização absoluta; vídeo vertical cover-first; controles menores; tags/título removidos dos covers; category IDs incorporados; cache IndexedDB; first paint progressivo; de-duplicação de requests/proxy; HLS lazy; Continuar grava após 60 s; Favoritos/Continuar atualizam a biblioteca aberta; Arcos usam bottom sheet com backdrop inspirado no `aura-reels`; os botões mostram apenas `Arco N` (sem tempo) e a folha fecha ao tocar fora, pelo X ou arrastando o cabeçalho para baixo. O runtime deve injetar backdrop/X quando um HTML Shorts antigo não possuir esse markup, para que HTMLs já gerados também recebam a correção. O Shorts também possui atualização interna de credenciais e categorias de filmes, persistida no `localStorage`.
 - Workflows observados ao criar o guia: Pages e Validate CORS proxies concluíram com sucesso; último Build Shorts R25 concluído com sucesso. Isso não substitui teste manual em navegador/provedor.
 - Limite conhecido: esta documentação foi construída por inspeção do repositório, manifests, scripts e Actions. Não houve, nesta etapa documental, teste end-to-end com credenciais de provedor nem benchmark em todos os navegadores.
 
