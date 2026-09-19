@@ -4,10 +4,10 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,minimum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Shorts</title>
-<style>html,body{margin:0;min-height:100%;background:#090d12}#srh25Boot{position:fixed;z-index:2147483647;inset:0;display:grid;place-items:center;background:#090d12;color:#eef1f5;font:600 13px/1.4 system-ui}.b{width:min(290px,calc(100vw - 44px));padding:19px;border:1px solid rgba(255,255,255,.13);border-radius:18px;background:#111820}.l{height:4px;margin-top:12px;overflow:hidden;border-radius:999px;background:rgba(255,255,255,.08)}.f{height:100%;width:18%;background:#d8dee7;transition:width .2s}.s{margin-top:6px;color:#9099a5;font-size:10px}</style>
+<style>html,body{margin:0;min-height:100%;background:#090d12}#srh25Boot{position:fixed;z-index:2147483647;inset:0;display:grid;place-items:center;background:#090d12;color:#eef1f5;font:600 13px/1.4 system-ui}.b{width:min(290px,calc(100vw - 44px));padding:19px;border:1px solid rgba(255,255,255,.13);border-radius:18px;background:#111820}.l{height:4px;margin-top:12px;overflow:hidden;border-radius:999px;background:rgba(255,255,255,.08)}.f{height:100%;width:18%;background:#d8dee7;transition:width .2s}.s{margin-top:6px;color:#9099a5;font-size:10px}.srh-boot-retry{display:none;width:100%;min-height:40px;margin-top:12px;border:1px solid rgba(255,255,255,.16);border-radius:11px;background:rgba(255,255,255,.08);color:#eef1f5;font-weight:700}.srh-boot-card.is-error .srh-boot-retry{display:block}</style>
 </head>
 <body>
-<div id="srh25Boot"><div class="b"><div id="bootLabel">Preparando Shorts…</div><div class="s" id="bootSub">Renderização nova, fluxo nativo</div><div class="l"><div class="f" id="bootFill"></div></div></div></div>
+<div id="srh25Boot"><div class="b srh-boot-card" id="srhBootCard"><div id="bootLabel">Preparando Shorts…</div><div class="s" id="bootSub">Renderização nova, fluxo nativo</div><div class="l"><div class="f" id="bootFill"></div></div><div class="s"><span id="srhBootPhase">Inicializando</span> · <strong id="srhBootPct">6%</strong></div><button class="srh-boot-retry" id="srhBootRetry" type="button">Tentar novamente</button></div></div>
 <div class="srh25-app">
 <header class="srh25-topbar"><div class="srh25-brand"><h1 class="srh25-title" id="appTitle">Shorts</h1><div class="srh25-meta" id="appMeta">Carregando…</div></div><div class="srh25-actions">
 <button class="srh25-icon" id="searchButton" aria-label="Buscar"><svg viewBox="0 0 24 24"><circle cx="10.7" cy="10.7" r="5.8"/><path d="M15 15l4.5 4.5"/></svg></button>
@@ -36,5 +36,15 @@
 </div></section>
 <div class="srh25-toast" id="toast"></div>
 <script id="app-config" type="application/json">__APP_CONFIG__</script>
-<script src="https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6/public/r.js"></script>
+<script>
+(()=>{const d=document,u=[
+'https://raw.githubusercontent.com/HyakkimaruPY/fei-config/main/html-generator/v6.6/public/r.js',
+'https://cdn.jsdelivr.net/gh/HyakkimaruPY/fei-config@main/html-generator/v6.6/public/r.js'
+],b=d.getElementById('srhBoot')||d.getElementById('srh25Boot'),c=d.getElementById('srhBootCard')||b?.querySelector('.srh-boot-card,.b'),l=b?.querySelector('#srhBootLabel,#bootLabel,#bootSub'),p=b?.querySelector('#srhBootPhase'),n=b?.querySelector('#srhBootPct'),f=b?.querySelector('#srhBootFill,#bootFill'),r=b?.querySelector('#srhBootRetry');let i=0;
+const v=(a,z,h)=>{if(l)l.textContent=a;if(p)p.textContent=z;if(n)n.textContent=h+'%';if(f)f.style.width=h+'%'};
+const e=a=>{if(c)c.classList.add('is-error');if(l)l.textContent=a;if(p)p.textContent='Falha no carregamento';if(n)n.textContent='—';if(r){r.style.display='block';r.onclick=()=>location.reload()}};
+const g=(a,o)=>{let q=false,t=setTimeout(()=>{if(q)return;q=true;o(Error('Tempo esgotado'))},10000),x=new XMLHttpRequest;x.open('GET',a+(a.includes('?')?'&':'?')+'t='+Date.now(),true);x.timeout=9500;x.onreadystatechange=()=>{if(x.readyState!==4||q)return;q=true;clearTimeout(t);if(x.status>=200&&x.status<300)o(null,x.responseText);else o(Error('HTTP '+x.status))};x.onerror=()=>{if(q)return;q=true;clearTimeout(t);o(Error('Falha de rede'))};x.ontimeout=()=>{if(q)return;q=true;clearTimeout(t);o(Error('Tempo esgotado'))};try{x.send()}catch(s){if(!q){q=true;clearTimeout(t);o(s)}}};
+const h=()=>{if(i>=u.length){e('Não foi possível carregar o aplicativo. Verifique a conexão e tente novamente.');return}v('Conectando ao aplicativo…','Rota '+(i+1)+' de '+u.length,12);const a=u[i++];g(a,(o,s)=>{if(o||!s){h();return}try{window.__srhPublicBase=a.slice(0,a.lastIndexOf('/')+1);const x=d.createElement('script');x.text=s;d.body.appendChild(x);setTimeout(()=>{if(window.__srhRouterState)v('Preparando módulos…','Router carregado',18);else h()},0)}catch(k){h()}})};
+if(r)r.onclick=()=>location.reload();h()})();
+</script>
 </body></html>
