@@ -51,6 +51,7 @@ write('standard.js',standardJs);write('shorts.js',shortsJs);write('standard.css'
 function checkFileJs(full,label){const r=spawnSync(process.execPath,['--check',full],{encoding:'utf8'});if(r.status!==0)throw new Error(`${label} falhou no node --check:\n${r.stderr||r.stdout}`)}
 for(const f of ['standard.js','shorts.js'])checkFileJs(path.join(outDir,f),f);
 checkFileJs(path.join(root,'builder/generator-r23-clean.js'),'generator-r23-clean.js');
+checkFileJs(path.join(root,'builder/generator-r23-distro-no-shorts.js'),'generator-r23-distro-no-shorts.js');
 
 const themeFiles=['graphene','obsidian','porcelain','jade','aurora','ember','flix-red','flix-blue','flix-orange','flix-violet','flix-emerald','flix-rose'].map(x=>`themes/${x}.css`);
 const hash=crypto.createHash('sha256');
@@ -85,6 +86,9 @@ const generatorR23=read('generator-r23.html'),generatorMain=read('generator.html
 if(generatorMain!==generatorR23)throw new Error('generator.html divergiu de generator-r23.html; a entrada principal deve ser exatamente a versão R23 validada.');
 if(/generator-r(?:1[4-9]|2[0-2])|\beval\s*\(/.test(generatorR23))throw new Error('generator-r23.html contém builder antigo/eval');
 inlineScripts(generatorR23).forEach((s,i)=>checkJsText(s,`generator-r23.html inline script ${i}`));
+const generatorDistro=read('generator_distro_no_shorts.html');
+if(/value=["']shorts["']|shorts-r\d+\.html/i.test(generatorDistro))throw new Error('generator_distro_no_shorts.html contém opção/referência Shorts');
+inlineScripts(generatorDistro).forEach((src,i)=>checkJsText(src,`generator_distro_no_shorts.html inline script ${i}`));
 for(const bad of ['eval(','generator-r20.js','generator-r21.js','generator-r22.js'])if(read('builder/generator-r23-clean.js').includes(bad))throw new Error(`builder R23 contém dependência proibida: ${bad}`);
 
 console.log(`R23 stable baseline + lightweight UI build OK: ${revision}`);
