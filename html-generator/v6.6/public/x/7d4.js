@@ -8,7 +8,7 @@ function storageKey(){return 'tj_xtream_runtime_'+String(BASE_CONFIG.appId||BASE
 function loadRuntime(){try{return JSON.parse(localStorage.getItem(storageKey())||'null')}catch{return null}}
 let CONFIG={...BASE_CONFIG,...(loadRuntime()||{})};
 const state={activeType:null,categoryMaps:new Map(),railInstances:[],gridInstance:null,categoryObserver:null,retentionObserver:null,renderToken:0,detailToken:0,seriesPlayToken:0,hls:null,currentMedia:null,currentDetail:null,currentSeries:null,seriesVideo:null,saveTick:0,playerActive:false,updateCandidate:null,updateCategories:[],updateSelected:new Set(),searchTimer:0,searchDataset:null,searchType:null,synopsisExpanded:false,synopsisText:'',synopsisNode:null,collectionOpen:false};
-let resolveCatalogMetadata=null;
+let resolveCatalogMetadata=null,normalizeCatalogLogo=null,tuneCatalogLogoContrast=null;
 function isDetailCurrent(token){return token===state.detailToken&&!el.detailLayer.classList.contains('is-hidden')}
 function escapeHtml(v=''){return String(v).replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]))}
 function toast(msg){el.toast.textContent=msg;el.toast.classList.add('is-show');clearTimeout(toast.t);toast.t=setTimeout(()=>el.toast.classList.remove('is-show'),2200)}
@@ -1065,7 +1065,7 @@ async function closeDetail(){
   const TMDB_CONFIG_URL=window.__srhA.u('m');
   const KEY_STORE='srhell:tmdb:key:v1';
   const KEY_META='srhell:tmdb:key-meta:v1';
-  const CACHE_STORE='srhell:tmdb:cache:v3';
+  const CACHE_STORE='srhell:tmdb:cache:v4';
   const CONFIG_TTL=24*60*60*1000;
   const CACHE_TTL=7*24*60*60*1000;
   const MAX_CACHE=42;
@@ -1233,6 +1233,8 @@ async function closeDetail(){
       try{en=await detailsById(kind,id,'en-US')}catch{}
     }
     const logo=ptLogo||chooseLogo(en?.images?.logos);
+    const releaseRaw=kind==='movie'?(pt?.release_date||en?.release_date):(pt?.first_air_date||en?.first_air_date);
+    const voteRaw=Number(pt?.vote_average??en?.vote_average);
     const data={
       id:String(id),
       title:pt?.title||pt?.name||en?.title||en?.name||clean||rawTitle,
@@ -1240,6 +1242,8 @@ async function closeDetail(){
       backdrop:imageUrl(pt?.backdrop_path||en?.backdrop_path,'w1280'),
       poster:imageUrl(pt?.poster_path||en?.poster_path,'w500'),
       logo:imageUrl(logo?.file_path,'w500'),
+      year:/^\d{4}/.test(String(releaseRaw||''))?String(releaseRaw).slice(0,4):'',
+      vote:Number.isFinite(voteRaw)&&voteRaw>0?Math.round(voteRaw*10)/10:null,
       posterHero:!(pt?.backdrop_path||en?.backdrop_path)&&!!(pt?.poster_path||en?.poster_path)
     };
     cacheWrite(cacheKey,data);
@@ -1604,6 +1608,8 @@ async function closeDetail(){
   }
 
   resolveCatalogMetadata=resolveTmdb;
+  normalizeCatalogLogo=normalizeLogoBitmap;
+  tuneCatalogLogoContrast=tuneLogoContrast;
 
   const tmdbOpenFilm=openFilm;
   openFilm=async function(item){
@@ -1721,6 +1727,7 @@ async function closeDetail(){
     }
   },true);
 
+  /* SRHELL R24 feed hero polish */
   let heroToken=0,heroTimer=0,heroViewToken=0,heroItems=[],heroIndex=0,heroNode=null;
   const heroMeta=new Map();
 
@@ -1728,7 +1735,7 @@ async function closeDetail(){
     if(heroNode?.isConnected)return heroNode;
     heroNode=document.createElement('section');
     heroNode.className='stream-hero';
-    heroNode.innerHTML='<div class="stream-hero__skeleton"></div><div class="stream-hero__bg"></div><div class="stream-hero__shade"></div><div class="stream-hero__content"><img class="stream-hero__logo is-hidden" alt=""><h2 class="stream-hero__title"></h2><div class="stream-hero__meta"></div><p class="stream-hero__plot"></p><div class="stream-hero__actions"><button class="stream-hero__action" data-stream-open>▶ <span>Abrir</span></button><button class="stream-hero__action stream-hero__action--ghost" data-stream-next>Próximo</button></div></div><div class="stream-hero__dots"></div>';
+    heroNode.innerHTML='<div class="stream-hero__skeleton"></div><div class="stream-hero__bg-stack"><div class="stream-hero__bg stream-hero__bg--a is-active"></div><div class="stream-hero__bg stream-hero__bg--b"></div></div><div class="stream-hero__shade"></div><div class="stream-hero__content"><div class="stream-hero__brand"><img class="stream-hero__logo is-hidden" alt=""><div class="srh-art-brand__fallback stream-hero__brand-fallback is-hidden"></div></div><div class="stream-hero__meta"></div><p class="stream-hero__plot"></p><div class="stream-hero__actions"><button class="stream-hero__action" data-stream-open>▶ <span>Abrir</span></button><button class="stream-hero__action stream-hero__action--ghost" data-stream-next>Próximo</button></div></div><div class="stream-hero__dots"></div>';
     el.homeStatus.insertAdjacentElement('afterend',heroNode);
     heroNode.querySelector('[data-stream-next]').onclick=()=>showHero((heroIndex+1)%Math.max(1,heroItems.length),true);
     return heroNode;
@@ -1750,7 +1757,7 @@ async function closeDetail(){
   function heroImage(item,type,meta){
     if(meta?.backdrop)return meta.backdrop;
     if(type==='live')return item?.image||item?.variants?.[0]?.stream_icon||'';
-    return imageFor(item,type)||meta?.poster||'';
+    return meta?.poster||imageFor(item,type)||'';
   }
 
   async function heroTmdb(item,type){
@@ -1773,43 +1780,151 @@ async function closeDetail(){
     heroNode.querySelectorAll('[data-stream-dot]').forEach(b=>b.onclick=()=>showHero(Number(b.dataset.streamDot),true));
   }
 
+  function preloadHeroImage(url,timeout=5000){
+    const src=String(url||'').trim();
+    if(!src)return Promise.resolve(false);
+    return new Promise(resolve=>{
+      const img=new Image();
+      let done=false;
+      const finish=ok=>{if(done)return;done=true;clearTimeout(timer);img.onload=null;img.onerror=null;resolve(!!ok)};
+      const timer=setTimeout(()=>finish(false),timeout);
+      img.onload=()=>finish(true);
+      img.onerror=()=>finish(false);
+      img.src=src;
+      if(img.complete)finish(img.naturalWidth>0);
+    });
+  }
+
+  async function paintHeroBackground(node,url,isLive,local){
+    const src=String(url||'').trim();
+    const layers=[...node.querySelectorAll('.stream-hero__bg')];
+    if(!src||layers.length<2)return false;
+    let current=layers.find(x=>x.classList.contains('is-active'))||layers[0];
+    if(current.dataset.srhUrl===src){
+      current.classList.toggle('is-live',!!isLive);
+      node.dataset.srhPainted='1';
+      return true;
+    }
+    const ready=await preloadHeroImage(src);
+    if(!ready||local!==heroToken||heroViewToken!==state.renderToken)return false;
+    let next=layers.find(x=>x!==current);
+    next.classList.remove('is-active');
+    next.classList.toggle('is-live',!!isLive);
+    next.style.backgroundImage='url("'+src.replace(/"/g,'%22')+'")';
+    next.dataset.srhUrl=src;
+    await new Promise(resolve=>requestAnimationFrame(resolve));
+    if(local!==heroToken||heroViewToken!==state.renderToken)return false;
+    next.classList.add('is-active');
+    current.classList.remove('is-active');
+    node.dataset.srhPainted='1';
+    setTimeout(()=>{
+      if(!current.classList.contains('is-active')){
+        current.style.backgroundImage='none';
+        current.dataset.srhUrl='';
+        current.classList.remove('is-live');
+      }
+    },920);
+    return true;
+  }
+
+  function setHeroBrand(node,title,data,local){
+    const box=node.querySelector('.stream-hero__brand');
+    const logo=node.querySelector('.stream-hero__logo');
+    const fallback=node.querySelector('.stream-hero__brand-fallback');
+    if(!box||!logo||!fallback)return;
+    box.classList.remove('srh-logo-flare-light','srh-logo-flare-dark','has-logo','has-fallback');
+    logo.onload=null;logo.onerror=null;
+    logo.classList.add('is-hidden');
+    logo.removeAttribute('src');
+    logo.removeAttribute('data-srh-normalized');
+    fallback.classList.add('is-hidden');
+    fallback.textContent=String(title||'').trim();
+    box.setAttribute('aria-label',String(title||'').trim());
+
+    const showFallback=()=>{
+      if(local!==heroToken)return;
+      logo.classList.add('is-hidden');
+      fallback.textContent=String(title||'').trim();
+      fallback.classList.remove('is-hidden');
+      box.classList.remove('has-logo');
+      box.classList.add('has-fallback');
+    };
+
+    if(!data?.logo){showFallback();return}
+
+    logo.alt=title||'Logo';
+    logo.crossOrigin='anonymous';
+    logo.onload=async()=>{
+      if(local!==heroToken)return;
+      if(logo.dataset.srhNormalized!=='1'&&typeof normalizeCatalogLogo==='function'){
+        const normalized=await normalizeCatalogLogo(logo);
+        if(local!==heroToken)return;
+        if(normalized?.src&&normalized.src!==logo.src){
+          logo.dataset.srhNormalized='1';
+          logo.src=normalized.src;
+          return;
+        }
+      }
+      if(typeof tuneCatalogLogoContrast==='function')await tuneCatalogLogoContrast(logo,box);
+      if(local!==heroToken)return;
+      fallback.classList.add('is-hidden');
+      logo.classList.remove('is-hidden');
+      box.classList.remove('has-fallback');
+      box.classList.add('has-logo');
+    };
+    logo.onerror=showFallback;
+    logo.src=data.logo;
+  }
+
+  function heroMetaText(type,data){
+    if(type==='live')return 'TV ao vivo';
+    const parts=[type==='series'?'Série':'Filme'];
+    if(data?.year)parts.push(data.year);
+    const vote=Number(data?.vote);
+    if(Number.isFinite(vote)&&vote>0)parts.push('★ '+vote.toFixed(1).replace('.',','));
+    return parts.join(' · ');
+  }
+
+  function warmHero(index,type){
+    const item=heroItems[index];
+    if(!item)return;
+    if(type==='live'){
+      preloadHeroImage(heroImage(item,type,null)).catch(()=>{});
+      return;
+    }
+    heroTmdb(item,type).then(data=>preloadHeroImage(heroImage(item,type,data))).catch(()=>{});
+  }
+
   async function showHero(index,user=false){
     clearTimeout(heroTimer);
     if(!heroItems.length||heroViewToken!==state.renderToken)return;
     heroIndex=((index%heroItems.length)+heroItems.length)%heroItems.length;
     const local=++heroToken,item=heroItems[heroIndex],type=state.activeType,node=heroHost();
-    const bg=node.querySelector('.stream-hero__bg'),title=node.querySelector('.stream-hero__title'),plot=node.querySelector('.stream-hero__plot'),metaNode=node.querySelector('.stream-hero__meta'),logo=node.querySelector('.stream-hero__logo'),skeleton=node.querySelector('.stream-hero__skeleton');
-    skeleton?.classList.remove('is-hidden');
-    logo.classList.add('is-hidden');logo.removeAttribute('src');
-    title.textContent=type==='live'?(item.baseName||'Canal'):itemTitle(item);
-    plot.textContent='';
-    metaNode.textContent=type==='live'?'TV ao vivo':'';
-    const initial=heroImage(item,type,null);
-    bg.classList.toggle('is-live',type==='live');
-    bg.style.backgroundImage=initial?'url("'+String(initial).replace(/"/g,'%22')+'")':'none';
+    const plot=node.querySelector('.stream-hero__plot'),metaNode=node.querySelector('.stream-hero__meta'),skeleton=node.querySelector('.stream-hero__skeleton');
+    if(node.dataset.srhPainted!=='1')skeleton?.classList.remove('is-hidden');
     node.querySelector('[data-stream-open]').onclick=()=>openItem(item,type);
     dots();
 
-    if(type!=='live'){
-      const data=await heroTmdb(item,type);
-      if(local!==heroToken||heroViewToken!==state.renderToken||state.activeType!==type)return;
-      const image=heroImage(item,type,data);
-      if(image)bg.style.backgroundImage='url("'+String(image).replace(/"/g,'%22')+'")';
-      title.textContent=data?.title||itemTitle(item);
-      plot.textContent=data?.overview||String(item?.plot||item?.description||'');
-      metaNode.textContent=type==='series'?'Série':'Filme';
-      if(data?.logo){
-        logo.src=data.logo;
-        logo.onload=()=>{if(local===heroToken)logo.classList.remove('is-hidden')};
-      }
-    }
+    let data=null;
+    if(type!=='live')data=await heroTmdb(item,type);
+    if(local!==heroToken||heroViewToken!==state.renderToken||state.activeType!==type)return;
+
+    const title=type==='live'?(item.baseName||'Canal'):(data?.title||itemTitle(item));
+    const image=heroImage(item,type,data);
+    setHeroBrand(node,title,data,local);
+    plot.textContent=type==='live'?'':(data?.overview||String(item?.plot||item?.description||''));
+    metaNode.textContent=heroMetaText(type,data);
+
+    await paintHeroBackground(node,image,type==='live',local);
+    if(local!==heroToken||heroViewToken!==state.renderToken||state.activeType!==type)return;
     skeleton?.classList.add('is-hidden');
     heroTimer=setTimeout(()=>showHero(heroIndex+1),user?8500:7000);
+    warmHero((heroIndex+1)%Math.max(1,heroItems.length),type);
   }
 
   async function buildHero(token){
     const node=heroHost(),type=state.activeType;
-    node.querySelector('.stream-hero__skeleton')?.classList.remove('is-hidden');
+    if(node.dataset.srhPainted!=='1')node.querySelector('.stream-hero__skeleton')?.classList.remove('is-hidden');
     const targets=targetsFor(type).slice(0,Math.min(5,targetsFor(type).length));
     const lists=[];
     for(const target of targets){
