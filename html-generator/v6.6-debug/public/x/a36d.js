@@ -37,7 +37,8 @@ S.parseLogin=raw=>{let text=clean(raw);if(!text)throw new Error('Informe o novo 
 S.saveRuntime=async runtime=>{if(!runtime||typeof runtime!=='object')throw new Error('Runtime inválido');await S.storage.set(runtimeKey,runtime);Object.assign(cfg,runtime);try{localStorage.removeItem(runtimeKey)}catch{}return true};
 function parseJson(t){let s=String(t??'').replace(/^\uFEFF/,'').trim();try{return JSON.parse(s)}catch{}const a=s.indexOf('{'),b=s.indexOf('['),i=a<0?b:b<0?a:Math.min(a,b);if(i>=0){const j=s.lastIndexOf(s[i]==='{'?'}':']');if(j>i)return JSON.parse(s.slice(i,j+1))}throw new Error('Resposta inválida')}
 async function fetchText(url,timeout=5000,options={}){const c=new AbortController(),relay=()=>{try{c.abort(options.signal?.reason||'superseded')}catch{c.abort()}},t=setTimeout(()=>{try{c.abort('timeout')}catch{c.abort()}},timeout);if(options.signal){if(options.signal.aborted)relay();else options.signal.addEventListener('abort',relay,{once:true})}try{const r=await fetch(url,{cache:'no-cache',redirect:'follow',credentials:'omit',signal:c.signal,srhProbe:options.probe===true});if(!r.ok)throw new Error('HTTP '+r.status);return await r.text()}finally{clearTimeout(t);try{options.signal?.removeEventListener('abort',relay)}catch{}}}
-async function firstJsonResponse(urls,timeout){const list=[...new Set((urls||[]).filter(Boolean))],ctrls=list.map(()=>new AbortController());try{return await Promise.any(list.map((u,i)=>fetchText(u,timeout,{probe:true,signal:ctrls[i].signal}).then(parseJson)))}finally{for(const c of ctrls)if(!c.signal.aborted)try{c.abort('candidate-lost')}catch{c.abort()}}}
+function transportDelay(ms,signal){return new Promise((resolve,reject)=>{if(signal?.aborted){reject(signal.reason||new DOMException('Aborted','AbortError'));return}const t=setTimeout(done,ms);function done(){cleanup();resolve()}function abort(){cleanup();reject(signal.reason||new DOMException('Aborted','AbortError'))}function cleanup(){clearTimeout(t);try{signal?.removeEventListener('abort',abort)}catch{}}try{signal?.addEventListener('abort',abort,{once:true})}catch{}})}
+async function firstJsonResponse(urls,timeout,options={}){const list=[...new Set((urls||[]).filter(Boolean))],ctrls=list.map(()=>new AbortController()),relay=()=>{for(const c of ctrls)if(!c.signal.aborted)try{c.abort(options.signal?.reason||'route-lost')}catch{c.abort()}};if(options.signal){if(options.signal.aborted)relay();else options.signal.addEventListener('abort',relay,{once:true})}try{return await Promise.any(list.map((u,i)=>fetchText(u,timeout,{probe:true,signal:ctrls[i].signal}).then(parseJson)))}finally{try{options.signal?.removeEventListener('abort',relay)}catch{}relay()}}
 function httpsTwin(url){try{const u=new URL(url);if(u.protocol!=='http:')return'';u.protocol='https:';return u.href}catch{return''}}
 function proxyUrl(template,target){const b=clean(template),raw=clean(target),e=enc(raw);if(!b)return'';if(b.includes('{rawUrl}'))return b.replaceAll('{rawUrl}',raw);if(b.includes('{raw}'))return b.replaceAll('{raw}',raw);if(b.includes('{url}'))return b.replaceAll('{url}',e);if(b.endsWith('=')||b.endsWith('?'))return b+e;try{const u=new URL(b),k=['url','target','uri','q'].find(x=>u.searchParams.has(x))||'url';u.searchParams.set(k,raw);return u.toString()}catch{return''}}
 function apiUrl(params={},source=cfg){const u=new URL(server(source)+'/player_api.php');u.searchParams.set('username',source.username);u.searchParams.set('password',source.password);for(const [k,v] of Object.entries(params))if(v!==undefined&&v!==null&&v!=='')u.searchParams.set(k,v);return u.toString()}
@@ -48,49 +49,52 @@ async function loadPool(){
   try{return await S.state.poolPromise}finally{S.state.poolPromise=null}
 }
 function proxyKey(source=cfg){let h='host';try{h=new URL(server(source)).host}catch{}return 'srh25:proxy:'+(source.appId||BASE_CONFIG.appId||source.appName||BASE_CONFIG.appName||'app')+':'+h}
-function readProxy(source=cfg){try{return JSON.parse(localStorage.getItem(proxyKey(source))||'null')}catch{return null}}
-function saveProxy(x,source=cfg){try{localStorage.setItem(proxyKey(source),JSON.stringify(x))}catch{}}
-function clearProxy(source=cfg){try{localStorage.removeItem(proxyKey(source))}catch{}}
-async function chooseProxy(target,source=cfg){
-  if(S.state.proxyChoice)return S.state.proxyChoice;
-  const job=(async()=>{
-    const pool=(await loadPool()).slice(0,4);
-    if(!pool.length)throw new Error('Nenhum proxy CORS disponível');
-    let ok;
-    try{ok=await Promise.any(pool.map(async p=>{const u=proxyUrl(p.template,target),t=performance.now();parseJson(await fetchText(u,2200,{probe:true}));return{p,ms:performance.now()-t}}))}
-    catch{throw new Error('Nenhum proxy CORS respondeu')}
-    saveProxy({template:ok.p.template,id:ok.p.id||'',uses:1,at:Date.now()},source);return ok.p.template
-  })();
-  S.state.proxyChoice=job;
-  job.then(()=>{S.state.proxyChoice=null},()=>{S.state.proxyChoice=null});
-  return job
+const proxyMemory=new Map();function proxyLegacyRead(source=cfg){try{return JSON.parse(localStorage.getItem(proxyKey(source))||'null')}catch{return null}}
+function readProxy(source=cfg){const k=proxyKey(source);return proxyMemory.get(k)||proxyLegacyRead(source)}
+function saveProxy(x,source=cfg){const k=proxyKey(source),value={...x,at:Date.now()};proxyMemory.set(k,value);void S.storage?.set(k,value).catch(()=>{});return value}
+function clearProxy(source=cfg){const k=proxyKey(source);proxyMemory.delete(k);void S.storage?.delete(k).catch(()=>{});try{localStorage.removeItem(k)}catch{}}
+S.hydrateProxy=async(source=cfg)=>{const k=proxyKey(source),legacy=proxyLegacyRead(source);let saved=null;try{saved=await S.storage?.get(k)}catch{}if(!saved&&legacy){saved=legacy;try{await S.storage?.set(k,legacy);localStorage.removeItem(k)}catch{}}if(saved)proxyMemory.set(k,saved);return saved};
+async function chooseProxy(target,source=cfg,options={}){
+  const pool=(await loadPool()).slice(0,4),saved=readProxy(source),rows=[],seen=new Set();
+  const add=(template,id,label)=>{template=clean(template);if(!template||seen.has(template))return;seen.add(template);rows.push({template,id:id||'',label})};
+  add(source.corsProxy,'configured','configured-proxy');
+  if(saved?.template)add(saved.template,saved.id||'saved','saved-proxy');
+  for(const p of pool)add(p.template,p.id||'', 'pool-proxy');
+  if(!rows.length)throw new Error('Nenhum proxy CORS disponível');
+  const ctrls=rows.map(()=>new AbortController()),outer=options.signal,relay=()=>{for(const c of ctrls)if(!c.signal.aborted)try{c.abort(outer?.reason||'proxy-lost')}catch{c.abort()}};
+  if(outer){if(outer.aborted)relay();else outer.addEventListener('abort',relay,{once:true})}
+  const started=performance.now(),timeout=Number(options.timeout)||18000;
+  try{
+    const winner=await Promise.any(rows.map(async(row,i)=>{
+      if(i)await transportDelay(Math.min(900,i*250),ctrls[i].signal);
+      const data=parseJson(await fetchText(proxyUrl(row.template,target),timeout,{signal:ctrls[i].signal}));
+      return{data,route:row.label,template:row.template,id:row.id,ms:Math.round(performance.now()-started)}
+    }));
+    saveProxy({template:winner.template,id:winner.id,uses:Number(saved?.uses||0)+1,lastMs:winner.ms,lastRoute:winner.route},source);
+    return winner
+  }catch{throw new Error('Nenhum proxy CORS respondeu')}
+  finally{try{outer?.removeEventListener('abort',relay)}catch{}relay()}
 }
 function requestFor(params={},source=cfg){
-  const target=apiUrl(params,source),key=target,action=String(params?.action||''),directTimeout=action==='get_vod_streams'?9000:4200;
+  const target=apiUrl(params,source),key=target,action=String(params?.action||''),categoryId=String(params?.category_id||''),directTimeout=action==='get_vod_streams'?9000:4200,proxyTimeout=action==='get_vod_streams'?18000:14000;
   if(S.state.requests.has(key))return S.state.requests.get(key);
   const job=(async()=>{
-    const candidates=[target,httpsTwin(target)].filter(Boolean);
-    let last;
-    if(candidates.length){
-      try{return await firstJsonResponse(candidates,directTimeout)}catch(e){last=e}
+    const started=performance.now(),directCtrl=new AbortController(),proxyCtrl=new AbortController(),candidates=[target,httpsTwin(target)].filter(Boolean),useProxy=!!source.corsProxy||source.autoCorsProxy!==false;
+    const tasks=[];
+    if(candidates.length)tasks.push(firstJsonResponse(candidates,directTimeout,{signal:directCtrl.signal}).then(data=>({data,route:'direct'})));
+    if(useProxy)tasks.push((async()=>{if(location.protocol!=='file:')await transportDelay(700,proxyCtrl.signal);return await chooseProxy(target,source,{timeout:proxyTimeout,signal:proxyCtrl.signal})})());
+    try{
+      const winner=await Promise.any(tasks);
+      if(!directCtrl.signal.aborted)try{directCtrl.abort('transport-won')}catch{}
+      if(!proxyCtrl.signal.aborted)try{proxyCtrl.abort('transport-won')}catch{}
+      const detail={route:winner.route||'unknown',action,categoryId,ms:Math.round(performance.now()-started)};
+      S.state.lastTransport=detail;window.dispatchEvent(new CustomEvent('srh25:transport',{detail}));
+      return winner.data
+    }catch(e){
+      if(!directCtrl.signal.aborted)try{directCtrl.abort('transport-failed')}catch{}
+      if(!proxyCtrl.signal.aborted)try{proxyCtrl.abort('transport-failed')}catch{}
+      throw e?.errors?.at?.(-1)||e||new Error('Falha de conexão')
     }
-    if(source.corsProxy){
-      try{return parseJson(await fetchText(proxyUrl(source.corsProxy,target),9000))}catch(e){last=e}
-    }
-    if(source.autoCorsProxy!==false){
-      const saved=readProxy(source);
-      if(saved?.template){
-        try{
-          saved.uses=Number(saved.uses||0)+1;saveProxy(saved,source);
-          return parseJson(await fetchText(proxyUrl(saved.template,target),9000));
-        }catch(e){last=e;clearProxy(source)}
-      }
-      try{
-        const p=await chooseProxy(target,source);
-        return parseJson(await fetchText(proxyUrl(p,target),10000));
-      }catch(e){last=e}
-    }
-    throw last||new Error('Falha de conexão')
   })();
   S.state.requests.set(key,job);
   job.then(()=>S.state.requests.delete(key),()=>S.state.requests.delete(key));
@@ -152,19 +156,18 @@ function mergeContinueHidden(a,b){
   }
   return normalizeContinueHidden(out)
 }
-S.readContinueHidden=()=>mergeContinueHidden(continueHiddenMemory,continueHiddenLocalRead());
+S.readContinueHidden=()=>normalizeContinueHidden(continueHiddenMemory);
 S.writeContinueHidden=map=>{
   const value=normalizeContinueHidden(map);
   continueHiddenMemory=value;
-  continueHiddenLocalWrite(value);
   void continueHiddenDbWrite(value);
   return true
 };
 S.hydrateContinueHidden=async()=>{
   const local=continueHiddenLocalRead(),db=await continueHiddenDbRead();
   continueHiddenMemory=mergeContinueHidden(local,db);
-  continueHiddenLocalWrite(continueHiddenMemory);
   void continueHiddenDbWrite(continueHiddenMemory);
+  try{localStorage.removeItem(continueHiddenKey)}catch{}
   return continueHiddenMemory
 };
 S.continueHiddenReason=item=>S.readContinueHidden()[S.id(item)]?.reason||'';
@@ -205,8 +208,10 @@ S.reconcileContinueHidden=()=>{
   if(changed)S.writeContinueHidden(map);
   return changed
 };
-S.readFavorites=()=>{try{return new Set(JSON.parse(localStorage.getItem(favKey)||'[]').map(String))}catch{return new Set()}};
-S.writeFavorites=set=>{try{localStorage.setItem(favKey,JSON.stringify([...set]));return true}catch{return false}};
+let favoritesMemory=new Set();function favoritesLegacyRead(){try{return JSON.parse(localStorage.getItem(favKey)||'[]').map(String)}catch{return[]}}
+S.readFavorites=()=>new Set(favoritesMemory);
+S.writeFavorites=set=>{favoritesMemory=new Set([...set].map(String));void S.storage?.set(favKey,[...favoritesMemory]).catch(()=>{});return true};
+S.hydrateFavorites=async()=>{const legacy=favoritesLegacyRead();let db=null;try{db=await S.storage?.get(favKey)}catch{}const rows=Array.isArray(db)?db:legacy;favoritesMemory=new Set(rows.map(String));if(!db&&legacy.length)try{await S.storage?.set(favKey,legacy);localStorage.removeItem(favKey)}catch{}return new Set(favoritesMemory)};
 
 let historyMemory=[];
 const HISTORY_DB='srh25-history-v1',HISTORY_STORE='state';
@@ -288,7 +293,6 @@ S.reconcileHistoryWithCatalog=items=>{
 
   S.state.history=historyNormalize(repaired);
   historyMemory=S.state.history.slice();
-  historyLocalWrite(S.state.history);
   void historyDbWrite(S.state.history);
   return true
 };
@@ -331,19 +335,18 @@ function historyLocalRead(){
 function historyLocalWrite(rows){
   try{localStorage.setItem(histKey,JSON.stringify(rows));return true}catch{return false}
 }
-S.readHistory=()=>historyMerge(historyMemory,historyLocalRead());
+S.readHistory=()=>historyMemory.slice();
 S.writeHistory=list=>{
   const rows=historyNormalize(list);
   historyMemory=rows;
-  historyLocalWrite(rows);
   void historyDbWrite(rows);
   return true
 };
 S.hydrateHistory=async()=>{
   const local=historyLocalRead(),db=await historyDbRead();
   historyMemory=historyMerge(local,db);
-  historyLocalWrite(historyMemory);
   void historyDbWrite(historyMemory);
+  try{localStorage.removeItem(histKey)}catch{}
   return historyMemory.slice()
 };
 S.toggleFavorite=item=>{
@@ -386,7 +389,7 @@ S.lockZoom=()=>{
   window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&['+','-','=','0'].includes(e.key))e.preventDefault()});
 };
 S.account=async()=>{try{const a=await S.request({}),raw=a?.user_info?.exp_date,n=Number(raw);if(n>0){const d=new Date(n*1000),days=Math.ceil((d-Date.now())/86400000);$('#expiryDate').textContent=d.toLocaleDateString('pt-BR');$('#expiryDays').textContent=days+' dias';$('#appMeta').textContent=(a?.user_info?.status||'Active')+' · '+days+' dias restantes'}else $('#appMeta').textContent=a?.user_info?.status||'Active'}catch{$('#appMeta').textContent='Conta conectada'}};
-S.boot=async()=>{await S.hydrateRuntime?.();document.body.dataset.theme=cfg.theme||'graphene';$('#appTitle').textContent=cfg.appName||'Meu App';S.lockZoom();S.state.favorites=S.readFavorites();S.state.history=await S.hydrateHistory();await S.hydrateContinueHidden?.();if(S.hydrateMiniUiState)await S.hydrateMiniUiState();S.reconcileContinueHidden?.();S.bindShell?.();await S.loadCatalog?.();window.dispatchEvent(new Event('srh25:ready'));setTimeout(()=>S.account(),0)};
+S.boot=async()=>{await S.hydrateRuntime?.();await S.hydrateProxy?.();document.body.dataset.theme=cfg.theme||'graphene';$('#appTitle').textContent=cfg.appName||'Meu App';S.lockZoom();S.state.favorites=await S.hydrateFavorites?.()||S.readFavorites();S.state.history=await S.hydrateHistory();await S.hydrateContinueHidden?.();if(S.hydrateMiniUiState)await S.hydrateMiniUiState();S.reconcileContinueHidden?.();S.bindShell?.();await S.loadCatalog?.();window.dispatchEvent(new Event('srh25:ready'));setTimeout(()=>S.account(),0)};
 })();
 (()=>{'use strict';const S=window.SRH25,$=S.$;
 const BATCH=30,CACHE_MAX_AGE=6*60*60*1000;let shown=0,observer=null,imgObserver=null,activeLibrary=null,updateCandidate=null,updateCategories=[],updateSelected=new Set();
@@ -652,27 +655,23 @@ function dismissMiniResume(){
   const record=readMiniResume();
   if(!record)return;
   miniDismissedId=String(record.id||'');
-  miniWrite(MINI_DISMISS_KEY,miniDismissedId);
   void miniUiDbWrite(MINI_DISMISS_KEY,miniDismissedId);
   hideMiniResume()
 }
 S.hydrateMiniUiState=async()=>{
-  miniPositionMemory=null;
-  miniRemove(MINI_POS_KEY);
-  miniRemove(MINI_POS_LEGACY_KEY);
-  await miniUiDbDelete(MINI_POS_KEY);
-  await miniUiDbDelete(MINI_POS_LEGACY_KEY);
-  const dbDismiss=await miniUiDbRead(MINI_DISMISS_KEY);
-  miniDismissedId=String(dbDismiss||miniRead(MINI_DISMISS_KEY,'')||'');
-  return true
+  miniPositionMemory=null;miniRemove(MINI_POS_KEY);miniRemove(MINI_POS_LEGACY_KEY);await miniUiDbDelete(MINI_POS_KEY);await miniUiDbDelete(MINI_POS_LEGACY_KEY);
+  const [dbDismiss,dbResume]=await Promise.all([miniUiDbRead(MINI_DISMISS_KEY),miniUiDbRead(MINI_KEY)]);
+  const legacyDismiss=miniRead(MINI_DISMISS_KEY,''),legacyResume=miniRead(MINI_KEY,null);
+  miniDismissedId=String(dbDismiss||legacyDismiss||'');miniMemoryRecord=miniFresh(dbResume)?dbResume:(miniFresh(legacyResume)?legacyResume:null);
+  if(!dbDismiss&&legacyDismiss)void miniUiDbWrite(MINI_DISMISS_KEY,legacyDismiss);if(!dbResume&&miniMemoryRecord)void miniUiDbWrite(MINI_KEY,miniMemoryRecord);
+  miniRemove(MINI_DISMISS_KEY);miniRemove(MINI_KEY);return true
 };
 function miniRead(key,fallback=null){try{const raw=localStorage.getItem(key);return raw==null?fallback:JSON.parse(raw)}catch{return fallback}}
 function miniWrite(key,value){try{localStorage.setItem(key,JSON.stringify(value));return true}catch{return false}}
 function miniRemove(key){try{localStorage.removeItem(key)}catch{}}
 function miniFresh(record){const updated=Number(record?.updatedAt||0);return !!record?.item&&updated>0&&Date.now()-updated<MINI_TTL}
 function readMiniResume(){
-  const stored=miniRead(MINI_KEY,null);
-  const record=miniFresh(stored)?stored:(miniFresh(miniMemoryRecord)?miniMemoryRecord:null);
+  const record=miniFresh(miniMemoryRecord)?miniMemoryRecord:null;
   if(record){
     miniMemoryRecord=record;
     return record
@@ -688,7 +687,7 @@ function clearMiniResume(item){
   const record=readMiniResume();
   if(item&&record?.id&&String(record.id)!==String(S.id(item)))return;
   miniMemoryRecord=null;
-  miniRemove(MINI_KEY);
+  miniRemove(MINI_KEY);void miniUiDbDelete(MINI_KEY);
   clearMiniDismissal();
   clearTimeout(miniCompactTimer);clearTimeout(miniExpiryTimer);
   if(miniDock)hideMiniResume()
@@ -699,7 +698,7 @@ function saveMiniResume(item,position,duration){
   if(Number.isFinite(dur)&&dur>0&&dur-pos<=30){clearMiniResume(item);return null}
   const record={id:S.id(item),title:S.title(item),image:S.image(item),position:pos,duration:Number.isFinite(dur)&&dur>0?dur:0,updatedAt:Date.now(),item:miniItemSnapshot(item)};
   miniMemoryRecord=record;
-  miniWrite(MINI_KEY,record);
+  void miniUiDbWrite(MINI_KEY,record);
   clearMiniDismissal();
   return record
 }

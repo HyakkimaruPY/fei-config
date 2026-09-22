@@ -648,7 +648,18 @@ function bridge(){
   }
 }
 
-function installGlobalErrors(){addEventListener('error',e=>{const meta={kind:'javascript',layer:'window',origin:'page',message:e.message||'window.error',details:{source:safeUrl(e.filename||''),line:e.lineno,col:e.colno}};noteFailure(meta);log('error','window.error',meta)},true);addEventListener('unhandledrejection',e=>{const meta={kind:'promise',layer:'window',origin:'page',message:e.reason?.message||String(e.reason)};noteFailure(meta);log('error','promise.rejection',meta)})}
+function installGlobalErrors(){addEventListener('error',e=>{
+  const target=e.target&&e.target!==window?e.target:null;
+  if(!e.message&&target){
+    const tag=String(target.tagName||'resource').toLowerCase(),src=target.currentSrc||target.src||target.href||'';
+    const meta={kind:'resource',layer:'resource',origin:'page',message:tag+' falhou ao carregar',details:{tag,source:safeUrl(src)}};
+    const critical=['script','link','video','source'].includes(tag);
+    if(critical)noteFailure(meta);else log('warn','resource.error',meta);
+    return
+  }
+  const err=e.error,meta={kind:'javascript',layer:'window',origin:'page',message:e.message||err?.message||'Erro JavaScript sem mensagem',details:{name:err?.name||'',source:safeUrl(e.filename||''),line:e.lineno||0,col:e.colno||0,stack:safeText(err?.stack||'').slice(0,2400)}};
+  noteFailure(meta);log('error','window.error',meta)
+},true);addEventListener('unhandledrejection',e=>{const reason=e.reason,meta={kind:'promise',layer:'window',origin:'page',message:reason?.message||String(reason),details:{name:reason?.name||'',stack:safeText(reason?.stack||'').slice(0,2400)}};noteFailure(meta);log('error','promise.rejection',meta)})}
 
 function init(){
   boot.begin(window.__SRH_DEBUG_BUILD__||{});
