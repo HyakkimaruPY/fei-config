@@ -20,17 +20,20 @@
 <script>
 (()=>{'use strict';
 const KEY='tj_xtream_runtime_srhell_classic_cast';
+const ENDPOINT='/__srhell_config';
 const clean=s=>String(s||'').trim();
+const valid=x=>!!(x&&clean(x.server)&&clean(x.username)&&clean(x.password)&&Array.isArray(x.targets)&&x.targets.length);
 const enc=s=>btoa(unescape(encodeURIComponent(s))).replace(/\+/g,'-').replace(/\//g,'_').replace(/=+$/,'');
 const dec=s=>{s=String(s||'').replace(/-/g,'+').replace(/_/g,'/');while(s.length%4)s+='=';return decodeURIComponent(escape(atob(s)))};
 const read=()=>{try{return JSON.parse(localStorage.getItem(KEY)||'null')}catch(e){return null}};
 const write=x=>{try{localStorage.setItem(KEY,JSON.stringify(x));return true}catch(e){return false}};
-const getCfg=()=>{const m=location.hash.match(/(?:^#|&)cfg=([^&]+)/);if(!m)return null;try{return JSON.parse(dec(m[1]))}catch(e){return null}};
-const incoming=getCfg();
-if(incoming&&clean(incoming.server)&&clean(incoming.username)&&clean(incoming.password)&&Array.isArray(incoming.targets))write(incoming);
+const same=(a,b)=>{try{return JSON.stringify(a)===JSON.stringify(b)}catch(e){return false}};
+const getHashCfg=()=>{const m=location.hash.match(/(?:^#|&)cfg=([^&]+)/);if(!m)return null;try{return JSON.parse(dec(m[1]))}catch(e){return null}};
+const incoming=getHashCfg();
+if(valid(incoming))write(incoming);
 
 function exposeSetup(){
-  if(read())return;
+  if(valid(read()))return;
   const p=document.getElementById('settingsPanel');
   const b=document.getElementById('updateAccordionBody');
   const i=document.getElementById('updateAccordionIcon');
@@ -42,17 +45,37 @@ function exposeSetup(){
 }
 function syncLink(){
   const x=read();
-  if(!x||!clean(x.server)||!clean(x.username)||!clean(x.password)||!Array.isArray(x.targets)||!x.targets.length)return;
+  if(!valid(x))return;
   const h='#cfg='+enc(JSON.stringify(x));
   try{history.replaceState(null,'',location.pathname+location.search+h)}catch(e){location.hash=h}
+}
+async function pushRemote(){
+  const x=read();
+  if(!valid(x))return;
+  try{
+    await fetch(ENDPOINT,{method:'POST',cache:'no-store',headers:{'Content-Type':'application/json'},body:JSON.stringify(x)});
+  }catch(e){}
+}
+async function pullRemote(){
+  try{
+    const r=await fetch(ENDPOINT+'?t='+Date.now(),{cache:'no-store'});
+    if(!r.ok)return;
+    const j=await r.json();
+    const x=j&&j.config;
+    if(!valid(x))return;
+    const cur=read();
+    if(same(cur,x))return;
+    if(write(x)){syncLink();location.reload()}
+  }catch(e){}
 }
 exposeSetup();
 document.addEventListener('click',e=>{
   const t=e.target&&e.target.closest?e.target.closest('#updateApplyButton'):null;
   if(!t)return;
-  setTimeout(syncLink,160);
+  setTimeout(()=>{syncLink();pushRemote()},150);
 },true);
-window.addEventListener('load',()=>setTimeout(()=>{exposeSetup();syncLink()},550));
+window.addEventListener('load',()=>setTimeout(()=>{exposeSetup();syncLink();pullRemote()},500));
+setInterval(pullRemote,2500);
 })();
 </script>
 <script>
