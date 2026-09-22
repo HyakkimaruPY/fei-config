@@ -25,3 +25,14 @@
 .srh-debug-incident.observed em{color:#d8c58d;opacity:1}
 .srh-debug-incident.empty{display:block;opacity:.58}
 @media(max-width:600px){.srh-debug-incident{grid-template-columns:1fr auto}.srh-debug-incident span{grid-column:1/-1;grid-row:2;white-space:normal}}
+
+.srh-debug-incidents{max-height:min(42vh,420px);overflow:auto;overscroll-behavior:contain;touch-action:pan-y;scrollbar-gutter:stable;padding-right:10px}
+.srh-debug-incidents::-webkit-scrollbar{width:8px}
+.srh-debug-incidents::-webkit-scrollbar-thumb{border-radius:999px;background:rgba(255,255,255,.16)}
+.srh-debug-actions{flex:0 0 auto}
+.srh-debug-points{flex:0 0 auto}
+.srh-debug-output{min-height:90px;max-height:26vh}
+@media(max-width:600px){
+  .srh-debug-incidents{max-height:40vh}
+  .srh-debug-output{max-height:18vh}
+}

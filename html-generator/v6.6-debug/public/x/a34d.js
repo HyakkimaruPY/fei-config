@@ -58,7 +58,7 @@ async function chooseProxy(target,source=cfg){
   return job
 }
 function requestFor(params={},source=cfg){
-  const target=apiUrl(params,source),key=target,action=String(params?.action||''),directTimeout=action==='get_vod_streams'?3600:3200;
+  const target=apiUrl(params,source),key=target,action=String(params?.action||''),directTimeout=action==='get_vod_streams'?9000:4200;
   if(S.state.requests.has(key))return S.state.requests.get(key);
   const job=(async()=>{
     const candidates=[target,httpsTwin(target)].filter(Boolean);
@@ -67,19 +67,19 @@ function requestFor(params={},source=cfg){
       try{return await Promise.any(candidates.map(async u=>parseJson(await fetchText(u,directTimeout))))}catch(e){last=e}
     }
     if(source.corsProxy){
-      try{return parseJson(await fetchText(proxyUrl(source.corsProxy,target),4200))}catch(e){last=e}
+      try{return parseJson(await fetchText(proxyUrl(source.corsProxy,target),9000))}catch(e){last=e}
     }
     if(source.autoCorsProxy!==false){
       const saved=readProxy(source);
       if(saved?.template){
         try{
           saved.uses=Number(saved.uses||0)+1;saveProxy(saved,source);
-          return parseJson(await fetchText(proxyUrl(saved.template,target),4200));
+          return parseJson(await fetchText(proxyUrl(saved.template,target),9000));
         }catch(e){last=e;clearProxy(source)}
       }
       try{
         const p=await chooseProxy(target,source);
-        return parseJson(await fetchText(proxyUrl(p,target),4800));
+        return parseJson(await fetchText(proxyUrl(p,target),10000));
       }catch(e){last=e}
     }
     throw last||new Error('Falha de conexão')
@@ -387,10 +387,7 @@ function interleaveGroups(groups){const rows=(groups||[]).map(x=>Array.isArray(x
 const CATEGORY_MERGE_VERSION='balanced-v1';
 const cacheTargetKey=(S.cfg.targets||[]).filter(t=>t.type==='vod').map(t=>String(t.id??t.category_id??t.name??'')).join(',');
 const cacheKey='catalog:v2mix:'+(S.cfg.appId||S.cfg.appName||'app')+':'+cacheTargetKey;
-function openCache(){return new Promise((resolve,reject)=>{try{const q=indexedDB.open('srh-shorts-cache',1);q.onupgradeneeded=()=>{if(!q.result.objectStoreNames.contains('catalogs'))q.result.createObjectStore('catalogs')};q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error)}catch(e){reject(e)}})}
-async function cacheRead(){try{const db=await openCache();return await new Promise(resolve=>{const tx=db.transaction('catalogs','readonly'),r=tx.objectStore('catalogs').get(cacheKey);r.onsuccess=()=>resolve(r.result||null);r.onerror=()=>resolve(null)})}catch{return null}}
-async function cacheWrite(items){if(!items?.length)return;try{const db=await openCache();await new Promise(resolve=>{const tx=db.transaction('catalogs','readwrite');tx.objectStore('catalogs').put({time:Date.now(),items},cacheKey);tx.oncomplete=()=>resolve();tx.onerror=()=>resolve()})}catch{}}
-S.clearCatalogCache=async()=>{try{const db=await openCache();await new Promise(resolve=>{const tx=db.transaction('catalogs','readwrite');tx.objectStore('catalogs').delete(cacheKey);tx.oncomplete=()=>resolve();tx.onerror=()=>resolve()})}catch{}};
+const CATALOG_DB_VERSION=2,CATALOG_CHUNK=100;let catalogDbPromise=null,catalogWriteTail=Promise.resolve(),progressiveCacheTimer=0,progressiveCachePending=null;function openCache(){if(catalogDbPromise)return catalogDbPromise;catalogDbPromise=new Promise((resolve,reject)=>{let q;try{q=indexedDB.open('srh-shorts-cache',CATALOG_DB_VERSION)}catch(e){catalogDbPromise=null;reject(e);return}q.onupgradeneeded=()=>{const db=q.result;if(!db.objectStoreNames.contains('catalogs'))db.createObjectStore('catalogs');if(!db.objectStoreNames.contains('catalogMeta'))db.createObjectStore('catalogMeta');if(!db.objectStoreNames.contains('catalogChunks'))db.createObjectStore('catalogChunks')};q.onsuccess=()=>{const db=q.result;db.onversionchange=()=>{try{db.close()}catch{}catalogDbPromise=null};resolve(db)};q.onerror=()=>{catalogDbPromise=null;reject(q.error||new Error('IndexedDB falhou'))};q.onblocked=()=>{catalogDbPromise=null;reject(new Error('IndexedDB bloqueado por outra aba'))}});return catalogDbPromise}function cacheLock(task){const run=catalogWriteTail.then(task,task);catalogWriteTail=run.catch(()=>{});return run}function reqValue(r){return new Promise(resolve=>{r.onsuccess=()=>resolve(r.result??null);r.onerror=()=>resolve(null)})}async function cacheRead(){try{const db=await openCache();if(db.objectStoreNames.contains('catalogMeta')&&db.objectStoreNames.contains('catalogChunks')){const tx=db.transaction(['catalogMeta','catalogChunks'],'readonly'),meta=await reqValue(tx.objectStore('catalogMeta').get(cacheKey));if(meta?.chunks>0){const store=tx.objectStore('catalogChunks'),parts=await Promise.all(Array.from({length:meta.chunks},(_,i)=>reqValue(store.get(cacheKey+':'+i))));const items=parts.flatMap(x=>Array.isArray(x?.items)?x.items:[]);if(items.length)return{time:Number(meta.time||meta.updatedAt||Date.now()),items,complete:meta.complete!==false,chunked:true}}}const tx=db.transaction('catalogs','readonly'),legacy=await reqValue(tx.objectStore('catalogs').get(cacheKey));return legacy||null}catch{return null}}async function cacheWriteSnapshot(items,complete=true){if(!items?.length)return false;const snapshot=items.slice(),chunks=[];for(let i=0;i<snapshot.length;i+=CATALOG_CHUNK)chunks.push(snapshot.slice(i,i+CATALOG_CHUNK));return cacheLock(async()=>{const db=await openCache();return await new Promise((resolve,reject)=>{let tx;try{tx=db.transaction(['catalogMeta','catalogChunks'],'readwrite')}catch(e){reject(e);return}const metaStore=tx.objectStore('catalogMeta'),chunkStore=tx.objectStore('catalogChunks'),old=metaStore.get(cacheKey);old.onsuccess=()=>{const oldCount=Number(old.result?.chunks||0);for(let i=0;i<chunks.length;i++)chunkStore.put({items:chunks[i],index:i,updatedAt:Date.now()},cacheKey+':'+i);for(let i=chunks.length;i<oldCount;i++)chunkStore.delete(cacheKey+':'+i);metaStore.put({time:Date.now(),updatedAt:Date.now(),count:snapshot.length,chunks:chunks.length,chunkSize:CATALOG_CHUNK,complete:!!complete},cacheKey)};old.onerror=()=>{for(let i=0;i<chunks.length;i++)chunkStore.put({items:chunks[i],index:i,updatedAt:Date.now()},cacheKey+':'+i);metaStore.put({time:Date.now(),updatedAt:Date.now(),count:snapshot.length,chunks:chunks.length,chunkSize:CATALOG_CHUNK,complete:!!complete},cacheKey)};tx.oncomplete=()=>resolve(true);tx.onerror=()=>reject(tx.error||new Error('Falha ao gravar catálogo'));tx.onabort=()=>reject(tx.error||new Error('Gravação do catálogo abortada'))})})}async function cacheWrite(items){try{return await cacheWriteSnapshot(items,true)}catch{return false}}function cacheWriteProgress(items){if(!items?.length)return;progressiveCachePending=items.slice();if(progressiveCacheTimer)return;progressiveCacheTimer=setTimeout(()=>{progressiveCacheTimer=0;const next=progressiveCachePending;progressiveCachePending=null;if(next?.length)void cacheWriteSnapshot(next,false)},550)}S.clearCatalogCache=async()=>cacheLock(async()=>{try{const db=await openCache();await new Promise(resolve=>{const names=['catalogs','catalogMeta','catalogChunks'].filter(n=>db.objectStoreNames.contains(n)),tx=db.transaction(names,'readwrite');if(names.includes('catalogs'))tx.objectStore('catalogs').delete(cacheKey);if(names.includes('catalogMeta')){const meta=tx.objectStore('catalogMeta').get(cacheKey);meta.onsuccess=()=>{const oldCount=Number(meta.result?.chunks||0);if(names.includes('catalogChunks'))for(let i=0;i<oldCount;i++)tx.objectStore('catalogChunks').delete(cacheKey+':'+i);tx.objectStore('catalogMeta').delete(cacheKey)}}tx.oncomplete=()=>resolve();tx.onerror=()=>resolve();tx.onabort=()=>resolve()})}catch{}});
 async function resolveTargets(){
   const targets=(S.cfg.targets||[]).filter(t=>t.type==='vod');
   if(targets.every(t=>String(t.id??t.category_id??'').trim()))return targets.map(t=>({...t,_id:String(t.id??t.category_id)}));
@@ -399,23 +396,35 @@ async function resolveTargets(){
   const normalized=new Map(rows.map(c=>[normName(c.category_name??c.name),String(c.category_id??c.id??'')]));
   return targets.map(t=>({...t,_id:String(t.id??t.category_id??exact.get(cleanName(t.name))??normalized.get(normName(t.name))??'')}));
 }
+const CATEGORY_BATCH=100;
+const catalogYield=()=>new Promise(resolve=>{'requestIdleCallback'in window?requestIdleCallback(()=>resolve(),{timeout:90}):setTimeout(resolve,0)});
 async function fetchItems(onGroup){
-  const targets=(await resolveTargets()).filter(t=>t._id),groups=new Array(targets.length);let failed=0,completed=0,nextIndex=0;
-  const firstPaintAt=Math.min(2,targets.length);
+  const targets=(await resolveTargets()).filter(t=>t._id),groups=new Array(targets.length).fill(null).map(()=>[]);let failed=0,completed=0,nextIndex=0,loadedItems=0;
   const loadOne=async index=>{
-    const t=targets[index];let items=null;
+    const t=targets[index];let items=null,lastError=null;
     for(let attempt=0;attempt<2;attempt++){
       try{const r=await S.request({action:'get_vod_streams',category_id:t._id});items=Array.isArray(r)?r:[];break}
-      catch(e){if(attempt===0)await new Promise(resolve=>setTimeout(resolve,220))}
+      catch(e){lastError=e;if(attempt===0)await new Promise(resolve=>setTimeout(resolve,450))}
     }
-    if(items===null){failed++;groups[index]=[]}else groups[index]=items;
+    if(items===null){
+      failed++;completed++;
+      onGroup?.([],t,{index:completed,total:targets.length,categoryIndex:index,merged:interleaveGroups(groups),failed,categoryLoaded:0,categoryTotal:0,error:lastError?.message||String(lastError||'Falha')});
+      return
+    }
+    for(let offset=0;offset<items.length;offset+=CATEGORY_BATCH){
+      const batch=items.slice(offset,offset+CATEGORY_BATCH);
+      groups[index].push(...batch);loadedItems+=batch.length;
+      const merged=interleaveGroups(groups);
+      S.state.categoryMerge={version:CATEGORY_MERGE_VERSION,batch:CATEGORY_BATCH,total:targets.length,completed,failed,loadedItems,counts:groups.map(x=>x.length),merged:merged.length};
+      onGroup?.(batch,t,{index:completed+1,total:targets.length,categoryIndex:index,merged:merged.slice(),failed,categoryLoaded:Math.min(offset+CATEGORY_BATCH,items.length),categoryTotal:items.length,loadedItems});
+      await catalogYield()
+    }
     completed++;
     const merged=interleaveGroups(groups);
-    S.state.categoryMerge={version:CATEGORY_MERGE_VERSION,total:targets.length,completed,failed,counts:groups.map(x=>Array.isArray(x)?x.length:0),merged:merged.length};
-    if(completed>=firstPaintAt||completed===targets.length)onGroup?.(items||[],t,{index:completed,total:targets.length,categoryIndex:index,merged:merged.slice(),failed})
+    S.state.categoryMerge={version:CATEGORY_MERGE_VERSION,batch:CATEGORY_BATCH,total:targets.length,completed,failed,loadedItems,counts:groups.map(x=>x.length),merged:merged.length}
   };
   const worker=async()=>{for(;;){const index=nextIndex++;if(index>=targets.length)return;await loadOne(index)}};
-  await Promise.all(Array.from({length:Math.min(3,targets.length)},()=>worker()));
+  await Promise.all(Array.from({length:Math.min(2,targets.length)},()=>worker()));
   const merged=interleaveGroups(groups);
   if(!merged.length&&failed)throw new Error('As categorias selecionadas não responderam.');
   if(failed)S.toast(failed+' categoria(s) não responderam; exibindo as demais.');
@@ -527,10 +536,10 @@ S.loadCatalog=async()=>{
   const refresh=(async()=>{
     try{
       const items=await fetchItems((group,target,progress)=>{
-        partial=progress?.merged?.length?progress.merged.slice():mergeUnique(partial,group);
+        partial=progress?.merged?.length?progress.merged.slice():mergeUnique(partial,group);if(partial.length)cacheWriteProgress(partial);
         if(partial.length){
           renderItems(partial);
-          $('#feedStatus').textContent='Mesclando categorias · '+progress.index+' de '+progress.total;
+          $('#feedStatus').textContent='Carregando catálogo · '+partial.length+' itens'+(progress.categoryTotal?(' · '+progress.categoryLoaded+' / '+progress.categoryTotal):'');
           if(!painted){painted=true;firstResolve?.();firstResolve=null}
         }
       });

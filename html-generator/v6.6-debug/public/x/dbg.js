@@ -122,8 +122,26 @@ function noteSlow(meta={}){
   incidentHistory.push(row);if(incidentHistory.length>80)incidentHistory=incidentHistory.slice(-80);persistIncidents();syncIncidentState(row);bus.dispatchEvent(new CustomEvent('incident',{detail:clone(row)}));return row
 }
 function incidentSummary(){
-  const rows=incidentHistory.slice(-40).reverse();
+  const rows=incidentHistory.slice(-80).reverse();
   return{sessionId:SESSION_ID,active:rows.filter(x=>x.status==='active'),recovered:rows.filter(x=>x.status==='recovered'),slow:rows.filter(x=>x.type==='slow'),recent:rows}
+}
+function issueExport(){
+  const rows=incidentHistory.slice(-80).filter(x=>x.type==='slow'||x.status==='active'||x.status==='recovered').map(x=>({
+    time:new Date(Number(x.lastAt||x.firstAt||Date.now())).toISOString(),
+    kind:x.kind||'unknown',
+    status:x.status||'unknown',
+    type:x.type||'failure',
+    message:x.message||'',
+    ms:Math.round(Number(x.ms||0)),
+    recoveryMs:Math.round(Number(x.recoveryMs||0)),
+    count:Number(x.count||1),
+    action:x.action||'',
+    categoryId:x.categoryId||'',
+    origin:x.origin||'',
+    layer:x.layer||'',
+    details:sanitize(x.details||{})
+  }));
+  return{sessionId:SESSION_ID,build:clone(window.__SRH_DEBUG_BUILD__||{}),count:rows.length,issues:rows}
 }
 function sanitize(v,depth=0){if(depth>5)return'[max-depth]';if(v==null||typeof v==='number'||typeof v==='boolean')return v;if(typeof v==='string')return safeText(v).slice(0,1800);if(Array.isArray(v))return v.slice(0,100).map(x=>sanitize(x,depth+1));if(typeof v==='object'){const out={};for(const [k,x] of Object.entries(v)){if(/pass|token|secret|cookie|authorization|credential/i.test(k))out[k]='[redacted]';else out[k]=sanitize(x,depth+1)}return out}return safeText(v)}
 function log(level,event,data={}){const row={time:now(),level,event:safeText(event),data:sanitize(data)};logs.push(row);if(logs.length>600)logs.splice(0,logs.length-600);bus.dispatchEvent(new CustomEvent('log',{detail:row}));return row}
@@ -503,18 +521,19 @@ function diagnostic(){return{build:clone(window.__SRH_DEBUG_BUILD__||{}),manifes
 function panel(){
   if(document.getElementById('srhDebugPanel'))return;
   const root=document.createElement('div');root.id='srhDebugPanel';root.className='srh-debug-panel is-hidden';
-  root.innerHTML='<div class="srh-debug-head"><strong>Diagnóstico</strong><button data-x="close" aria-label="Fechar">×</button></div><div class="srh-debug-status" data-x="status"></div><div class="srh-debug-incidents" data-x="incidents"></div><div class="srh-debug-points" data-x="points"></div><div class="srh-debug-actions"><button data-x="incident">Copiar último incidente</button><button data-x="smoke">Rodar smoke test</button><button data-x="copy">Copiar diagnóstico</button><button data-x="export">Exportar configuração</button><button data-x="import">Importar configuração</button><button data-x="safe">Modo seguro</button><button data-x="migrate">Migrar dados</button><button data-x="cache">Limpar cache debug</button></div><pre class="srh-debug-output" data-x="out"></pre><input type="file" data-x="file" accept="application/json" hidden>';
+  root.innerHTML='<div class="srh-debug-head"><strong>Diagnóstico</strong><button data-x="close" aria-label="Fechar">×</button></div><div class="srh-debug-status" data-x="status"></div><div class="srh-debug-incidents" data-x="incidents"></div><div class="srh-debug-points" data-x="points"></div><div class="srh-debug-actions"><button data-x="issues">Copiar erros/lentidão</button><button data-x="incident">Copiar último incidente</button><button data-x="smoke">Rodar smoke test</button><button data-x="copy">Copiar diagnóstico</button><button data-x="export">Exportar configuração</button><button data-x="import">Importar configuração</button><button data-x="safe">Modo seguro</button><button data-x="migrate">Migrar dados</button><button data-x="cache">Limpar cache debug</button></div><pre class="srh-debug-output" data-x="out"></pre><input type="file" data-x="file" accept="application/json" hidden>';
   document.body.appendChild(root);
   const q=s=>root.querySelector(s),out=q('[data-x="out"]'),status=q('[data-x="status"]'),points=q('[data-x="points"]'),incidents=q('[data-x="incidents"]');
   const render=()=>{
     const d=diagnostic(),ps=Object.values(d.points);
     status.textContent=(d.state.health?.router?'Router OK':'Router ?')+' · '+(d.state.health?.storage?'Storage OK':'Storage bloqueado')+' · '+d.state.network.active+' req ativa(s) · '+d.incidents.active.length+' incidente(s) ativo(s)';
-    const recent=d.incidents.recent.slice(0,8);incidents.innerHTML='<div class="srh-debug-incidents__title">Incidentes capturados · sessão '+d.sessionId+'</div>'+(recent.length?recent.map(x=>'<div class="srh-debug-incident '+x.status+'"><b>'+String(x.kind||'erro')+'</b><span>'+String(x.message||'').replace(/[<>&]/g,m=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[m]))+'</span><em>'+Math.round(x.ms||x.recoveryMs||0)+' ms · '+x.status+'</em></div>').join(''):'<div class="srh-debug-incident empty">Nenhum incidente registrado nesta janela.</div>');
+    const recent=d.incidents.recent;incidents.innerHTML='<div class="srh-debug-incidents__title">Incidentes capturados · sessão '+d.sessionId+'</div>'+(recent.length?recent.map(x=>'<div class="srh-debug-incident '+x.status+'"><b>'+String(x.kind||'erro')+'</b><span>'+String(x.message||'').replace(/[<>&]/g,m=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[m]))+'</span><em>'+Math.round(x.ms||x.recoveryMs||0)+' ms · '+x.status+'</em></div>').join(''):'<div class="srh-debug-incident empty">Nenhum incidente registrado nesta janela.</div>');
     points.innerHTML=ps.map((p,i)=>'<div class="'+(p.ok?'ok':'bad')+'"><span>'+(i+1)+'</span><b>'+p.name+'</b><em>'+(p.ok?'OK':'PENDENTE')+'</em></div>').join('');
     out.textContent=JSON.stringify(d,null,2)
   };
   root.render=render;
   q('[data-x="close"]').onclick=()=>root.classList.add('is-hidden');
+  q('[data-x="issues"]').onclick=async()=>{const payload=issueExport(),t=JSON.stringify(payload,null,2);try{await navigator.clipboard.writeText(t);status.textContent=payload.count+' erro(s)/lentidão copiado(s).'}catch{download('srhell-erros-lentidao.json',t)}};
   q('[data-x="incident"]').onclick=async()=>{const row=incidentSummary().recent[0];const t=JSON.stringify(row||{message:'Nenhum incidente registrado'},null,2);try{await navigator.clipboard.writeText(t);status.textContent='Último incidente copiado.'}catch{download('srhell-incidente-debug.json',t)}};
   q('[data-x="smoke"]').onclick=()=>{const r=regression.smoke();status.textContent=r.ok?'Smoke test passou.':'Falha: '+r.failed.join(', ');render()};
   q('[data-x="copy"]').onclick=async()=>{const t=JSON.stringify(diagnostic(),null,2);try{await navigator.clipboard.writeText(t);status.textContent='Diagnóstico copiado.'}catch{download('srhell-diagnostico.json',t)}};
@@ -637,7 +656,7 @@ function init(){
 const api={
   version:VERSION,bus,
   state:{get,set,patch,subscribe,transaction,snapshot:()=>clone(state)},
-  log,logs,boot,navigation,requests:requestManager,storage,cache,player,regression,preload,healthCheck,diagnostic,incidentSummary,noteFailure,noteRecovery,noteSlow,pointStatus,registerExtension,features:{safeMode,hotUpdate:true},attachButton,bridge
+  log,logs,boot,navigation,requests:requestManager,storage,cache,player,regression,preload,healthCheck,diagnostic,incidentSummary,issueExport,noteFailure,noteRecovery,noteSlow,pointStatus,registerExtension,features:{safeMode,hotUpdate:true},attachButton,bridge
 };
 window.SRHDebug=Object.freeze(api);
 init();
