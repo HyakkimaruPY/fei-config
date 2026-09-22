@@ -53,7 +53,7 @@ function transaction(label,fn){const before=clone(state);try{const value=fn(stat
 
 const logs=[];
 const INCIDENT_STORE='srh:debug:incidents:v2';
-let incidentHistory=(()=>{try{const x=JSON.parse(localStorage.getItem(INCIDENT_STORE)||'[]');return Array.isArray(x)?x.slice(-80):[]}catch{return[]}})();
+let incidentHistory=(()=>{try{const x=JSON.parse(localStorage.getItem(INCIDENT_STORE)||'[]');return(Array.isArray(x)?x:[]).slice(-80).map(row=>row&&row.status==='active'&&row.sessionId!==SESSION_ID?{...row,status:'stale'}:row)}catch{return[]}})();
 const activeIncidents=new Map();
 const slowDedupe=new Map();
 let persistIncidentTimer=0;
@@ -87,6 +87,34 @@ function requestMeta(value){
   }catch{return{kind:'network.other',origin:'unknown',path:'',action:'',categoryId:'',url:safeText(value)}}
 }
 function incidentKey(meta={}){return [meta.kind||'unknown',meta.action||'',meta.categoryId||'',meta.origin||'',meta.layer||''].join('|')}
+function abortReason(signal,error){
+  const raw=signal?.reason?.message||signal?.reason||error?.message||error||'';
+  return safeText(raw)
+}
+function isBenignTransportAbort(signal,error){
+  const reason=abortReason(signal,error).toLowerCase();
+  return !!reason&&/(transport-won|route-lost|proxy-lost|superseded)/.test(reason)
+}
+function recoverIncidentRow(row,meta={}){
+  if(!row)return null;
+  row.status='recovered';row.recoveredAt=Date.now();row.recoveryMs=row.recoveredAt-row.firstAt;row.lastSuccessMs=Number(meta.ms)||0;row.successStatus=Number(meta.status)||200;
+  if(meta.message)row.recoveryMessage=safeText(meta.message);
+  if(meta.details)row.recoveryDetails=sanitize(meta.details);
+  activeIncidents.delete(row.key);
+  const idx=incidentHistory.findIndex(x=>x.id===row.id);if(idx>=0)incidentHistory[idx]=clone(row);
+  persistIncidents();syncIncidentState(row);bus.dispatchEvent(new CustomEvent('incident',{detail:clone(row)}));return row
+}
+function recoverTransportFailures(detail={}){
+  const action=String(detail.action||''),categoryId=String(detail.categoryId||''),route=String(detail.route||'unknown');let count=0;
+  for(const row of [...activeIncidents.values()]){
+    if(row.kind!=='proxy'||row.layer!=='fetch')continue;
+    if(action&&row.action&&row.action!==action)continue;
+    if(categoryId&&row.categoryId&&row.categoryId!==categoryId)continue;
+    recoverIncidentRow(row,{status:200,ms:detail.ms||0,message:'Rota alternativa concluiu a requisição',details:{winner:route}});count++
+  }
+  if(count)log('info','transport.losers_recovered',{action,categoryId,route,count});
+  return count
+}
 function syncIncidentState(last=null){
   const all=incidentHistory;
   patch('incidents',{
@@ -112,11 +140,7 @@ function noteFailure(meta={}){
   persistIncidents();syncIncidentState(row);bus.dispatchEvent(new CustomEvent('incident',{detail:clone(row)}));return row
 }
 function noteRecovery(meta={}){
-  const key=incidentKey(meta),row=activeIncidents.get(key);if(!row)return null;
-  row.status='recovered';row.recoveredAt=Date.now();row.recoveryMs=row.recoveredAt-row.firstAt;row.lastSuccessMs=Number(meta.ms)||0;row.successStatus=Number(meta.status)||0;
-  activeIncidents.delete(key);
-  const idx=incidentHistory.findIndex(x=>x.id===row.id);if(idx>=0)incidentHistory[idx]=clone(row);
-  persistIncidents();syncIncidentState(row);bus.dispatchEvent(new CustomEvent('incident',{detail:clone(row)}));return row
+  const row=activeIncidents.get(incidentKey(meta));return recoverIncidentRow(row,meta)
 }
 function noteSlow(meta={}){
   const t=Date.now(),ms=Math.round(Number(meta.ms)||0),details=sanitize(meta.details||{}),start=Number(meta.details?.start);
@@ -137,7 +161,7 @@ function incidentSummary(){
   return{sessionId:SESSION_ID,active:rows.filter(x=>x.status==='active'),recovered:rows.filter(x=>x.status==='recovered'),slow:rows.filter(x=>x.type==='slow'),recent:rows}
 }
 function issueExport(){
-  const rows=incidentHistory.slice(-80).filter(x=>(x.type==='slow'||x.status==='active'||x.status==='recovered')&&!(x.type==='slow'&&x.kind==='network.other'&&x.layer==='resource'&&String(x.details?.initiatorType||'').toLowerCase()==='img')).map(x=>({
+  const rows=incidentHistory.slice(-80).filter(x=>(x.type==='slow'||x.status==='active'||x.status==='recovered')&&x.status!=='stale'&&!/transport-won|route-lost|proxy-lost|superseded/i.test(String(x.message||''))&&!(x.type==='slow'&&x.kind==='network.other'&&x.layer==='resource'&&String(x.details?.initiatorType||'').toLowerCase()==='img')).map(x=>({
     time:new Date(Number(x.lastAt||x.firstAt||Date.now())).toISOString(),
     kind:x.kind||'unknown',
     status:x.status||'unknown',
@@ -380,8 +404,10 @@ if(originalFetch){
         if(!probe)recordCircuit(key,false,lastError);
       }catch(e){
         lastError=e;
-        if(e?.name==='AbortError'){state.network.aborted++;const ms=Math.round(performance.now()-started),reason=safeText(signal?.reason?.message||signal?.reason||'AbortError');if(!probe&&(meta.kind.startsWith('catalog.')||meta.kind==='playlist'))noteFailure({...meta,layer:'fetch',message:'Abortado/timeout: '+reason,ms});log('warn','network.aborted',{id,traceId,...meta,attempt,ms,reason,probe});throw e}
-        const ms=Math.round(performance.now()-started);if(!probe){recordCircuit(key,false,e);noteFailure({...meta,layer:'fetch',message:e?.message||String(e),ms})};
+        const ms=Math.round(performance.now()-started),reason=abortReason(signal,e),benignAbort=signal?.aborted&&isBenignTransportAbort(signal,e);
+        if(benignAbort){state.network.aborted++;log('info','network.superseded',{id,traceId,...meta,attempt,ms,reason,probe});throw e}
+        if(e?.name==='AbortError'||signal?.aborted){state.network.aborted++;if(!probe&&(meta.kind.startsWith('catalog.')||meta.kind==='playlist'))noteFailure({...meta,layer:'fetch',message:'Abortado/timeout: '+reason,ms});log('warn','network.aborted',{id,traceId,...meta,attempt,ms,reason,probe});throw e}
+        if(!probe){recordCircuit(key,false,e);noteFailure({...meta,layer:'fetch',message:e?.message||String(e),ms})};
       }finally{requests.delete(id);patch('network',{active:requests.size,total:state.network.total,failed:state.network.failed,retries:state.network.retries,aborted:state.network.aborted})}
       if(attempt+1<maxAttempts&&shouldRetry(lastResponse,lastError)){state.network.retries++;const ms=retryDelay(lastResponse,attempt);log('warn','network.retry',{traceId,...meta,attempt:attempt+1,delayMs:ms,error:lastError?.message||'',status:lastResponse?.status||0});await sleep(ms);continue}
       break
@@ -594,11 +620,11 @@ function instrumentShortsRequests(S){
       const started=performance.now(),kind=classifyAction(params),meta={kind,action:String(params?.action||''),categoryId:String(params?.category_id||''),layer:'shorts.'+name,origin:'xtream'};
       log('info','catalog.request.start',meta);
       try{
-        const result=await original.apply(this,arguments),ms=Math.round(performance.now()-started),count=Array.isArray(result)?result.length:(result&&typeof result==='object'?Object.keys(result).length:0);
+        const result=await original.apply(this,arguments),ms=Math.round(performance.now()-started),count=Array.isArray(result)?result.length:(result&&typeof result==='object'?Object.keys(result).length:0),thresholdMs=Math.round(Math.max(2500,1200+Math.min(6000,count*1.5))),msPerItem=count?Number((ms/count).toFixed(3)):0,itemsPerSecond=count&&ms?Math.round(count/(ms/1000)):0;
         noteRecovery({...meta,ms,status:200});
-        if(ms>2500)noteSlow({...meta,ms,message:'Consulta de catálogo lenta',details:{count}});
-        patch('catalog',{last:{...meta,ms,count,ok:true},updatedAt:Date.now()});
-        log('info','catalog.request.ok',{...meta,ms,count});return result
+        if(ms>thresholdMs)noteSlow({...meta,ms,message:'Consulta de catálogo lenta',details:{count,thresholdMs,msPerItem,itemsPerSecond}});
+        patch('catalog',{last:{...meta,ms,count,thresholdMs,msPerItem,itemsPerSecond,ok:true},updatedAt:Date.now()});
+        log('info','catalog.request.ok',{...meta,ms,count,thresholdMs,msPerItem,itemsPerSecond});return result
       }catch(e){
         const ms=Math.round(performance.now()-started);noteFailure({...meta,ms,message:e?.message||String(e)});
         patch('catalog',{last:{...meta,ms,ok:false,error:safeText(e?.message||e)},updatedAt:Date.now()});
@@ -643,7 +669,7 @@ function bridge(){
   syncAppState();
   const S=window.SRH25;
   if(S&&!S.__debugBridge){
-    S.__debugBridge=true;S.centralState=api.state;patch('shorts',{connected:true,appId:S.cfg?.appId||'',items:S.state?.items?.length||0});if(S.storage?.stats)patch('storage',{...get('storage'),runtimeBackend:'indexeddb',appDb:sanitize(S.storage.stats())});instrumentShortsRequests(S);observeCatalogStatus();window.addEventListener('srh25:catalog-render',e=>{const count=Array.isArray(e.detail?.items)?e.detail.items.length:0;if(count>0){noteRecovery({kind:'catalog.ui',layer:'status',origin:'ui',ms:0,status:200});patch('catalog',{rendered:true,count,renderedAt:Date.now()});log('info','catalog.rendered',{count})}},{passive:true});
+    S.__debugBridge=true;S.centralState=api.state;patch('shorts',{connected:true,appId:S.cfg?.appId||'',items:S.state?.items?.length||0});if(S.storage?.stats)patch('storage',{...get('storage'),runtimeBackend:'indexeddb',appDb:sanitize(S.storage.stats())});instrumentShortsRequests(S);observeCatalogStatus();window.addEventListener('srh25:transport',e=>{const detail=e.detail||{};recoverTransportFailures(detail);log('info','transport.winner',detail)},{passive:true});window.addEventListener('srh25:catalog-render',e=>{const count=Array.isArray(e.detail?.items)?e.detail.items.length:0;if(count>0){noteRecovery({kind:'catalog.ui',layer:'status',origin:'ui',ms:0,status:200});patch('catalog',{rendered:true,count,renderedAt:Date.now()});log('info','catalog.rendered',{count})}},{passive:true});
     if(typeof S.openPlayer==='function'){const oldOpen=S.openPlayer;S.openPlayer=function(item){player.begin('shorts',{id:S.id?.(item),title:S.title?.(item)});try{return oldOpen.apply(this,arguments)}catch(e){player.error(e);throw e}}}
   }
 }
