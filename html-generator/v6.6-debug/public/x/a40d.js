@@ -1219,7 +1219,7 @@ async function loadVideo(item,resume){
   const token=++mediaLoadToken,url=S.stream(item),mediaKey=String(S.id?.(item)||item?.stream_id||item?.id||url),hasResume=Number(resume?.position)>0,origin=(()=>{try{return new URL(url,location.href).origin}catch{return'media'}})();let retryCount=0,retryPending=false,retryRecovered=false;
   const reveal=()=>{if(token!==mediaLoadToken)return;poster.classList.add('is-hidden');loading.classList.add('is-hidden');if(retryCount>0&&!retryRecovered){retryRecovered=true;mediaRetryExhausted.delete(mediaKey);mediaEvent('srh25:media-recovered',{attempts:retryCount,origin,mediaId:mediaKey})}};
   const ready=()=>{if(token!==mediaLoadToken)return;drawArcs();if(hasResume&&resume.position<video.duration-3){video.currentTime=resume.position;const done=()=>{if(token===mediaLoadToken)video.play().catch(()=>{})};video.addEventListener('seeked',done,{once:true})}else if(video.paused){video.play().catch(()=>{})}};
-  const directError=()=>{if(token!==mediaLoadToken||retryPending)return;const code=video.error?.code||0;if(code===4&&retryCount<1&&!mediaRetryExhausted.has(mediaKey)){retryCount++;retryPending=true;mediaRetryExhausted.add(mediaKey);mediaEvent('srh25:media-retry',{code,attempt:retryCount,origin,mediaId:mediaKey});poster.classList.remove('is-hidden');loading.classList.remove('is-hidden');try{video.pause();video.removeAttribute('src');video.load()}catch{}setTimeout(()=>{if(token!==mediaLoadToken)return;retryPending=false;video.src=url;video.onloadedmetadata=ready;video.onerror=directError;video.load();if(!hasResume)video.play().catch(()=>{})},700);return}mediaEvent('srh25:media-error-final',{code,attempts:retryCount+(mediaRetryExhausted.has(mediaKey)?1:0),origin,mediaId:mediaKey,currentTime:Number(video.currentTime)||0,readyState:video.readyState,networkState:video.networkState});S.toast('Mídia indisponível')};
+  const directError=()=>{if(token!==mediaLoadToken||retryPending)return;const code=video.error?.code||0,exhausted=mediaRetryExhausted.has(mediaKey);if(code===4&&retryCount<1&&!exhausted){retryCount++;retryPending=true;mediaRetryExhausted.add(mediaKey);mediaEvent('srh25:media-retry',{code,attempt:retryCount,origin,mediaId:mediaKey});poster.classList.remove('is-hidden');loading.classList.remove('is-hidden');try{video.pause();video.removeAttribute('src');video.load()}catch{}setTimeout(()=>{if(token!==mediaLoadToken)return;retryPending=false;video.src=url;video.onloadedmetadata=ready;video.onerror=directError;video.load();if(!hasResume)video.play().catch(()=>{})},700);return}mediaEvent('srh25:media-error-final',{code,attempts:retryCount>0?2:1,retryAttempted:retryCount>0,retrySuppressed:code===4&&exhausted&&retryCount===0,origin,mediaId:mediaKey,currentTime:Number(video.currentTime)||0,readyState:video.readyState,networkState:video.networkState});S.toast('Mídia indisponível')};
   const attachDirect=()=>{if(token!==mediaLoadToken)return;video.src=url;video.onloadedmetadata=ready;video.onerror=directError;video.load();if(!hasResume)video.play().catch(()=>{})};
   warmMediaOrigin(url);video.preload='auto';video.addEventListener('playing',reveal,{once:true});
   if(/\.m3u8(?:$|\?)/i.test(url)){
@@ -1256,6 +1256,7 @@ S.openPlayer=(item,resumeOverride)=>{
   loadVideo(item,hist)
 };
 function persistCurrentProgress(force=false){const cur=S.state.current,pos=Math.max(0,Number(video.currentTime)||0);if(!cur)return false;if(!force&&Math.abs(pos-lastSavedPosition)<10)return false;const ok=S.saveProgress(cur.item,pos,video.duration);if(ok){lastSavedPosition=pos;saveMiniResume(cur.item,pos,video.duration)}return ok}
+function persistExitSnapshot(){const cur=S.state.current;if(!cur)return false;const pos=Math.max(0,Number(video.currentTime)||0),dur=Math.max(0,Number(video.duration)||0);let ok=false;try{ok=!!S.saveProgress(cur.item,pos,dur)}catch{}safeSaveMiniResume(cur.item,pos,dur);lastSavedPosition=pos;return ok}
 video.ontimeupdate=()=>{
   const cur=S.state.current,pos=Number(video.currentTime||0),dur=Number(video.duration||0);
   updatePlayerHeading(pos);
@@ -1326,7 +1327,7 @@ const finishPlayerSwipe=e=>{
 };
 $('#playerStage').addEventListener('pointerup',finishPlayerSwipe,{passive:true});
 $('#playerStage').addEventListener('pointercancel',finishPlayerSwipe,{passive:true});
-window.addEventListener('pagehide',()=>{if(S.state.current){S.saveProgress(S.state.current.item,Math.max(0,Number(video.currentTime)||0),Number(video.duration));safeSaveMiniResume(S.state.current.item,Math.max(0,Number(video.currentTime)||0),Number(video.duration))}});
+window.addEventListener('pagehide',()=>{if(S.state.current)persistExitSnapshot()});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&S.state.current)persistExitSnapshot()});
 window.addEventListener('srh25:ready',()=>{try{localStorage.setItem('srh25:last-runtime','a30-r42')}catch{}miniRemove(MINI_DISMISS_KEY);ensurePlayerControls();safeRenderMiniResume(false);setTimeout(()=>safeRenderMiniResume(false),120)},{once:true});
 Promise.resolve().then(()=>S.boot());

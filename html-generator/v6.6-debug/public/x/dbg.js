@@ -471,7 +471,7 @@ function observeVideos(){
   document.addEventListener('ended',e=>{if(e.target===player.media){const x=trace(e.target);clearTimeout(x.stallTimer);player.end('ended')}},true);
   window.addEventListener('srh25:media-retry',e=>{const d=e.detail||{};log('warn','media.retry',d);patch('player',{retrying:true,retry:{code:d.code||0,attempt:d.attempt||1,origin:d.origin||'',mediaId:d.mediaId||''}})},{passive:true});
   window.addEventListener('srh25:media-recovered',e=>{const d=e.detail||{};log('info','media.retry_recovered',d);patch('player',{retrying:false,retryRecovered:{attempts:d.attempts||1,origin:d.origin||'',mediaId:d.mediaId||''}})},{passive:true});
-  window.addEventListener('srh25:media-error-final',e=>{const d=e.detail||{},code=Number(d.code)||0,codeName=code===4?'MEDIA_ERR_SRC_NOT_SUPPORTED':'MEDIA_ERR_'+code;noteFailure({kind:'player.error',layer:'media',mediaId:String(d.mediaId||''),origin:d.origin||'media',message:'Erro de mídia após retry',details:{code,codeName,attempts:d.attempts||1,currentTime:Number(d.currentTime)||0,readyState:d.readyState||0,networkState:d.networkState||0}});player.error(new Error('media error after retry'))},{passive:true});
+  window.addEventListener('srh25:media-error-final',e=>{const d=e.detail||{},code=Number(d.code)||0,codeName=code===4?'MEDIA_ERR_SRC_NOT_SUPPORTED':'MEDIA_ERR_'+code,retryAttempted=!!d.retryAttempted,retrySuppressed=!!d.retrySuppressed,message=retryAttempted?'Erro de mídia após retry':retrySuppressed?'Erro de mídia; retry já esgotado para este item':'Erro de mídia';noteFailure({kind:'player.error',layer:'media',mediaId:String(d.mediaId||''),origin:d.origin||'media',message,details:{code,codeName,attempts:d.attempts||1,retryAttempted,retrySuppressed,currentTime:Number(d.currentTime)||0,readyState:d.readyState||0,networkState:d.networkState||0}});player.error(new Error(message))},{passive:true});
   if(typeof MutationObserver==='function'){player.observer=new MutationObserver(()=>{const m=player.media;if(m&&!m.isConnected)setTimeout(()=>{if(player.media===m&&!m.isConnected)player.destroy('detached',true)},180)});player.observer.observe(document.documentElement,{childList:true,subtree:true})}
 }
 
@@ -621,18 +621,21 @@ function instrumentShortsRequests(S){
   for(const name of ['request','requestWithConfig']){
     const original=S[name];if(typeof original!=='function')continue;
     S[name]=async function(params={}){
-      const started=performance.now(),kind=classifyAction(params),meta={kind,action:String(params?.action||''),categoryId:String(params?.category_id||''),layer:'shorts.'+name,origin:'xtream'};
-      log('info','catalog.request.start',meta);
+      const started=performance.now(),kind=classifyAction(params),optionalAccount=kind==='xtream.account',meta={kind,action:String(params?.action||''),categoryId:String(params?.category_id||''),layer:'shorts.'+name,origin:'xtream'};
+      log('info',optionalAccount?'account.request.start':'catalog.request.start',meta);
       try{
         const result=await original.apply(this,arguments),ms=Math.round(performance.now()-started),count=Array.isArray(result)?result.length:(result&&typeof result==='object'?Object.keys(result).length:0),thresholdMs=Math.round(Math.max(2500,1200+Math.min(6000,count*1.5))),msPerItem=count?Number((ms/count).toFixed(3)):0,itemsPerSecond=count&&ms?Math.round(count/(ms/1000)):0;
+        if(optionalAccount){patch('account',{last:{ms,ok:true},updatedAt:Date.now()});log('info','account.request.ok',{...meta,ms});return result}
         noteRecovery({...meta,ms,status:200});
         if(ms>thresholdMs)noteSlow({...meta,ms,message:'Consulta de catálogo lenta',details:{count,thresholdMs,msPerItem,itemsPerSecond}});
         patch('catalog',{last:{...meta,ms,count,thresholdMs,msPerItem,itemsPerSecond,ok:true},updatedAt:Date.now()});
         log('info','catalog.request.ok',{...meta,ms,count,thresholdMs,msPerItem,itemsPerSecond});return result
       }catch(e){
-        const ms=Math.round(performance.now()-started);noteFailure({...meta,ms,message:e?.message||String(e)});
-        patch('catalog',{last:{...meta,ms,ok:false,error:safeText(e?.message||e)},updatedAt:Date.now()});
-        log('error','catalog.request.error',{...meta,ms,error:e?.message||String(e)});throw e
+        const ms=Math.round(performance.now()-started),error=safeText(e?.message||e);
+        if(optionalAccount){patch('account',{last:{ms,ok:false,error},updatedAt:Date.now()});log('warn','account.request.optional_failed',{...meta,ms,error});throw e}
+        noteFailure({...meta,ms,message:e?.message||String(e)});
+        patch('catalog',{last:{...meta,ms,ok:false,error},updatedAt:Date.now()});
+        log('error','catalog.request.error',{...meta,ms,error});throw e
       }
     }
   }
