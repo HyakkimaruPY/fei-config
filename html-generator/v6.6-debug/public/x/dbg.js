@@ -324,7 +324,8 @@ function canRetry(method,url){return method==='GET'&&!/\.(?:m3u8|ts|mp4|mkv|avi|
 const originalFetch=window.fetch?.bind(window);
 if(originalFetch){
   window.fetch=async function debugFetch(input,init={}){
-    const url=typeof input==='string'?input:input?.url||String(input),method=String(init.method||input?.method||'GET').toUpperCase(),meta=requestMeta(url),traceId=uid(),key=serviceKey(url),c=circuit(key),policy=!safeMode&&method==='GET'?cachePolicy(url):null;
+    const url=typeof input==='string'?input:input?.url||String(input),method=String(init.method||input?.method||'GET').toUpperCase(),probe=!!init?.srhProbe,meta=requestMeta(url),traceId=uid(),key=serviceKey(url),c=circuit(key),policy=!safeMode&&method==='GET'?cachePolicy(url):null;
+    const {srhProbe,...nativeInit}=init||{};
     const cached=policy?cache.get(policy.ns,url,{allowStale:true}):null;
     if(cached?.fresh){const hit=cache.response(cached);if(hit){log('info','cache.hit',{ns:policy.ns,traceId,...meta});return hit}}
     if(c.openUntil>Date.now()&&!init?.srhBypassCircuit){if(cached){const stale=cache.response(cached);if(stale){log('warn','network.circuit_cache',{key,traceId,...meta});return stale}}noteFailure({...meta,layer:'fetch',message:'Circuit breaker aberto'});log('warn','network.circuit_open',{key,traceId,...meta,until:c.openUntil});throw new Error('Serviço temporariamente em recuperação')}
@@ -336,22 +337,22 @@ if(originalFetch){
       requests.set(id,{id,traceId,...meta,service:key,attempt,startedAt:Date.now()});
       patch('network',{active:requests.size,total:state.network.total+1,failed:state.network.failed,retries:state.network.retries,aborted:state.network.aborted});
       try{
-        const res=await originalFetch(input,{...init,...(signal?{signal}:{})});
+        const res=await originalFetch(input,{...nativeInit,...(signal?{signal}:{})});
         lastResponse=res;
         const retryable=shouldRetry(res,null);
         if(res.ok){
           recordCircuit(key,true);
           if(policy){try{const copy=res.clone(),body=await copy.text();cache.put(policy.ns,url,res,body,policy)}catch{}}
-          const ms=Math.round(performance.now()-started);noteRecovery({...meta,layer:'fetch',ms,status:res.status});if(ms>(meta.kind.startsWith('catalog.')?1200:2200))noteSlow({...meta,layer:'fetch',ms,message:'Resposta lenta'});log('info','network.response',{id,traceId,...meta,status:res.status,attempt,ms});
+          const ms=Math.round(performance.now()-started);if(!probe)noteRecovery({...meta,layer:'fetch',ms,status:res.status});if(!probe&&ms>(meta.kind.startsWith('catalog.')?2500:2600))noteSlow({...meta,layer:'fetch',ms,message:'Resposta lenta'});log('info','network.response',{id,traceId,...meta,status:res.status,attempt,ms,probe});
           return res
         }
-        if(!retryable){const ms=Math.round(performance.now()-started);recordCircuit(key,false,new Error('HTTP '+res.status));state.network.failed++;noteFailure({...meta,layer:'fetch',message:'HTTP '+res.status,status:res.status,ms});log('warn','network.response',{id,traceId,...meta,status:res.status,attempt,ms});return res}
+        if(!retryable){const ms=Math.round(performance.now()-started);recordCircuit(key,false,new Error('HTTP '+res.status));state.network.failed++;if(!probe)noteFailure({...meta,layer:'fetch',message:'HTTP '+res.status,status:res.status,ms});log('warn','network.response',{id,traceId,...meta,status:res.status,attempt,ms,probe});return res}
         lastError=new Error('HTTP '+res.status);
         recordCircuit(key,false,lastError);
       }catch(e){
         lastError=e;
-        if(e?.name==='AbortError'){state.network.aborted++;const ms=Math.round(performance.now()-started),reason=safeText(signal?.reason?.message||signal?.reason||'AbortError');if(meta.kind.startsWith('catalog.')||meta.kind==='playlist')noteFailure({...meta,layer:'fetch',message:'Abortado/timeout: '+reason,ms});log('warn','network.aborted',{id,traceId,...meta,attempt,ms,reason});throw e}
-        const ms=Math.round(performance.now()-started);recordCircuit(key,false,e);noteFailure({...meta,layer:'fetch',message:e?.message||String(e),ms});
+        if(e?.name==='AbortError'){state.network.aborted++;const ms=Math.round(performance.now()-started),reason=safeText(signal?.reason?.message||signal?.reason||'AbortError');if(!probe&&(meta.kind.startsWith('catalog.')||meta.kind==='playlist'))noteFailure({...meta,layer:'fetch',message:'Abortado/timeout: '+reason,ms});log('warn','network.aborted',{id,traceId,...meta,attempt,ms,reason,probe});throw e}
+        const ms=Math.round(performance.now()-started);recordCircuit(key,false,e);if(!probe)noteFailure({...meta,layer:'fetch',message:e?.message||String(e),ms});
       }finally{requests.delete(id);patch('network',{active:requests.size,total:state.network.total,failed:state.network.failed,retries:state.network.retries,aborted:state.network.aborted})}
       if(attempt+1<maxAttempts&&shouldRetry(lastResponse,lastError)){state.network.retries++;const ms=retryDelay(lastResponse,attempt);log('warn','network.retry',{traceId,...meta,attempt:attempt+1,delayMs:ms,error:lastError?.message||'',status:lastResponse?.status||0});await sleep(ms);continue}
       break
@@ -558,7 +559,7 @@ function instrumentShortsRequests(S){
       try{
         const result=await original.apply(this,arguments),ms=Math.round(performance.now()-started),count=Array.isArray(result)?result.length:(result&&typeof result==='object'?Object.keys(result).length:0);
         noteRecovery({...meta,ms,status:200});
-        if(ms>1200)noteSlow({...meta,ms,message:'Consulta de catálogo lenta',details:{count}});
+        if(ms>2500)noteSlow({...meta,ms,message:'Consulta de catálogo lenta',details:{count}});
         patch('catalog',{last:{...meta,ms,count,ok:true},updatedAt:Date.now()});
         log('info','catalog.request.ok',{...meta,ms,count});return result
       }catch(e){
@@ -596,7 +597,7 @@ function installPerformanceTracing(){
     longObserver.observe({entryTypes:['longtask']})
   }catch{}
   try{
-    const resourceObserver=new PerformanceObserver(list=>{for(const e of list.getEntries()){if(e.duration<1800)continue;state.performance.slowResources++;patch('performance',{slowResources:state.performance.slowResources});const meta=requestMeta(e.name);noteSlow({...meta,layer:'resource',ms:Math.round(e.duration),message:'Recurso demorou para carregar',details:{initiatorType:e.initiatorType,transferSize:e.transferSize||0}})}});
+    const resourceObserver=new PerformanceObserver(list=>{for(const e of list.getEntries()){if(e.duration<2200)continue;const meta=requestMeta(e.name);if(meta.kind.startsWith('catalog.')||meta.kind==='xtream.api'||meta.kind==='proxy')continue;state.performance.slowResources++;patch('performance',{slowResources:state.performance.slowResources});noteSlow({...meta,layer:'resource',ms:Math.round(e.duration),message:'Recurso demorou para carregar',details:{initiatorType:e.initiatorType,transferSize:e.transferSize||0}})}});
     resourceObserver.observe({entryTypes:['resource']})
   }catch{}
 }
@@ -605,7 +606,7 @@ function bridge(){
   syncAppState();
   const S=window.SRH25;
   if(S&&!S.__debugBridge){
-    S.__debugBridge=true;S.centralState=api.state;patch('shorts',{connected:true,appId:S.cfg?.appId||'',items:S.state?.items?.length||0});instrumentShortsRequests(S);observeCatalogStatus();
+    S.__debugBridge=true;S.centralState=api.state;patch('shorts',{connected:true,appId:S.cfg?.appId||'',items:S.state?.items?.length||0});instrumentShortsRequests(S);observeCatalogStatus();window.addEventListener('srh25:catalog-render',e=>{const count=Array.isArray(e.detail?.items)?e.detail.items.length:0;if(count>0){noteRecovery({kind:'catalog.ui',layer:'status',origin:'ui',ms:0,status:200});patch('catalog',{rendered:true,count,renderedAt:Date.now()});log('info','catalog.rendered',{count})}},{passive:true});
     if(typeof S.openPlayer==='function'){const oldOpen=S.openPlayer;S.openPlayer=function(item){player.begin('shorts',{id:S.id?.(item),title:S.title?.(item)});try{return oldOpen.apply(this,arguments)}catch(e){player.error(e);throw e}}}
   }
 }

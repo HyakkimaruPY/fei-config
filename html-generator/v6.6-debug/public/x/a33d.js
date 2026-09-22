@@ -29,7 +29,7 @@ S.toast=msg=>{const n=$('#toast');if(!n)return;n.textContent=msg;n.classList.add
 S.parseLogin=raw=>{let text=clean(raw);if(!text)throw new Error('Informe o novo M3U / login Xtream.');if(!/^https?:\/\//i.test(text))text='http://'+text;let u;try{u=new URL(text)}catch{throw new Error('URL inválida.')}let username=u.searchParams.get('username')||u.searchParams.get('user'),password=u.searchParams.get('password')||u.searchParams.get('pass');const parts=u.pathname.split('/').filter(Boolean);if((!username||!password)&&parts.length>=2&&!/\.php$/i.test(parts.at(-1)||'')){username=username||decodeURIComponent(parts[0]);password=password||decodeURIComponent(parts[1])}if(!username||!password)throw new Error('Não encontrei username e password.');return{server:u.origin.replace(/\/+$/,''),username,password,liveExtension:(u.searchParams.get('output')||cfg.liveExtension||'m3u8').toLowerCase()==='ts'?'ts':'m3u8'}};
 S.saveRuntime=runtime=>{try{localStorage.setItem(runtimeKey,JSON.stringify(runtime));return true}catch{return false}};
 function parseJson(t){let s=String(t??'').replace(/^\uFEFF/,'').trim();try{return JSON.parse(s)}catch{}const a=s.indexOf('{'),b=s.indexOf('['),i=a<0?b:b<0?a:Math.min(a,b);if(i>=0){const j=s.lastIndexOf(s[i]==='{'?'}':']');if(j>i)return JSON.parse(s.slice(i,j+1))}throw new Error('Resposta inválida')}
-async function fetchText(url,timeout=5000){const c=new AbortController(),t=setTimeout(()=>c.abort(),timeout);try{const r=await fetch(url,{cache:'no-cache',redirect:'follow',credentials:'omit',signal:c.signal});if(!r.ok)throw new Error('HTTP '+r.status);return await r.text()}finally{clearTimeout(t)}}
+async function fetchText(url,timeout=5000,options={}){const c=new AbortController(),t=setTimeout(()=>c.abort(),timeout);try{const r=await fetch(url,{cache:'no-cache',redirect:'follow',credentials:'omit',signal:c.signal,srhProbe:options.probe===true});if(!r.ok)throw new Error('HTTP '+r.status);return await r.text()}finally{clearTimeout(t)}}
 function httpsTwin(url){try{const u=new URL(url);if(u.protocol!=='http:')return'';u.protocol='https:';return u.href}catch{return''}}
 function proxyUrl(template,target){const b=clean(template),raw=clean(target),e=enc(raw);if(!b)return'';if(b.includes('{rawUrl}'))return b.replaceAll('{rawUrl}',raw);if(b.includes('{raw}'))return b.replaceAll('{raw}',raw);if(b.includes('{url}'))return b.replaceAll('{url}',e);if(b.endsWith('=')||b.endsWith('?'))return b+e;try{const u=new URL(b),k=['url','target','uri','q'].find(x=>u.searchParams.has(x))||'url';u.searchParams.set(k,raw);return u.toString()}catch{return''}}
 function apiUrl(params={},source=cfg){const u=new URL(server(source)+'/player_api.php');u.searchParams.set('username',source.username);u.searchParams.set('password',source.password);for(const [k,v] of Object.entries(params))if(v!==undefined&&v!==null&&v!=='')u.searchParams.set(k,v);return u.toString()}
@@ -47,9 +47,10 @@ async function chooseProxy(target,source=cfg){
   if(S.state.proxyChoice)return S.state.proxyChoice;
   const job=(async()=>{
     const pool=(await loadPool()).slice(0,4);
-    const tests=await Promise.all(pool.map(async p=>{const u=proxyUrl(p.template,target),t=performance.now();try{parseJson(await fetchText(u,2600));return{p,ms:performance.now()-t}}catch{return null}}));
-    const ok=tests.filter(Boolean).sort((a,b)=>a.ms-b.ms)[0];
-    if(!ok)throw new Error('Nenhum proxy CORS respondeu');
+    if(!pool.length)throw new Error('Nenhum proxy CORS disponível');
+    let ok;
+    try{ok=await Promise.any(pool.map(async p=>{const u=proxyUrl(p.template,target),t=performance.now();parseJson(await fetchText(u,2200,{probe:true}));return{p,ms:performance.now()-t}}))}
+    catch{throw new Error('Nenhum proxy CORS respondeu')}
     saveProxy({template:ok.p.template,id:ok.p.id||'',uses:1,at:Date.now()},source);return ok.p.template
   })();
   S.state.proxyChoice=job;
@@ -57,28 +58,28 @@ async function chooseProxy(target,source=cfg){
   return job
 }
 function requestFor(params={},source=cfg){
-  const target=apiUrl(params,source),key=target;
+  const target=apiUrl(params,source),key=target,action=String(params?.action||''),directTimeout=action==='get_vod_streams'?3600:3200;
   if(S.state.requests.has(key))return S.state.requests.get(key);
   const job=(async()=>{
     const candidates=[target,httpsTwin(target)].filter(Boolean);
     let last;
     if(candidates.length){
-      try{return await Promise.any(candidates.map(async u=>parseJson(await fetchText(u,1900))))}catch(e){last=e}
+      try{return await Promise.any(candidates.map(async u=>parseJson(await fetchText(u,directTimeout))))}catch(e){last=e}
     }
     if(source.corsProxy){
-      try{return parseJson(await fetchText(proxyUrl(source.corsProxy,target),3600))}catch(e){last=e}
+      try{return parseJson(await fetchText(proxyUrl(source.corsProxy,target),4200))}catch(e){last=e}
     }
     if(source.autoCorsProxy!==false){
       const saved=readProxy(source);
       if(saved?.template){
         try{
           saved.uses=Number(saved.uses||0)+1;saveProxy(saved,source);
-          return parseJson(await fetchText(proxyUrl(saved.template,target),3600));
+          return parseJson(await fetchText(proxyUrl(saved.template,target),4200));
         }catch(e){last=e;clearProxy(source)}
       }
       try{
         const p=await chooseProxy(target,source);
-        return parseJson(await fetchText(proxyUrl(p,target),4200));
+        return parseJson(await fetchText(proxyUrl(p,target),4800));
       }catch(e){last=e}
     }
     throw last||new Error('Falha de conexão')
