@@ -86,7 +86,7 @@ function requestMeta(value){
     return{kind,origin:u.origin,path,action,categoryId,url:safeUrl(u.href)}
   }catch{return{kind:'network.other',origin:'unknown',path:'',action:'',categoryId:'',url:safeText(value)}}
 }
-function incidentKey(meta={}){return [meta.kind||'unknown',meta.action||'',meta.categoryId||'',meta.origin||'',meta.layer||''].join('|')}
+function incidentKey(meta={}){return [meta.kind||'unknown',meta.action||'',meta.categoryId||'',meta.mediaId||'',meta.origin||'',meta.layer||''].join('|')}
 function abortReason(signal,error){
   const raw=signal?.reason?.message||signal?.reason||error?.message||error||'';
   return safeText(raw)
@@ -132,7 +132,7 @@ function persistIncidents(){
 }
 function noteFailure(meta={}){
   const key=incidentKey(meta),t=Date.now(),prev=activeIncidents.get(key);
-  const row=prev||{id:uid(),key,type:meta.type||'failure',kind:meta.kind||'unknown',action:meta.action||'',categoryId:meta.categoryId||'',origin:meta.origin||'',layer:meta.layer||'',firstAt:t,count:0,status:'active',sessionId:SESSION_ID};
+  const row=prev||{id:uid(),key,type:meta.type||'failure',kind:meta.kind||'unknown',action:meta.action||'',categoryId:meta.categoryId||'',mediaId:meta.mediaId||'',origin:meta.origin||'',layer:meta.layer||'',firstAt:t,count:0,status:'active',sessionId:SESSION_ID};
   row.count++;row.lastAt=t;row.status='active';row.message=safeText(meta.message||meta.error||'Falha');row.ms=Number(meta.ms)||row.ms||0;row.statusCode=Number(meta.status)||0;row.details=sanitize(meta.details||{});
   activeIncidents.set(key,row);
   const idx=incidentHistory.findIndex(x=>x.id===row.id);if(idx>=0)incidentHistory[idx]=clone(row);else incidentHistory.push(clone(row));
@@ -151,7 +151,7 @@ function noteSlow(meta={}){
     const idx=incidentHistory.findIndex(x=>x.id===row.id);if(idx>=0)incidentHistory[idx]=clone(row);
     persistIncidents();syncIncidentState(row);return row
   }
-  const row={id:uid(),key:incidentKey({...meta,type:'slow'}),type:'slow',kind:meta.kind||'performance',action:meta.action||'',categoryId:meta.categoryId||'',origin:meta.origin||'',layer:meta.layer||'',firstAt:t,lastAt:t,count:1,status:'observed',sessionId:SESSION_ID,message:safeText(meta.message||'Operação lenta'),ms,details};
+  const row={id:uid(),key:incidentKey({...meta,type:'slow'}),type:'slow',kind:meta.kind||'performance',action:meta.action||'',categoryId:meta.categoryId||'',mediaId:meta.mediaId||'',origin:meta.origin||'',layer:meta.layer||'',firstAt:t,lastAt:t,count:1,status:'observed',sessionId:SESSION_ID,message:safeText(meta.message||'Operação lenta'),ms,details};
   slowDedupe.set(sig,{at:t,row});
   if(slowDedupe.size>120)for(const [k,v] of slowDedupe)if(t-v.at>15000)slowDedupe.delete(k);
   incidentHistory.push(row);if(incidentHistory.length>80)incidentHistory=incidentHistory.slice(-80);persistIncidents();syncIncidentState(row);bus.dispatchEvent(new CustomEvent('incident',{detail:clone(row)}));return row
@@ -172,6 +172,7 @@ function issueExport(){
     count:Number(x.count||1),
     action:x.action||'',
     categoryId:x.categoryId||'',
+    mediaId:x.mediaId||'',
     origin:x.origin||'',
     layer:x.layer||'',
     severity:x.status==='active'?'error':x.type==='slow'?'slow':'recovered',details:sanitize(x.details||{})
@@ -468,9 +469,9 @@ function observeVideos(){
   document.addEventListener('pause',e=>{if(e.target===player.media&&!e.target.ended)patch('player',{status:'paused'})},true);
   document.addEventListener('error',e=>{if(e.target instanceof HTMLMediaElement){const x=trace(e.target),code=e.target.error?.code||0,codeName=code===1?'MEDIA_ERR_ABORTED':code===2?'MEDIA_ERR_NETWORK':code===3?'MEDIA_ERR_DECODE':code===4?'MEDIA_ERR_SRC_NOT_SUPPORTED':'MEDIA_ERR_UNKNOWN';clearTimeout(x.stallTimer);if(code===4&&e.target.id==='shortVideo'){log('warn','media.error.retryable',{code,codeName,origin:x.origin||mediaOrigin(e.target),readyState:e.target.readyState,networkState:e.target.networkState});return}noteFailure({kind:'player.error',layer:'media',origin:x.origin||mediaOrigin(e.target),message:'Erro de mídia',details:{code,codeName,currentTime:Number(e.target.currentTime)||0,readyState:e.target.readyState,networkState:e.target.networkState}});player.error(new Error('media error'))}},true);
   document.addEventListener('ended',e=>{if(e.target===player.media){const x=trace(e.target);clearTimeout(x.stallTimer);player.end('ended')}},true);
-  window.addEventListener('srh25:media-retry',e=>{const d=e.detail||{};log('warn','media.retry',d);patch('player',{retrying:true,retry:d})},{passive:true});
-  window.addEventListener('srh25:media-recovered',e=>{const d=e.detail||{};log('info','media.retry_recovered',d);patch('player',{retrying:false,retryRecovered:d})},{passive:true});
-  window.addEventListener('srh25:media-error-final',e=>{const d=e.detail||{},code=Number(d.code)||0,codeName=code===4?'MEDIA_ERR_SRC_NOT_SUPPORTED':'MEDIA_ERR_'+code;noteFailure({kind:'player.error',layer:'media',origin:d.origin||'media',message:'Erro de mídia após retry',details:{code,codeName,attempts:d.attempts||1,currentTime:Number(d.currentTime)||0,readyState:d.readyState||0,networkState:d.networkState||0}});player.error(new Error('media error after retry'))},{passive:true});
+  window.addEventListener('srh25:media-retry',e=>{const d=e.detail||{};log('warn','media.retry',d);patch('player',{retrying:true,retry:{code:d.code||0,attempt:d.attempt||1,origin:d.origin||'',mediaId:d.mediaId||''}})},{passive:true});
+  window.addEventListener('srh25:media-recovered',e=>{const d=e.detail||{};log('info','media.retry_recovered',d);patch('player',{retrying:false,retryRecovered:{attempts:d.attempts||1,origin:d.origin||'',mediaId:d.mediaId||''}})},{passive:true});
+  window.addEventListener('srh25:media-error-final',e=>{const d=e.detail||{},code=Number(d.code)||0,codeName=code===4?'MEDIA_ERR_SRC_NOT_SUPPORTED':'MEDIA_ERR_'+code;noteFailure({kind:'player.error',layer:'media',mediaId:String(d.mediaId||''),origin:d.origin||'media',message:'Erro de mídia após retry',details:{code,codeName,attempts:d.attempts||1,currentTime:Number(d.currentTime)||0,readyState:d.readyState||0,networkState:d.networkState||0}});player.error(new Error('media error after retry'))},{passive:true});
   if(typeof MutationObserver==='function'){player.observer=new MutationObserver(()=>{const m=player.media;if(m&&!m.isConnected)setTimeout(()=>{if(player.media===m&&!m.isConnected)player.destroy('detached',true)},180)});player.observer.observe(document.documentElement,{childList:true,subtree:true})}
 }
 
