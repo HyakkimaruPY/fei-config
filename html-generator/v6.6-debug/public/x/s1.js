@@ -56,8 +56,8 @@ function uniqueMediaUrls(values){const out=[];for(const raw of values||[]){const
 function normalizeMediaUrl(value){const v=String(value||'').trim();if(!v)return'';if(/^https?:\/\//i.test(v))return v;if(v.startsWith('/'))return normalizeServer(CONFIG.server)+v;return''}
 function httpsTwin(url){return /^http:\/\//i.test(String(url||''))?String(url).replace(/^http:/i,'https:'):''}
 function mediaErrorInfo(video,extra){const e=video?.error,code=e?.code||0,map={1:'reprodução interrompida',2:'erro de rede ao carregar a mídia',3:'o navegador não conseguiu decodificar o vídeo',4:'formato ou codec não suportado pelo navegador'};return{code,message:extra?.details||extra?.type||map[code]||'falha de mídia desconhecida',networkState:video?.networkState,readyState:video?.readyState}}
-function mediaCandidates(value){const list=Array.isArray(value)?value:[value],out=[];for(const u of list){out.push(u,httpsTwin(u))}return uniqueMediaUrls(out)}
-function vodSourcesFromInfo(data,item){const info=data?.info||{},movie=data?.movie_data||item,direct=normalizeMediaUrl(movie?.direct_source||info?.direct_source||data?.direct_source||''),merged={...item,...movie,stream_id:movie.stream_id||item.stream_id,container_extension:movie.container_extension||item.container_extension},standard=streamUrl('vod',merged),hls=`${normalizeServer(CONFIG.server)}/movie/${encodeURIComponent(CONFIG.username)}/${encodeURIComponent(CONFIG.password)}/${merged.stream_id}.m3u8`;return uniqueMediaUrls([direct,httpsTwin(direct),standard,httpsTwin(standard),hls,httpsTwin(hls)])}
+function mediaCandidates(value){const curated=Array.isArray(value),list=curated?value:[value],out=[];for(const u of list){out.push(u);if(!curated)out.push(httpsTwin(u))}return uniqueMediaUrls(out)}
+function vodSourcesFromInfo(data,item){const info=data?.info||{},movie=data?.movie_data||item,direct=normalizeMediaUrl(movie?.direct_source||info?.direct_source||data?.direct_source||''),merged={...item,...movie,stream_id:movie.stream_id||item.stream_id,container_extension:movie.container_extension||item.container_extension},standard=streamUrl('vod',merged),hls=`${normalizeServer(CONFIG.server)}/movie/${encodeURIComponent(CONFIG.username)}/${encodeURIComponent(CONFIG.password)}/${merged.stream_id}.m3u8`;return uniqueMediaUrls([direct,standard,hls])}
 function qualityRank(q){const s=String(q).toUpperCase();if(s.includes('4K'))return 0;if(s.includes('UHD'))return 1;if(s.includes('FHD')||s.includes('FULL HD'))return 2;if(/^HD/.test(s))return 3;if(/^SD/.test(s))return 4;if(s.includes('265')||s.includes('HEVC'))return 5;if(s.includes('TESTE'))return 9;return 6}
 function parseChannelName(raw){let name=String(raw||'Canal').trim();const patterns=[/\s*(?:[-|•:]\s*)?(TESTE)\s*$/i,/\s*(?:[-|•:]\s*)?(4K|UHD|FHD|FULL\s*HD|FULLHD|HD|SD)(?:\s*([1-9¹²³⁴⁵⁶⁷⁸⁹]))?\s*$/i,/\s*(?:[-|•:]\s*)?(\[\s*(?:H\.?\s*)?265\s*\]|H\.?265|HEVC)(?:\s*([1-9¹²³⁴⁵⁶⁷⁸⁹]))?\s*$/i];let quality='Padrão',base=name;for(const re of patterns){const m=base.match(re);if(m){quality=(m[1]||'').replace(/FULLHD/i,'FULL HD').replace(/\s+/g,' ').toUpperCase()+(m[2]||'');if(/265|HEVC/i.test(quality)){const suffix=m[2]||'';quality=/HEVC/i.test(m[1])?'HEVC'+suffix:/^\[/i.test(m[1])?'[265]'+suffix:'H.265'+suffix;}base=base.slice(0,m.index).replace(/[\s|•:,_—–-]+$/g,'').trim()||name;break}}return{base,quality}}
 function groupChannels(items){const map=new Map();for(const item of items){const p=parseChannelName(itemTitle(item)),key=p.base.toLocaleLowerCase('pt-BR').replace(/[^a-z0-9à-ÿ]+/g,'');if(!map.has(key))map.set(key,{baseName:p.base,image:imageFor(item,'live'),variants:[]});map.get(key).variants.push({...item,_quality:p.quality,_baseName:p.base})}return [...map.values()].map(g=>{g.variants.sort((a,b)=>qualityRank(a._quality)-qualityRank(b._quality)||a._quality.localeCompare(b._quality));return g})}
@@ -129,27 +129,31 @@ el.searchButton.onclick=toggleSearch;
 const MPEGTS_CDN='https://cdn.jsdelivr.net/npm/mpegts.js@1.8.2/dist/mpegts.min.js';
 let mpegTsLoader=null;
 function playbackDebug(event,data={}){try{window.SRHDebug?.log?.('info','standard.playback.'+event,data);window.SRHDebug?.state?.patch?.('player',{compat:'standard-playback-v1',event,...data,at:Date.now()})}catch{}}
+const warmedMediaOrigins=new Set();
+function mediaOrigin(url){try{return new URL(String(url||''),location.href).origin}catch{return'media'}}
+function warmMediaOrigin(url){try{const origin=mediaOrigin(url);if(!origin||origin==='null'||origin==='media'||warmedMediaOrigins.has(origin))return;warmedMediaOrigins.add(origin);for(const rel of ['dns-prefetch','preconnect']){const link=document.createElement('link');link.rel=rel;link.href=origin;document.head.appendChild(link)}playbackDebug('origin-warm',{origin})}catch{}}
 function ensureMpegTs(){if(window.mpegts?.createPlayer)return Promise.resolve(window.mpegts);if(mpegTsLoader)return mpegTsLoader;mpegTsLoader=new Promise((resolve,reject)=>{const found=document.querySelector('script[data-srh-mpegts]');if(found){found.addEventListener('load',()=>resolve(window.mpegts),{once:true});found.addEventListener('error',()=>reject(Error('mpegts indisponível')),{once:true});return}const s=document.createElement('script'),timer=setTimeout(()=>{s.remove();reject(Error('mpegts timeout'))},9000);s.src=MPEGTS_CDN;s.async=true;s.dataset.srhMpegts='1';s.onload=()=>{clearTimeout(timer);window.mpegts?.createPlayer?resolve(window.mpegts):reject(Error('mpegts inválido'))};s.onerror=()=>{clearTimeout(timer);reject(Error('mpegts indisponível'))};document.head.appendChild(s)}).catch(e=>{mpegTsLoader=null;throw e});return mpegTsLoader}
 function mediaKind(url){const s=String(url||'');if(/\.m3u8(?:$|\?)/i.test(s))return'hls';if(/\.m2ts(?:$|\?)/i.test(s))return'm2ts';if(/\.ts(?:$|\?)/i.test(s))return'mpegts';return'native'}
 function destroyHls(){state.mediaEpoch=(state.mediaEpoch||0)+1;if(state.mediaCleanup){const fn=state.mediaCleanup;state.mediaCleanup=null;try{fn()}catch{}}if(state.mpegtsPlayer){try{state.mpegtsPlayer.pause?.();state.mpegtsPlayer.unload?.();state.mpegtsPlayer.detachMediaElement?.();state.mpegtsPlayer.destroy?.()}catch{}state.mpegtsPlayer=null}if(state.hls){try{state.hls.destroy()}catch{}state.hls=null}}
 function attachVideo(video,url,onReady,onError){
- const queue=mediaCandidates(url);let index=0,last=null,readyNotified=false,resumeAt=0;
+ const queue=mediaCandidates(url);let index=0,last=null,lastUrl='',readyNotified=false,resumeAt=0,fallbackCount=0;const failedOrigins=new Set();
  const isLive=()=>state.currentMedia?.type==='live';
  const exhausted=()=>{onError?.(last||{message:'mídia indisponível'})};
  const next=()=>{if(index>=queue.length){exhausted();return}start(queue[index++],0)};
  const start=async(current,attempt)=>{
-  destroyHls();const token=state.mediaEpoch,kind=mediaKind(current);let sourceFailed=false,retryTimer=0,watchdog=0,lastAdvanceAt=Date.now(),lastTime=0,hlsNetworkRecoveries=0,hlsMediaRecoveries=0;
-  video.pause();video.onerror=null;video.onloadedmetadata=null;video.removeAttribute('src');try{video.load()}catch{}
+  destroyHls();const token=state.mediaEpoch,kind=mediaKind(current);let sourceFailed=false,retryTimer=0,watchdog=0,metadataTimer=0,lastAdvanceAt=Date.now(),lastTime=0,hlsNetworkRecoveries=0,hlsMediaRecoveries=0;
+  lastUrl=current;video.pause();video.onerror=null;video.onloadedmetadata=null;video.removeAttribute('src');video.preload='auto';try{video.load()}catch{}warmMediaOrigin(current)
   const alive=()=>token===state.mediaEpoch;
   const markAdvance=()=>{if(!alive())return;const t=Number(video.currentTime)||0;if(Math.abs(t-lastTime)>.08){lastTime=t;lastAdvanceAt=Date.now()}};
-  const markReady=()=>{if(!alive())return;lastAdvanceAt=Date.now();markAdvance();if(resumeAt>1&&Number.isFinite(video.duration)&&resumeAt<video.duration-3){try{video.currentTime=resumeAt}catch{}}if(!readyNotified){readyNotified=true;onReady?.(current)}playbackDebug('ready',{kind,attempt,live:isLive()});const p=video.play();if(p&&typeof p.catch==='function')p.catch(()=>{})};
-  const fail=extra=>{if(!alive()||sourceFailed)return;sourceFailed=true;if(Number.isFinite(video.currentTime)&&video.currentTime>1)resumeAt=video.currentTime;last=mediaErrorInfo(video,extra);playbackDebug('fallback',{kind,attempt,live:isLive(),message:last.message,code:last.code||0});if(isLive()&&attempt<2){retryTimer=setTimeout(()=>start(current,attempt+1),900+attempt*450);return}next()};
+  const markReady=()=>{if(!alive())return;clearTimeout(metadataTimer);lastAdvanceAt=Date.now();markAdvance();if(resumeAt>1&&Number.isFinite(video.duration)&&resumeAt<video.duration-3){try{video.currentTime=resumeAt}catch{}}if(failedOrigins.size){for(const origin of failedOrigins){try{window.SRHDebug?.noteRecovery?.({kind:'player.error',layer:'media',origin,mediaId:'',status:200,message:'Fonte alternativa iniciou a reprodução',details:{fallbackCount,winningOrigin:mediaOrigin(current)}})}catch{}}playbackDebug('recovered',{fallbackCount,failedOrigins:[...failedOrigins],winningOrigin:mediaOrigin(current)});failedOrigins.clear()}if(!readyNotified){readyNotified=true;onReady?.(current)}playbackDebug('ready',{kind,attempt,live:isLive(),preload:video.preload});const p=video.play();if(p&&typeof p.catch==='function')p.catch(()=>{})};
+  const fail=extra=>{if(!alive()||sourceFailed)return;sourceFailed=true;clearTimeout(metadataTimer);fallbackCount++;failedOrigins.add(mediaOrigin(current));if(Number.isFinite(video.currentTime)&&video.currentTime>1)resumeAt=video.currentTime;last=mediaErrorInfo(video,extra);playbackDebug('fallback',{kind,attempt,live:isLive(),message:last.message,code:last.code||0,fallbackCount,origin:mediaOrigin(current)});if(isLive()&&attempt<2){retryTimer=setTimeout(()=>start(current,attempt+1),900+attempt*450);return}next()};
   const onWaiting=()=>{if(isLive())playbackDebug('waiting',{kind,readyState:video.readyState})};
   const onPlaying=()=>markReady();
   video.addEventListener('timeupdate',markAdvance,{passive:true});video.addEventListener('playing',onPlaying,{passive:true});video.addEventListener('waiting',onWaiting,{passive:true});video.addEventListener('stalled',onWaiting,{passive:true});
-  state.mediaCleanup=()=>{clearTimeout(retryTimer);clearInterval(watchdog);video.removeEventListener('timeupdate',markAdvance);video.removeEventListener('playing',onPlaying);video.removeEventListener('waiting',onWaiting);video.removeEventListener('stalled',onWaiting)};
+  state.mediaCleanup=()=>{clearTimeout(retryTimer);clearTimeout(metadataTimer);clearInterval(watchdog);video.removeEventListener('timeupdate',markAdvance);video.removeEventListener('playing',onPlaying);video.removeEventListener('waiting',onWaiting);video.removeEventListener('stalled',onWaiting)};
   if(isLive()){watchdog=setInterval(()=>{if(!alive()||sourceFailed||video.paused||video.ended||document.hidden)return;markAdvance();if(Date.now()-lastAdvanceAt>9000&&(video.readyState<3||Number(video.currentTime)===lastTime))fail({type:'stall',details:'stream sem avanço'})},2500)}
-  playbackDebug('source',{kind,attempt,live:isLive(),candidate:index,total:queue.length});
+  playbackDebug('source',{kind,attempt,live:isLive(),candidate:index,total:queue.length,origin:mediaOrigin(current),preload:video.preload});
+  if(!isLive()&&index<queue.length)metadataTimer=setTimeout(()=>{if(alive()&&!sourceFailed&&video.readyState<1)fail({type:'metadata-timeout',details:'metadados não chegaram em 8000ms'})},8000);
   if((kind==='mpegts'||kind==='m2ts')){
    let lib=null;try{lib=await ensureMpegTs()}catch(e){playbackDebug('mpegts-unavailable',{message:e?.message||String(e)})}
    if(!alive())return;
@@ -252,7 +256,7 @@ function srhFixInlinePlayer(url,title,entry=null){
   video.controls=true;
   video.autoplay=true;
   video.playsInline=true;
-  video.preload='metadata';
+  video.preload='auto';
 
   const status=document.createElement('div');
   status.className='detail-inline-status';
@@ -787,7 +791,7 @@ async function closeDetail(){
     if(token!==state.renderToken)return[];
     if(!id)throw new Error('Categoria não encontrada: '+stripEmoji(target.name));
     const key=target.type+':'+id,cached=catalogCache.get(key);
-    if(cached&&Date.now()-cached.at<30000){
+    if(cached&&Date.now()-cached.at<240000){
       catalogCache.delete(key);catalogCache.set(key,cached);
       return cached.items;
     }
