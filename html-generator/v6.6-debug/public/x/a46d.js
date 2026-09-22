@@ -1218,6 +1218,14 @@ function mediaMime(ext){ext=String(ext||'').toLowerCase();if(ext==='mp4'||ext===
 function mediaText(v){return String(v??'').trim()}
 function mediaServer(){return mediaText(S.cfg?.server).replace(/[/]+$/,'')}
 function mediaMovieUrl(mediaKey,ext){return mediaServer()+'/movie/'+encodeURIComponent(mediaText(S.cfg?.username))+'/'+encodeURIComponent(mediaText(S.cfg?.password))+'/'+encodeURIComponent(String(mediaKey||''))+'.'+mediaText(ext||'mp4')}
+function mediaPlay(stage,token,mediaKey,sourceKind){
+  if(token!==mediaLoadToken)return Promise.resolve(false);
+  video.autoplay=true;video.playsInline=true;
+  mediaEvent('srh25:media-autoplay',{phase:'request',stage,mediaId:mediaKey,sourceKind,paused:video.paused,readyState:video.readyState,networkState:video.networkState});
+  let p;try{p=video.play()}catch(e){mediaEvent('srh25:media-autoplay',{phase:'rejected',stage,mediaId:mediaKey,sourceKind,name:e?.name||'Error',message:e?.message||String(e),readyState:video.readyState,networkState:video.networkState});return Promise.resolve(false)}
+  if(!p||typeof p.then!=='function'){mediaEvent('srh25:media-autoplay',{phase:'accepted',stage,mediaId:mediaKey,sourceKind,readyState:video.readyState,networkState:video.networkState});return Promise.resolve(true)}
+  return p.then(()=>{mediaEvent('srh25:media-autoplay',{phase:'resolved',stage,mediaId:mediaKey,sourceKind,readyState:video.readyState,networkState:video.networkState});return true}).catch(e=>{mediaEvent('srh25:media-autoplay',{phase:'rejected',stage,mediaId:mediaKey,sourceKind,name:e?.name||'Error',message:e?.message||String(e),readyState:video.readyState,networkState:video.networkState});return false})
+}
 async function resolveVodAlternative(item,mediaKey,currentUrl,catalogExtension){
   let info=null;try{info=await S.request({action:'get_vod_info',vod_id:mediaKey})}catch(e){mediaEvent('srh25:media-vod-info',{ok:false,mediaId:mediaKey,catalogExtension,error:e?.message||String(e)});return null}
   const movie=info?.movie_data||{},meta=info?.info||{},direct=mediaText(movie?.direct_source||meta?.direct_source||info?.direct_source||''),vodInfoExtension=mediaText(movie?.container_extension||info?.container_extension||'').toLowerCase();
@@ -1234,8 +1242,8 @@ async function loadVideo(item,resume){
   const originOf=url=>{try{return new URL(url,location.href).origin}catch{return'media'}},isHls=()=>/\.m3u8(?:$|\?)/i.test(currentUrl),origin=originOf(initialUrl);
   video.dataset.srhMediaId=mediaKey;video.dataset.srhContainerExtension=catalogExtension;video.dataset.srhSourceKind=sourceKind;
   const reveal=()=>{if(token!==mediaLoadToken)return;poster.classList.add('is-hidden');loading.classList.add('is-hidden');if(alternativeAttempted&&!retryRecovered){retryRecovered=true;mediaRetryExhausted.delete(mediaKey);mediaEvent('srh25:media-recovered',{attempts:2,origin:originOf(currentUrl),mediaId:mediaKey,catalogExtension,currentExtension,sourceKind})}};
-  const ready=()=>{if(token!==mediaLoadToken)return;drawArcs();if(hasResume&&resume.position<video.duration-3){video.currentTime=resume.position;const done=()=>{if(token===mediaLoadToken)video.play().catch(()=>{})};video.addEventListener('seeked',done,{once:true})}else if(video.paused){video.play().catch(()=>{})}};
-  const attachDirect=()=>{if(token!==mediaLoadToken)return;const hls=isHls();video.dataset.srhContainerExtension=currentExtension;video.dataset.srhSourceKind=sourceKind;video.src=currentUrl;video.onloadedmetadata=ready;video.onerror=directError;video.preload=hls?'auto':'metadata';video.load();if(hls&&!hasResume)video.play().catch(()=>{})};
+  const ready=()=>{if(token!==mediaLoadToken)return;drawArcs();if(hasResume&&resume.position<video.duration-3){video.currentTime=resume.position;const done=()=>{if(token===mediaLoadToken&&video.paused)void mediaPlay('resume-seek',token,mediaKey,sourceKind)};video.addEventListener('seeked',done,{once:true})}else if(video.paused){void mediaPlay('metadata-ready',token,mediaKey,sourceKind)}};
+  const attachDirect=()=>{if(token!==mediaLoadToken)return;const hls=isHls();video.dataset.srhContainerExtension=currentExtension;video.dataset.srhSourceKind=sourceKind;video.src=currentUrl;video.onloadedmetadata=ready;video.onerror=directError;video.preload=hls?'auto':'metadata';video.autoplay=true;video.load();void mediaPlay(alternativeAttempted?'fallback-open':'gesture-open',token,mediaKey,sourceKind)};
   const directError=async()=>{if(token!==mediaLoadToken||retryPending)return;const code=video.error?.code||0,exhausted=mediaRetryExhausted.has(mediaKey);
     if(code===4&&!vodInfoChecked&&!exhausted){
       vodInfoChecked=true;retryPending=true;mediaRetryExhausted.add(mediaKey);
