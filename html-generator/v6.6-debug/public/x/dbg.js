@@ -161,7 +161,7 @@ function incidentSummary(){
   return{sessionId:SESSION_ID,active:rows.filter(x=>x.status==='active'),recovered:rows.filter(x=>x.status==='recovered'),slow:rows.filter(x=>x.type==='slow'),recent:rows}
 }
 function issueExport(){
-  const rows=incidentHistory.slice(-80).filter(x=>(x.type==='slow'||x.status==='active'||x.status==='recovered')&&x.status!=='stale'&&!/transport-won|route-lost|proxy-lost|superseded/i.test(String(x.message||''))&&!(x.type==='slow'&&x.kind==='network.other'&&x.layer==='resource'&&String(x.details?.initiatorType||'').toLowerCase()==='img')).map(x=>({
+  const rows=incidentHistory.slice(-80).filter(x=>(x.type==='slow'||x.status==='active'||x.status==='recovered')&&x.status!=='stale'&&!/transport-won|route-lost|proxy-lost|superseded/i.test(String(x.message||''))&&!(x.status==='recovered'&&x.kind==='proxy'&&/rota alternativa concluiu a requisição/i.test(String(x.recoveryMessage||'')))&&!(x.type==='slow'&&x.kind==='network.other'&&x.layer==='resource'&&String(x.details?.initiatorType||'').toLowerCase()==='img')).map(x=>({
     time:new Date(Number(x.lastAt||x.firstAt||Date.now())).toISOString(),
     kind:x.kind||'unknown',
     status:x.status||'unknown',
