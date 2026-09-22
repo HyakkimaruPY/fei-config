@@ -2,11 +2,12 @@
 'use strict';
 if(window.SRHDebug)return;
 
-const VERSION='debug-supervisor-2';
+const VERSION='debug-supervisor-3';
 const STORAGE_SCHEMA=3;
 const HISTORY_SCHEMA=3;
 const CACHE_SCHEMA=2;
 const startedAt=Date.now();
+const SESSION_ID=Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,8);
 const qs=new URLSearchParams(location.search);
 const safeMode=qs.get('srhSafe')==='1'||(()=>{try{return localStorage.getItem('srh:debug:safe')==='1'}catch{return false}})();
 window.__SRH_SAFE_MODE__=safeMode;
@@ -36,6 +37,8 @@ const state={
   storage:{schema:STORAGE_SCHEMA,migrations:[]},
   cache:{schema:CACHE_SCHEMA,hits:0,misses:0,stale:0},
   network:{active:0,total:0,failed:0,retries:0,aborted:0},
+  incidents:{active:0,total:0,recovered:0,slow:0,last:null},
+  performance:{longTasks:0,longestMs:0,slowResources:0},
   regression:{status:'idle',last:null},
   health:{},
   features:{safeMode}
@@ -49,6 +52,79 @@ function subscribe(path,fn){if(!listeners.has(path))listeners.set(path,new Set()
 function transaction(label,fn){const before=clone(state);try{const value=fn(state);log('info','state.transaction',{label});return value}catch(e){Object.keys(state).forEach(k=>delete state[k]);Object.assign(state,before);log('error','state.transaction_rollback',{label,error:e?.message||String(e)});throw e}}
 
 const logs=[];
+const INCIDENT_STORE='srh:debug:incidents:v2';
+let incidentHistory=(()=>{try{const x=JSON.parse(localStorage.getItem(INCIDENT_STORE)||'[]');return Array.isArray(x)?x.slice(-80):[]}catch{return[]}})();
+const activeIncidents=new Map();
+let persistIncidentTimer=0;
+
+function safeUrl(value){
+  try{
+    const u=new URL(String(value),location.href);
+    const keep=new URLSearchParams();
+    for(const key of ['action','category_id','stream_id','series_id','vod_id']){const v=u.searchParams.get(key);if(v!=null)keep.set(key,v)}
+    let p=u.pathname.replace(/\/(movie|series|live)\/[^/]+\/[^/]+\//i,'/$1/[user]/[pass]/');
+    return u.origin+p+(keep.toString()?'?'+keep.toString():'')
+  }catch{return safeText(value)}
+}
+function requestMeta(value){
+  try{
+    const u=new URL(typeof value==='string'?value:value?.url||String(value),location.href);
+    const action=u.searchParams.get('action')||'';
+    const categoryId=u.searchParams.get('category_id')||'';
+    const path=u.pathname;
+    const host=u.host;
+    let kind='network.other';
+    if(/proxy|cors/i.test(host+path))kind='proxy';
+    else if(/player_api\.php/i.test(path)&&action==='get_vod_categories')kind='catalog.categories';
+    else if(/player_api\.php/i.test(path)&&action==='get_vod_streams')kind='catalog.items';
+    else if(/player_api\.php/i.test(path))kind='xtream.api';
+    else if(/get\.php/i.test(path)||/\.(?:m3u|m3u8)(?:$|\?)/i.test(path))kind='playlist';
+    else if(/\/(?:movie|series|live)\//i.test(path)||/\.(?:ts|mp4|mkv|webm|aac|mp3)(?:$|\?)/i.test(path))kind='media';
+    else if(/themoviedb/i.test(host))kind='tmdb';
+    else if(/raw\.githubusercontent\.com|githubusercontent/i.test(host))kind='asset';
+    return{kind,origin:u.origin,path,action,categoryId,url:safeUrl(u.href)}
+  }catch{return{kind:'network.other',origin:'unknown',path:'',action:'',categoryId:'',url:safeText(value)}}
+}
+function incidentKey(meta={}){return [meta.kind||'unknown',meta.action||'',meta.categoryId||'',meta.origin||'',meta.layer||''].join('|')}
+function syncIncidentState(last=null){
+  const all=incidentHistory;
+  patch('incidents',{
+    active:[...activeIncidents.values()].filter(x=>x.status==='active').length,
+    total:all.length,
+    recovered:all.filter(x=>x.status==='recovered').length,
+    slow:all.filter(x=>x.type==='slow').length,
+    last:last||all.at(-1)||null
+  });
+  updateDebugBadge()
+}
+function persistIncidents(){
+  clearTimeout(persistIncidentTimer);
+  persistIncidentTimer=setTimeout(()=>{try{localStorage.setItem(INCIDENT_STORE,JSON.stringify(incidentHistory.slice(-80)))}catch{}},80)
+}
+function noteFailure(meta={}){
+  const key=incidentKey(meta),t=Date.now(),prev=activeIncidents.get(key);
+  const row=prev||{id:uid(),key,type:meta.type||'failure',kind:meta.kind||'unknown',action:meta.action||'',categoryId:meta.categoryId||'',origin:meta.origin||'',layer:meta.layer||'',firstAt:t,count:0,status:'active',sessionId:SESSION_ID};
+  row.count++;row.lastAt=t;row.status='active';row.message=safeText(meta.message||meta.error||'Falha');row.ms=Number(meta.ms)||row.ms||0;row.statusCode=Number(meta.status)||0;row.details=sanitize(meta.details||{});
+  activeIncidents.set(key,row);
+  const idx=incidentHistory.findIndex(x=>x.id===row.id);if(idx>=0)incidentHistory[idx]=clone(row);else incidentHistory.push(clone(row));
+  if(incidentHistory.length>80)incidentHistory=incidentHistory.slice(-80);
+  persistIncidents();syncIncidentState(row);bus.dispatchEvent(new CustomEvent('incident',{detail:clone(row)}));return row
+}
+function noteRecovery(meta={}){
+  const key=incidentKey(meta),row=activeIncidents.get(key);if(!row)return null;
+  row.status='recovered';row.recoveredAt=Date.now();row.recoveryMs=row.recoveredAt-row.firstAt;row.lastSuccessMs=Number(meta.ms)||0;row.successStatus=Number(meta.status)||0;
+  activeIncidents.delete(key);
+  const idx=incidentHistory.findIndex(x=>x.id===row.id);if(idx>=0)incidentHistory[idx]=clone(row);
+  persistIncidents();syncIncidentState(row);bus.dispatchEvent(new CustomEvent('incident',{detail:clone(row)}));return row
+}
+function noteSlow(meta={}){
+  const row={id:uid(),key:incidentKey({...meta,type:'slow'}),type:'slow',kind:meta.kind||'performance',action:meta.action||'',categoryId:meta.categoryId||'',origin:meta.origin||'',layer:meta.layer||'',firstAt:Date.now(),lastAt:Date.now(),count:1,status:'observed',sessionId:SESSION_ID,message:safeText(meta.message||'Operação lenta'),ms:Math.round(Number(meta.ms)||0),details:sanitize(meta.details||{})};
+  incidentHistory.push(row);if(incidentHistory.length>80)incidentHistory=incidentHistory.slice(-80);persistIncidents();syncIncidentState(row);bus.dispatchEvent(new CustomEvent('incident',{detail:clone(row)}));return row
+}
+function incidentSummary(){
+  const rows=incidentHistory.slice(-40).reverse();
+  return{sessionId:SESSION_ID,active:rows.filter(x=>x.status==='active'),recovered:rows.filter(x=>x.status==='recovered'),slow:rows.filter(x=>x.type==='slow'),recent:rows}
+}
 function sanitize(v,depth=0){if(depth>5)return'[max-depth]';if(v==null||typeof v==='number'||typeof v==='boolean')return v;if(typeof v==='string')return safeText(v).slice(0,1800);if(Array.isArray(v))return v.slice(0,100).map(x=>sanitize(x,depth+1));if(typeof v==='object'){const out={};for(const [k,x] of Object.entries(v)){if(/pass|token|secret|cookie|authorization|credential/i.test(k))out[k]='[redacted]';else out[k]=sanitize(x,depth+1)}return out}return safeText(v)}
 function log(level,event,data={}){const row={time:now(),level,event:safeText(event),data:sanitize(data)};logs.push(row);if(logs.length>600)logs.splice(0,logs.length-600);bus.dispatchEvent(new CustomEvent('log',{detail:row}));return row}
 
@@ -248,16 +324,16 @@ function canRetry(method,url){return method==='GET'&&!/\.(?:m3u8|ts|mp4|mkv|avi|
 const originalFetch=window.fetch?.bind(window);
 if(originalFetch){
   window.fetch=async function debugFetch(input,init={}){
-    const url=typeof input==='string'?input:input?.url||String(input),method=String(init.method||input?.method||'GET').toUpperCase(),key=serviceKey(url),c=circuit(key),policy=!safeMode&&method==='GET'?cachePolicy(url):null;
+    const url=typeof input==='string'?input:input?.url||String(input),method=String(init.method||input?.method||'GET').toUpperCase(),meta=requestMeta(url),traceId=uid(),key=serviceKey(url),c=circuit(key),policy=!safeMode&&method==='GET'?cachePolicy(url):null;
     const cached=policy?cache.get(policy.ns,url,{allowStale:true}):null;
-    if(cached?.fresh){const hit=cache.response(cached);if(hit){log('info','cache.hit',{ns:policy.ns,url});return hit}}
-    if(c.openUntil>Date.now()&&!init?.srhBypassCircuit){if(cached){const stale=cache.response(cached);if(stale){log('warn','network.circuit_cache',{key,url});return stale}}log('warn','network.circuit_open',{key,url,until:c.openUntil});throw new Error('Serviço temporariamente em recuperação')}
+    if(cached?.fresh){const hit=cache.response(cached);if(hit){log('info','cache.hit',{ns:policy.ns,traceId,...meta});return hit}}
+    if(c.openUntil>Date.now()&&!init?.srhBypassCircuit){if(cached){const stale=cache.response(cached);if(stale){log('warn','network.circuit_cache',{key,traceId,...meta});return stale}}noteFailure({...meta,layer:'fetch',message:'Circuit breaker aberto'});log('warn','network.circuit_open',{key,traceId,...meta,until:c.openUntil});throw new Error('Serviço temporariamente em recuperação')}
     if(c.openUntil&&c.openUntil<=Date.now())c.halfOpen=true;
     const maxAttempts=!safeMode&&canRetry(method,url)?2:1;
     let lastError,lastResponse;
     for(let attempt=0;attempt<maxAttempts;attempt++){
       const id=uid(),started=performance.now(),navSignal=isNavigationRequest(url)?navigation.signal():null,signal=combineSignals(init.signal||input?.signal,navSignal);
-      requests.set(id,{id,url:safeText(url),service:key,attempt,startedAt:Date.now()});
+      requests.set(id,{id,traceId,...meta,service:key,attempt,startedAt:Date.now()});
       patch('network',{active:requests.size,total:state.network.total+1,failed:state.network.failed,retries:state.network.retries,aborted:state.network.aborted});
       try{
         const res=await originalFetch(input,{...init,...(signal?{signal}:{})});
@@ -266,23 +342,23 @@ if(originalFetch){
         if(res.ok){
           recordCircuit(key,true);
           if(policy){try{const copy=res.clone(),body=await copy.text();cache.put(policy.ns,url,res,body,policy)}catch{}}
-          log('info','network.response',{id,url,status:res.status,attempt,ms:Math.round(performance.now()-started)});
+          const ms=Math.round(performance.now()-started);noteRecovery({...meta,layer:'fetch',ms,status:res.status});if(ms>(meta.kind.startsWith('catalog.')?1200:2200))noteSlow({...meta,layer:'fetch',ms,message:'Resposta lenta'});log('info','network.response',{id,traceId,...meta,status:res.status,attempt,ms});
           return res
         }
-        if(!retryable){recordCircuit(key,false,new Error('HTTP '+res.status));state.network.failed++;log('warn','network.response',{id,url,status:res.status,attempt,ms:Math.round(performance.now()-started)});return res}
+        if(!retryable){const ms=Math.round(performance.now()-started);recordCircuit(key,false,new Error('HTTP '+res.status));state.network.failed++;noteFailure({...meta,layer:'fetch',message:'HTTP '+res.status,status:res.status,ms});log('warn','network.response',{id,traceId,...meta,status:res.status,attempt,ms});return res}
         lastError=new Error('HTTP '+res.status);
         recordCircuit(key,false,lastError);
       }catch(e){
         lastError=e;
-        if(e?.name==='AbortError'){state.network.aborted++;log('info','network.aborted',{id,url,attempt});throw e}
-        recordCircuit(key,false,e);
+        if(e?.name==='AbortError'){state.network.aborted++;const ms=Math.round(performance.now()-started),reason=safeText(signal?.reason?.message||signal?.reason||'AbortError');if(meta.kind.startsWith('catalog.')||meta.kind==='playlist')noteFailure({...meta,layer:'fetch',message:'Abortado/timeout: '+reason,ms});log('warn','network.aborted',{id,traceId,...meta,attempt,ms,reason});throw e}
+        const ms=Math.round(performance.now()-started);recordCircuit(key,false,e);noteFailure({...meta,layer:'fetch',message:e?.message||String(e),ms});
       }finally{requests.delete(id);patch('network',{active:requests.size,total:state.network.total,failed:state.network.failed,retries:state.network.retries,aborted:state.network.aborted})}
-      if(attempt+1<maxAttempts&&shouldRetry(lastResponse,lastError)){state.network.retries++;const ms=retryDelay(lastResponse,attempt);log('warn','network.retry',{url,attempt:attempt+1,delayMs:ms,error:lastError?.message||'',status:lastResponse?.status||0});await sleep(ms);continue}
+      if(attempt+1<maxAttempts&&shouldRetry(lastResponse,lastError)){state.network.retries++;const ms=retryDelay(lastResponse,attempt);log('warn','network.retry',{traceId,...meta,attempt:attempt+1,delayMs:ms,error:lastError?.message||'',status:lastResponse?.status||0});await sleep(ms);continue}
       break
     }
     state.network.failed++;
-    if(cached){const stale=cache.response(cached);if(stale){log('warn','cache.stale_fallback',{ns:policy?.ns,url,error:lastError?.message||''});return stale}}
-    log('error','network.error',{url,error:lastError?.message||String(lastError||'Falha'),status:lastResponse?.status||0});
+    if(cached){const stale=cache.response(cached);if(stale){log('warn','cache.stale_fallback',{ns:policy?.ns,traceId,...meta,error:lastError?.message||''});return stale}}
+    log('error','network.error',{traceId,...meta,error:lastError?.message||String(lastError||'Falha'),status:lastResponse?.status||0});
     if(lastResponse)return lastResponse;
     throw lastError||new Error('Falha de rede');
   };
@@ -421,22 +497,24 @@ function pointStatus(){
     10:{name:'Detector de regressão',ok:generator?regression.installed:!!readBuildManifest()}
   }
 }
-function diagnostic(){return{build:clone(window.__SRH_DEBUG_BUILD__||{}),manifest:readBuildManifest(),supervisor:VERSION,uptimeMs:Date.now()-startedAt,mode:window.__srhA?.m||'',safeMode,points:pointStatus(),state:clone(state),requests:requestManager.snapshot(),circuits:[...circuits].map(([service,x])=>({service,...x})),cache:{versions:cacheVersions,...clone(state.cache)},logs:logs.slice(-160)}}
+function diagnostic(){return{build:clone(window.__SRH_DEBUG_BUILD__||{}),manifest:readBuildManifest(),supervisor:VERSION,sessionId:SESSION_ID,uptimeMs:Date.now()-startedAt,mode:window.__srhA?.m||'',safeMode,hotUpdate:{enabled:true,regenerationRequired:false,refreshRequired:true,channel:'v6.6-debug/public/x/dbg.js'},points:pointStatus(),incidents:incidentSummary(),state:clone(state),requests:requestManager.snapshot(),circuits:[...circuits].map(([service,x])=>({service,...x})),cache:{versions:cacheVersions,...clone(state.cache)},logs:logs.slice(-220)}}
 
 function panel(){
   if(document.getElementById('srhDebugPanel'))return;
   const root=document.createElement('div');root.id='srhDebugPanel';root.className='srh-debug-panel is-hidden';
-  root.innerHTML='<div class="srh-debug-head"><strong>Diagnóstico</strong><button data-x="close" aria-label="Fechar">×</button></div><div class="srh-debug-status" data-x="status"></div><div class="srh-debug-points" data-x="points"></div><div class="srh-debug-actions"><button data-x="smoke">Rodar smoke test</button><button data-x="copy">Copiar diagnóstico</button><button data-x="export">Exportar configuração</button><button data-x="import">Importar configuração</button><button data-x="safe">Modo seguro</button><button data-x="migrate">Migrar dados</button><button data-x="cache">Limpar cache debug</button></div><pre class="srh-debug-output" data-x="out"></pre><input type="file" data-x="file" accept="application/json" hidden>';
+  root.innerHTML='<div class="srh-debug-head"><strong>Diagnóstico</strong><button data-x="close" aria-label="Fechar">×</button></div><div class="srh-debug-status" data-x="status"></div><div class="srh-debug-incidents" data-x="incidents"></div><div class="srh-debug-points" data-x="points"></div><div class="srh-debug-actions"><button data-x="incident">Copiar último incidente</button><button data-x="smoke">Rodar smoke test</button><button data-x="copy">Copiar diagnóstico</button><button data-x="export">Exportar configuração</button><button data-x="import">Importar configuração</button><button data-x="safe">Modo seguro</button><button data-x="migrate">Migrar dados</button><button data-x="cache">Limpar cache debug</button></div><pre class="srh-debug-output" data-x="out"></pre><input type="file" data-x="file" accept="application/json" hidden>';
   document.body.appendChild(root);
-  const q=s=>root.querySelector(s),out=q('[data-x="out"]'),status=q('[data-x="status"]'),points=q('[data-x="points"]');
+  const q=s=>root.querySelector(s),out=q('[data-x="out"]'),status=q('[data-x="status"]'),points=q('[data-x="points"]'),incidents=q('[data-x="incidents"]');
   const render=()=>{
     const d=diagnostic(),ps=Object.values(d.points);
-    status.textContent=(d.state.health?.router?'Router OK':'Router ?')+' · '+(d.state.health?.storage?'Storage OK':'Storage bloqueado')+' · '+d.state.network.active+' req ativa(s)';
+    status.textContent=(d.state.health?.router?'Router OK':'Router ?')+' · '+(d.state.health?.storage?'Storage OK':'Storage bloqueado')+' · '+d.state.network.active+' req ativa(s) · '+d.incidents.active.length+' incidente(s) ativo(s)';
+    const recent=d.incidents.recent.slice(0,8);incidents.innerHTML='<div class="srh-debug-incidents__title">Incidentes capturados · sessão '+d.sessionId+'</div>'+(recent.length?recent.map(x=>'<div class="srh-debug-incident '+x.status+'"><b>'+String(x.kind||'erro')+'</b><span>'+String(x.message||'').replace(/[<>&]/g,m=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[m]))+'</span><em>'+Math.round(x.ms||x.recoveryMs||0)+' ms · '+x.status+'</em></div>').join(''):'<div class="srh-debug-incident empty">Nenhum incidente registrado nesta janela.</div>');
     points.innerHTML=ps.map((p,i)=>'<div class="'+(p.ok?'ok':'bad')+'"><span>'+(i+1)+'</span><b>'+p.name+'</b><em>'+(p.ok?'OK':'PENDENTE')+'</em></div>').join('');
     out.textContent=JSON.stringify(d,null,2)
   };
   root.render=render;
   q('[data-x="close"]').onclick=()=>root.classList.add('is-hidden');
+  q('[data-x="incident"]').onclick=async()=>{const row=incidentSummary().recent[0];const t=JSON.stringify(row||{message:'Nenhum incidente registrado'},null,2);try{await navigator.clipboard.writeText(t);status.textContent='Último incidente copiado.'}catch{download('srhell-incidente-debug.json',t)}};
   q('[data-x="smoke"]').onclick=()=>{const r=regression.smoke();status.textContent=r.ok?'Smoke test passou.':'Falha: '+r.failed.join(', ');render()};
   q('[data-x="copy"]').onclick=async()=>{const t=JSON.stringify(diagnostic(),null,2);try{await navigator.clipboard.writeText(t);status.textContent='Diagnóstico copiado.'}catch{download('srhell-diagnostico.json',t)}};
   q('[data-x="export"]').onclick=()=>download('srhell-backup-debug.json',JSON.stringify(storage.export(true),null,2));
@@ -455,22 +533,91 @@ function attachButton(){
   if(settings){b.classList.remove('is-floating');settings.prepend(b)}else if(!b.isConnected){b.classList.add('is-floating');document.body.appendChild(b)}
 }
 
+
+function updateDebugBadge(){
+  const b=document.getElementById('srhDebugButton');if(!b)return;
+  const n=Number(state.incidents?.active||0),slow=Number(state.incidents?.slow||0);
+  b.textContent=n?'Diagnóstico · '+n:(slow?'Diagnóstico · '+slow+' lento(s)':'Diagnóstico');
+  b.classList.toggle('has-incident',n>0)
+}
+function classifyAction(params={}){
+  const action=String(params?.action||'');
+  if(action==='get_vod_categories')return'catalog.categories';
+  if(action==='get_vod_streams')return'catalog.items';
+  if(action)return'xtream.'+action;
+  return'xtream.account'
+}
+function instrumentShortsRequests(S){
+  if(!S||S.__debugRequestsInstrumented)return;
+  S.__debugRequestsInstrumented=true;
+  for(const name of ['request','requestWithConfig']){
+    const original=S[name];if(typeof original!=='function')continue;
+    S[name]=async function(params={}){
+      const started=performance.now(),kind=classifyAction(params),meta={kind,action:String(params?.action||''),categoryId:String(params?.category_id||''),layer:'shorts.'+name,origin:'xtream'};
+      log('info','catalog.request.start',meta);
+      try{
+        const result=await original.apply(this,arguments),ms=Math.round(performance.now()-started),count=Array.isArray(result)?result.length:(result&&typeof result==='object'?Object.keys(result).length:0);
+        noteRecovery({...meta,ms,status:200});
+        if(ms>1200)noteSlow({...meta,ms,message:'Consulta de catálogo lenta',details:{count}});
+        patch('catalog',{last:{...meta,ms,count,ok:true},updatedAt:Date.now()});
+        log('info','catalog.request.ok',{...meta,ms,count});return result
+      }catch(e){
+        const ms=Math.round(performance.now()-started);noteFailure({...meta,ms,message:e?.message||String(e)});
+        patch('catalog',{last:{...meta,ms,ok:false,error:safeText(e?.message||e)},updatedAt:Date.now()});
+        log('error','catalog.request.error',{...meta,ms,error:e?.message||String(e)});throw e
+      }
+    }
+  }
+}
+function observeCatalogStatus(){
+  const node=document.querySelector('#feedStatus');if(!node||node.__srhDebugObserved)return;
+  node.__srhDebugObserved=true;let last='';
+  const read=()=>{
+    const text=String(node.textContent||'').trim();if(!text||text===last)return;last=text;
+    log('info','catalog.ui_status',{text});
+    const bad=/falha|erro|error|timeout|tempo esgotado|abort|length|comprimento|lag|inválid/i.test(text);
+    const ok=/shorts|mesclando|carregando|atualizando/i.test(text)&&!bad;
+    const meta={kind:'catalog.ui',layer:'status',origin:'ui',message:text};
+    if(bad)noteFailure(meta);else if(ok)noteRecovery(meta)
+  };
+  new MutationObserver(read).observe(node,{subtree:true,childList:true,characterData:true});read()
+}
+function installConsoleCapture(){
+  if(console.__srhDebugCaptured)return;console.__srhDebugCaptured=true;
+  for(const level of ['warn','error']){
+    const original=console[level]?.bind(console);if(!original)continue;
+    console[level]=function(){try{const message=[...arguments].map(x=>typeof x==='string'?x:JSON.stringify(sanitize(x))).join(' ').slice(0,1600);log(level==='error'?'error':'warn','console.'+level,{message});if(level==='error')noteFailure({kind:'console',layer:'console',origin:'page',message})}catch{}return original(...arguments)}
+  }
+}
+function installPerformanceTracing(){
+  if(typeof PerformanceObserver!=='function')return;
+  try{
+    const longObserver=new PerformanceObserver(list=>{for(const e of list.getEntries()){const ms=Math.round(e.duration);state.performance.longTasks++;state.performance.longestMs=Math.max(state.performance.longestMs,ms);patch('performance',{longTasks:state.performance.longTasks,longestMs:state.performance.longestMs,slowResources:state.performance.slowResources});if(ms>=100)noteSlow({kind:'main-thread',layer:'performance',origin:'page',ms,message:'Main thread bloqueada',details:{name:e.name,start:Math.round(e.startTime)}})}});
+    longObserver.observe({entryTypes:['longtask']})
+  }catch{}
+  try{
+    const resourceObserver=new PerformanceObserver(list=>{for(const e of list.getEntries()){if(e.duration<1800)continue;state.performance.slowResources++;patch('performance',{slowResources:state.performance.slowResources});const meta=requestMeta(e.name);noteSlow({...meta,layer:'resource',ms:Math.round(e.duration),message:'Recurso demorou para carregar',details:{initiatorType:e.initiatorType,transferSize:e.transferSize||0}})}});
+    resourceObserver.observe({entryTypes:['resource']})
+  }catch{}
+}
+
 function bridge(){
   syncAppState();
   const S=window.SRH25;
   if(S&&!S.__debugBridge){
-    S.__debugBridge=true;S.centralState=api.state;patch('shorts',{connected:true,appId:S.cfg?.appId||'',items:S.state?.items?.length||0});
+    S.__debugBridge=true;S.centralState=api.state;patch('shorts',{connected:true,appId:S.cfg?.appId||'',items:S.state?.items?.length||0});instrumentShortsRequests(S);observeCatalogStatus();
     if(typeof S.openPlayer==='function'){const oldOpen=S.openPlayer;S.openPlayer=function(item){player.begin('shorts',{id:S.id?.(item),title:S.title?.(item)});try{return oldOpen.apply(this,arguments)}catch(e){player.error(e);throw e}}}
   }
 }
 
-function installGlobalErrors(){addEventListener('error',e=>log('error','window.error',{message:e.message,source:e.filename,line:e.lineno,col:e.colno}),true);addEventListener('unhandledrejection',e=>log('error','promise.rejection',{reason:e.reason?.message||String(e.reason)}))}
+function installGlobalErrors(){addEventListener('error',e=>{const meta={kind:'javascript',layer:'window',origin:'page',message:e.message||'window.error',details:{source:safeUrl(e.filename||''),line:e.lineno,col:e.colno}};noteFailure(meta);log('error','window.error',meta)},true);addEventListener('unhandledrejection',e=>{const meta={kind:'promise',layer:'window',origin:'page',message:e.reason?.message||String(e.reason)};noteFailure(meta);log('error','promise.rejection',meta)})}
 
 function init(){
   boot.begin(window.__SRH_DEBUG_BUILD__||{});
-  boot.phase('supervisor-v2');
+  boot.phase('supervisor-v3');
+  patch('meta',{sessionId:SESSION_ID,hotUpdate:true});syncIncidentState();
   syncAppState();
-  installGlobalErrors();
+  installGlobalErrors();installConsoleCapture();installPerformanceTracing();
   cache.prune();
   storage.migrate();
   navigation.begin('initial');
@@ -480,16 +627,16 @@ function init(){
   healthCheck();
   attachButton();
   preload.idle();
-  setTimeout(()=>{bridge();attachButton();regression.smoke()},0);
-  setTimeout(()=>{bridge();attachButton()},500);
-  setTimeout(()=>{bridge();attachButton()},1800);
+  setTimeout(()=>{bridge();attachButton();observeCatalogStatus();regression.smoke()},0);
+  setTimeout(()=>{bridge();attachButton();observeCatalogStatus()},500);
+  setTimeout(()=>{bridge();attachButton();observeCatalogStatus()},1800);
   setTimeout(()=>{if(state.boot.status==='starting')boot.commit({reason:'watchdog-ready'})},2500)
 }
 
 const api={
   version:VERSION,bus,
   state:{get,set,patch,subscribe,transaction,snapshot:()=>clone(state)},
-  log,logs,boot,navigation,requests:requestManager,storage,cache,player,regression,preload,healthCheck,diagnostic,pointStatus,registerExtension,features:{safeMode},attachButton,bridge
+  log,logs,boot,navigation,requests:requestManager,storage,cache,player,regression,preload,healthCheck,diagnostic,incidentSummary,noteFailure,noteRecovery,noteSlow,pointStatus,registerExtension,features:{safeMode,hotUpdate:true},attachButton,bridge
 };
 window.SRHDebug=Object.freeze(api);
 init();

@@ -9,3 +9,19 @@
 .srh-debug-points .bad{border-color:rgba(217,125,134,.35)}
 .srh-debug-points .bad em{color:#e09aa1}
 @media(max-width:600px){.srh-debug-points{grid-template-columns:1fr}}
+
+.srh-debug-button.has-incident{box-shadow:0 0 0 1px rgba(224,154,161,.45),0 8px 24px rgba(0,0,0,.28)}
+.srh-debug-incidents{display:grid;gap:6px;padding:0 14px 12px}
+.srh-debug-incidents__title{font:750 10px/1.2 system-ui;letter-spacing:.04em;opacity:.72;padding:2px 1px 4px}
+.srh-debug-incident{display:grid;grid-template-columns:minmax(88px,.8fr) minmax(0,1.8fr) auto;gap:8px;align-items:center;padding:8px 9px;border:1px solid rgba(255,255,255,.09);border-radius:10px;background:#0d141d;font:600 9px/1.25 system-ui}
+.srh-debug-incident b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.srh-debug-incident span{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;opacity:.86}
+.srh-debug-incident em{font-style:normal;font-size:8px;opacity:.68;white-space:nowrap}
+.srh-debug-incident.active{border-color:rgba(224,154,161,.42)}
+.srh-debug-incident.active em{color:#e09aa1;opacity:1}
+.srh-debug-incident.recovered{border-color:rgba(158,215,176,.30)}
+.srh-debug-incident.recovered em{color:#9ed7b0;opacity:1}
+.srh-debug-incident.observed{border-color:rgba(211,188,126,.30)}
+.srh-debug-incident.observed em{color:#d8c58d;opacity:1}
+.srh-debug-incident.empty{display:block;opacity:.58}
+@media(max-width:600px){.srh-debug-incident{grid-template-columns:1fr auto}.srh-debug-incident span{grid-column:1/-1;grid-row:2;white-space:normal}}
