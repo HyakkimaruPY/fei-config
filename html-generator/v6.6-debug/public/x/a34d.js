@@ -4,10 +4,17 @@ const $=s=>document.querySelector(s);
 const clean=s=>String(s??'').trim();
 const APP_NS=String(BASE_CONFIG.appId||BASE_CONFIG.appName||'app').replace(/[^a-z0-9_-]/gi,'_');
 const runtimeKey='srh25:'+APP_NS+':runtime:v1';
-function readRuntime(){try{const x=JSON.parse(localStorage.getItem(runtimeKey)||'null');return x&&typeof x==='object'?x:null}catch{return null}}
-const cfg={...BASE_CONFIG,...(readRuntime()||{})};
+function readRuntimeLegacy(){try{const x=JSON.parse(localStorage.getItem(runtimeKey)||'null');return x&&typeof x==='object'?x:null}catch{return null}}
+const cfg={...BASE_CONFIG,...(readRuntimeLegacy()||{})};
 const S={cfg,baseConfig:BASE_CONFIG,runtimeKey,state:{items:[],filtered:[],history:[],favorites:new Set(),pool:null,poolPromise:null,proxy:null,proxyChoice:null,hls:null,current:null,requests:new Map()},$};
 window.SRH25=S;
+const RUNTIME_DB='srh25-runtime-v2',RUNTIME_STORE='state';let runtimeDbPromise=null,runtimeWriteTail=Promise.resolve(),runtimeQueued=0,runtimeDone=0;
+function runtimeDbOpen(){if(runtimeDbPromise)return runtimeDbPromise;runtimeDbPromise=new Promise((resolve,reject)=>{if(!window.indexedDB){reject(new Error('IndexedDB indisponível'));return}let q;try{q=indexedDB.open(RUNTIME_DB,1)}catch(e){runtimeDbPromise=null;reject(e);return}q.onupgradeneeded=()=>{try{if(!q.result.objectStoreNames.contains(RUNTIME_STORE))q.result.createObjectStore(RUNTIME_STORE)}catch{}};q.onsuccess=()=>{const db=q.result;db.onversionchange=()=>{try{db.close()}catch{}runtimeDbPromise=null};resolve(db)};q.onerror=()=>{runtimeDbPromise=null;reject(q.error||new Error('IndexedDB falhou'))};q.onblocked=()=>{}});return runtimeDbPromise}
+async function runtimeDbGet(key){const db=await runtimeDbOpen();return await new Promise((resolve,reject)=>{let tx,r;try{tx=db.transaction(RUNTIME_STORE,'readonly');r=tx.objectStore(RUNTIME_STORE).get(key)}catch(e){reject(e);return}r.onsuccess=()=>resolve(r.result==null?null:r.result);r.onerror=()=>reject(r.error||new Error('IndexedDB leitura falhou'))})}
+async function runtimeDbWriteRaw(key,value,remove=false){const db=await runtimeDbOpen();return await new Promise((resolve,reject)=>{let tx;try{tx=db.transaction(RUNTIME_STORE,'readwrite');const os=tx.objectStore(RUNTIME_STORE);remove?os.delete(key):os.put(value,key)}catch(e){reject(e);return}tx.oncomplete=()=>resolve(true);tx.onerror=()=>reject(tx.error||new Error('IndexedDB escrita falhou'));tx.onabort=()=>reject(tx.error||new Error('IndexedDB escrita abortada'))})}
+function runtimeWriteLock(task){runtimeQueued++;const run=async()=>{try{if(navigator.locks?.request)return await navigator.locks.request('srh25-runtime:'+APP_NS,{mode:'exclusive'},task);return await task()}finally{runtimeDone++}};const next=runtimeWriteTail.catch(()=>{}).then(run);runtimeWriteTail=next.catch(()=>{});return next}
+S.storage={backend:'indexeddb',db:RUNTIME_DB,get:key=>runtimeDbGet(key),set:(key,value)=>runtimeWriteLock(()=>runtimeDbWriteRaw(key,value,false)),delete:key=>runtimeWriteLock(()=>runtimeDbWriteRaw(key,null,true)),open:runtimeDbOpen,stats:()=>({backend:'indexeddb',db:RUNTIME_DB,connection:runtimeDbPromise?'open/pending':'closed',queuedWrites:Math.max(0,runtimeQueued-runtimeDone),writesQueued:runtimeQueued,writesDone:runtimeDone,webLocks:!!navigator.locks?.request})};
+S.hydrateRuntime=async()=>{const legacy=readRuntimeLegacy();let stored=null;try{stored=await S.storage.get(runtimeKey)}catch{}if(!stored&&legacy){try{await S.storage.set(runtimeKey,legacy);stored=legacy;try{localStorage.removeItem(runtimeKey)}catch{}}catch{stored=legacy}}if(stored&&typeof stored==='object')Object.assign(cfg,stored);return stored};
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const server=(source=cfg)=>clean(source?.server).replace(/\/+$/,'');
 const enc=encodeURIComponent;
@@ -27,7 +34,7 @@ S.image=highQualityImage;
 S.stream=item=>`${server()}/movie/${enc(cfg.username)}/${enc(cfg.password)}/${S.id(item)}.${clean(item?.container_extension)||'mp4'}`;
 S.toast=msg=>{const n=$('#toast');if(!n)return;n.textContent=msg;n.classList.add('is-on');clearTimeout(S.toast.t);S.toast.t=setTimeout(()=>n.classList.remove('is-on'),1800)};
 S.parseLogin=raw=>{let text=clean(raw);if(!text)throw new Error('Informe o novo M3U / login Xtream.');if(!/^https?:\/\//i.test(text))text='http://'+text;let u;try{u=new URL(text)}catch{throw new Error('URL inválida.')}let username=u.searchParams.get('username')||u.searchParams.get('user'),password=u.searchParams.get('password')||u.searchParams.get('pass');const parts=u.pathname.split('/').filter(Boolean);if((!username||!password)&&parts.length>=2&&!/\.php$/i.test(parts.at(-1)||'')){username=username||decodeURIComponent(parts[0]);password=password||decodeURIComponent(parts[1])}if(!username||!password)throw new Error('Não encontrei username e password.');return{server:u.origin.replace(/\/+$/,''),username,password,liveExtension:(u.searchParams.get('output')||cfg.liveExtension||'m3u8').toLowerCase()==='ts'?'ts':'m3u8'}};
-S.saveRuntime=runtime=>{try{localStorage.setItem(runtimeKey,JSON.stringify(runtime));return true}catch{return false}};
+S.saveRuntime=async runtime=>{if(!runtime||typeof runtime!=='object')throw new Error('Runtime inválido');await S.storage.set(runtimeKey,runtime);Object.assign(cfg,runtime);try{localStorage.removeItem(runtimeKey)}catch{}return true};
 function parseJson(t){let s=String(t??'').replace(/^\uFEFF/,'').trim();try{return JSON.parse(s)}catch{}const a=s.indexOf('{'),b=s.indexOf('['),i=a<0?b:b<0?a:Math.min(a,b);if(i>=0){const j=s.lastIndexOf(s[i]==='{'?'}':']');if(j>i)return JSON.parse(s.slice(i,j+1))}throw new Error('Resposta inválida')}
 async function fetchText(url,timeout=5000,options={}){const c=new AbortController(),t=setTimeout(()=>c.abort(),timeout);try{const r=await fetch(url,{cache:'no-cache',redirect:'follow',credentials:'omit',signal:c.signal,srhProbe:options.probe===true});if(!r.ok)throw new Error('HTTP '+r.status);return await r.text()}finally{clearTimeout(t)}}
 function httpsTwin(url){try{const u=new URL(url);if(u.protocol!=='http:')return'';u.protocol='https:';return u.href}catch{return''}}
@@ -284,14 +291,16 @@ S.reconcileHistoryWithCatalog=items=>{
   void historyDbWrite(S.state.history);
   return true
 };
-function historyDbOpen(){
-  return new Promise((resolve,reject)=>{
+let historyDbPromise=null;function historyDbOpen(){
+  if(historyDbPromise)return historyDbPromise;
+  historyDbPromise=new Promise((resolve,reject)=>{
     if(!window.indexedDB){reject(new Error('IndexedDB indisponível'));return}
-    let q;try{q=indexedDB.open(HISTORY_DB,1)}catch(e){reject(e);return}
+    let q;try{q=indexedDB.open(HISTORY_DB,1)}catch(e){historyDbPromise=null;reject(e);return}
     q.onupgradeneeded=()=>{try{if(!q.result.objectStoreNames.contains(HISTORY_STORE))q.result.createObjectStore(HISTORY_STORE)}catch{}};
-    q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error||new Error('IndexedDB falhou'))
-  })
+    q.onsuccess=()=>{const db=q.result;db.onversionchange=()=>{try{db.close()}catch{}historyDbPromise=null};resolve(db)};q.onerror=()=>{historyDbPromise=null;reject(q.error||new Error('IndexedDB falhou'))}
+  });return historyDbPromise
 }
+S.historyDbOpen=historyDbOpen;
 async function historyDbRead(){
   try{
     const db=await historyDbOpen();
@@ -376,7 +385,7 @@ S.lockZoom=()=>{
   window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&['+','-','=','0'].includes(e.key))e.preventDefault()});
 };
 S.account=async()=>{try{const a=await S.request({}),raw=a?.user_info?.exp_date,n=Number(raw);if(n>0){const d=new Date(n*1000),days=Math.ceil((d-Date.now())/86400000);$('#expiryDate').textContent=d.toLocaleDateString('pt-BR');$('#expiryDays').textContent=days+' dias';$('#appMeta').textContent=(a?.user_info?.status||'Active')+' · '+days+' dias restantes'}else $('#appMeta').textContent=a?.user_info?.status||'Active'}catch{$('#appMeta').textContent='Conta conectada'}};
-S.boot=async()=>{document.body.dataset.theme=cfg.theme||'graphene';$('#appTitle').textContent=cfg.appName||'Meu App';S.lockZoom();S.state.favorites=S.readFavorites();S.state.history=await S.hydrateHistory();await S.hydrateContinueHidden?.();if(S.hydrateMiniUiState)await S.hydrateMiniUiState();S.reconcileContinueHidden?.();S.bindShell?.();await S.loadCatalog?.();window.dispatchEvent(new Event('srh25:ready'));setTimeout(()=>S.account(),0)};
+S.boot=async()=>{await S.hydrateRuntime?.();document.body.dataset.theme=cfg.theme||'graphene';$('#appTitle').textContent=cfg.appName||'Meu App';S.lockZoom();S.state.favorites=S.readFavorites();S.state.history=await S.hydrateHistory();await S.hydrateContinueHidden?.();if(S.hydrateMiniUiState)await S.hydrateMiniUiState();S.reconcileContinueHidden?.();S.bindShell?.();await S.loadCatalog?.();window.dispatchEvent(new Event('srh25:ready'));setTimeout(()=>S.account(),0)};
 })();
 (()=>{'use strict';const S=window.SRH25,$=S.$;
 const BATCH=30,CACHE_MAX_AGE=6*60*60*1000;let shown=0,observer=null,imgObserver=null,activeLibrary=null,updateCandidate=null,updateCategories=[],updateSelected=new Set();
@@ -515,8 +524,8 @@ async function applyUpdate(){
   const status=$('#shortUpdateStatus');if(!updateCandidate||!updateSelected.size)return;
   const targets=updateCategories.filter(c=>updateSelected.has(c.id)).map(c=>({type:'vod',id:c.id,name:c.name}));
   const runtime={server:updateCandidate.server,username:updateCandidate.username,password:updateCandidate.password,liveExtension:updateCandidate.liveExtension,targets};
-  if(!S.saveRuntime(runtime)){S.toast('O navegador bloqueou o armazenamento local.');return}
-  if(status)status.textContent='Atualização salva. Recarregando…';
+  try{await S.saveRuntime(runtime)}catch(e){if(status)status.textContent='Falha ao salvar no IndexedDB: '+(e?.message||e);S.toast('Não foi possível salvar a atualização.');return}
+  if(status)status.textContent='Atualização salva no IndexedDB. Recarregando…';
   await S.clearCatalogCache?.();S.toast('Lista atualizada. Recarregando…');setTimeout(()=>location.reload(),350)
 }
 S.bindShell=()=>{
@@ -570,16 +579,7 @@ let miniDock=null,miniOpen=null,miniImage=null,miniTitle=null,miniEpisode=null,m
 let miniCompactTimer=0,miniExpiryTimer=0,miniSuppressOpen=false,miniSuppressTimer=0,miniDrag=null,miniLastLayoutWidth=Math.max(1,Number(window.innerWidth)||1);
 
 function miniClamp(v,min,max){return Math.max(min,Math.min(max,v))}
-function miniUiDbOpen(){
-  return new Promise((resolve,reject)=>{
-    if(!window.indexedDB){reject(new Error('IndexedDB indisponível'));return}
-    let q;
-    try{q=indexedDB.open('srh25-history-v1',1)}catch(e){reject(e);return}
-    q.onupgradeneeded=()=>{try{if(!q.result.objectStoreNames.contains('state'))q.result.createObjectStore('state')}catch{}};
-    q.onsuccess=()=>resolve(q.result);
-    q.onerror=()=>reject(q.error||new Error('IndexedDB falhou'))
-  })
-}
+function miniUiDbOpen(){return S.historyDbOpen?S.historyDbOpen():Promise.reject(new Error('IndexedDB indisponível'))}
 async function miniUiDbRead(key){
   try{
     const db=await miniUiDbOpen();
