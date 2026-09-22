@@ -1215,19 +1215,22 @@ let mediaLoadToken=0;const mediaRetryExhausted=new Set();
 function warmMediaOrigin(url){try{const u=new URL(url,location.href),origin=u.origin;if(!origin||origin==='null')return;const key='srh-media-'+btoa(unescape(encodeURIComponent(origin))).replace(/=+$/,'');if(document.querySelector('link[data-srh-media="'+key+'"]'))return;const dns=document.createElement('link');dns.rel='dns-prefetch';dns.href=origin;dns.dataset.srhMedia=key;document.head.appendChild(dns);const pre=document.createElement('link');pre.rel='preconnect';pre.href=origin;pre.dataset.srhMedia=key;document.head.appendChild(pre)}catch{}}
 function mediaEvent(name,detail){try{window.dispatchEvent(new CustomEvent(name,{detail}))}catch{}}
 function mediaMime(ext){ext=String(ext||'').toLowerCase();if(ext==='mp4'||ext==='m4v')return'video/mp4';if(ext==='webm')return'video/webm';if(ext==='ogv'||ext==='ogg')return'video/ogg';if(ext==='m3u8')return'application/vnd.apple.mpegurl';if(ext==='ts')return'video/mp2t';if(ext==='mkv')return'video/x-matroska';if(ext==='avi')return'video/x-msvideo';return''}
+function mediaText(v){return String(v??'').trim()}
+function mediaServer(){return mediaText(S.cfg?.server).replace(/[/]+$/,'')}
+function mediaMovieUrl(mediaKey,ext){return mediaServer()+'/movie/'+encodeURIComponent(mediaText(S.cfg?.username))+'/'+encodeURIComponent(mediaText(S.cfg?.password))+'/'+encodeURIComponent(String(mediaKey||''))+'.'+mediaText(ext||'mp4')}
 async function resolveVodAlternative(item,mediaKey,currentUrl,catalogExtension){
   let info=null;try{info=await S.request({action:'get_vod_info',vod_id:mediaKey})}catch(e){mediaEvent('srh25:media-vod-info',{ok:false,mediaId:mediaKey,catalogExtension,error:e?.message||String(e)});return null}
-  const movie=info?.movie_data||{},meta=info?.info||{},direct=clean(movie?.direct_source||meta?.direct_source||info?.direct_source||''),vodInfoExtension=clean(movie?.container_extension||info?.container_extension||'').toLowerCase();
+  const movie=info?.movie_data||{},meta=info?.info||{},direct=mediaText(movie?.direct_source||meta?.direct_source||info?.direct_source||''),vodInfoExtension=mediaText(movie?.container_extension||info?.container_extension||'').toLowerCase();
   let url='',sourceKind='';
   if(direct&&direct!==currentUrl){url=direct;sourceKind='direct_source'}
-  else if(vodInfoExtension&&vodInfoExtension!==String(catalogExtension||'').toLowerCase()){url=server()+'/movie/'+enc(cfg.username)+'/'+enc(cfg.password)+'/'+mediaKey+'.'+vodInfoExtension;sourceKind='vod_info_extension'}
+  else if(vodInfoExtension&&vodInfoExtension!==String(catalogExtension||'').toLowerCase()){url=mediaMovieUrl(mediaKey,vodInfoExtension);sourceKind='vod_info_extension'}
   const detail={ok:true,mediaId:mediaKey,catalogExtension:String(catalogExtension||''),vodInfoExtension,directSource:!!direct,alternative:!!url,sourceKind};
   mediaEvent('srh25:media-vod-info',detail);
   return url?{url,sourceKind,extension:vodInfoExtension||catalogExtension,detail}:null
 }
 window.addEventListener('srh25:catalog-render',()=>warmMediaOrigin(S.cfg?.server||''),{once:true});
 async function loadVideo(item,resume){
-  const token=++mediaLoadToken,initialUrl=S.stream(item),mediaKey=String(S.id?.(item)||item?.stream_id||item?.id||initialUrl),catalogExtension=(clean(item?.container_extension)||'mp4').toLowerCase(),hasResume=Number(resume?.position)>0;let currentUrl=initialUrl,currentExtension=catalogExtension,sourceKind='catalog',vodInfoChecked=false,alternativeAttempted=false,retryPending=false,retryRecovered=false;
+  const token=++mediaLoadToken,initialUrl=S.stream(item),mediaKey=String(S.id?.(item)||item?.stream_id||item?.id||initialUrl),catalogExtension=(mediaText(item?.container_extension)||'mp4').toLowerCase(),hasResume=Number(resume?.position)>0;let currentUrl=initialUrl,currentExtension=catalogExtension,sourceKind='catalog',vodInfoChecked=false,alternativeAttempted=false,retryPending=false,retryRecovered=false;
   const originOf=url=>{try{return new URL(url,location.href).origin}catch{return'media'}},isHls=()=>/\.m3u8(?:$|\?)/i.test(currentUrl),origin=originOf(initialUrl);
   video.dataset.srhMediaId=mediaKey;video.dataset.srhContainerExtension=catalogExtension;video.dataset.srhSourceKind=sourceKind;
   const reveal=()=>{if(token!==mediaLoadToken)return;poster.classList.add('is-hidden');loading.classList.add('is-hidden');if(alternativeAttempted&&!retryRecovered){retryRecovered=true;mediaRetryExhausted.delete(mediaKey);mediaEvent('srh25:media-recovered',{attempts:2,origin:originOf(currentUrl),mediaId:mediaKey,catalogExtension,currentExtension,sourceKind})}};
