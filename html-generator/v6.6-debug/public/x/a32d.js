@@ -89,6 +89,7 @@ function requestFor(params={},source=cfg){
 }
 S.request=params=>requestFor(params,cfg);
 S.requestWithConfig=(params,source)=>requestFor(params,{...cfg,...source});
+S.coverProxyCandidates=url=>{const out=[url];try{if(cfg.corsProxy)out.push(proxyUrl(cfg.corsProxy,url));const saved=readProxy(cfg);if(saved?.template)out.push(proxyUrl(saved.template,url))}catch{}return[...new Set(out.filter(Boolean))]};
 const ns=APP_NS;
 const favKey='srh25:'+ns+':favorites',histKey='srh25:'+ns+':history',continueHiddenKey='srh25:'+ns+':continue-hidden:v1';
 let continueHiddenMemory={};
@@ -457,7 +458,8 @@ function appendBatch(){
   $('#feedStatus').textContent=list.length?shown+' de '+list.length+' Shorts':'Nenhum Short encontrado'
 }
 function reset(){shown=0;$('#shortGrid').replaceChildren();ensureImageObserver();appendBatch()}
-function renderItems(items){S.state.items=items;S.state.filtered=items.slice();S.reconcileHistoryWithCatalog?.(items);reset();S.refreshLibraryView?.();$('#appMeta').textContent=items.length+' Shorts · '+((S.cfg.targets||[]).filter(t=>t.type==='vod').length)+' categoria(s)'}
+function renderItems(items){S.state.items=items;S.state.filtered=items.slice();S.reconcileHistoryWithCatalog?.(items);reset();S.refreshLibraryView?.();$('#appMeta').textContent=items.length+' Shorts · '+((S.cfg.targets||[]).filter(t=>t.type==='vod').length)+' categoria(s)';if(!S.__variantApplying)window.dispatchEvent(new CustomEvent('srh25:catalog-render',{detail:{items:items.slice()}}))}
+S.renderCatalogItems=renderItems;
 function filter(){const q=$('#shortSearch').value.trim().toLocaleLowerCase('pt-BR');S.state.filtered=q?S.state.items.filter(x=>S.title(x).toLocaleLowerCase('pt-BR').includes(q)):S.state.items.slice();reset()}
 function libraryItems(kind){if(kind==='favorites')return S.state.items.filter(x=>S.state.favorites.has(S.id(x)));const byId=new Map(S.state.items.map(x=>[S.id(x),x]));return S.state.history.map(h=>byId.get(h.id)||h.item).filter(Boolean).filter(x=>S.isContinueVisible(x))}
 function renderLibrary(kind){const grid=$('#libraryGrid'),title=$('#libraryTitle'),items=libraryItems(kind);title.textContent=kind==='favorites'?'Favoritos':'Continuar assistindo';grid.replaceChildren();if(!items.length){const e=document.createElement('div');e.className='srh25-empty';e.textContent='Nada aqui por enquanto.';grid.appendChild(e)}else items.forEach(x=>grid.appendChild(card(x,{continue:kind!=='favorites'})))}
@@ -1303,4 +1305,248 @@ document.addEventListener('visibilitychange',()=>{if(document.visibilityState===
 window.addEventListener('srh25:ready',()=>{try{localStorage.setItem('srh25:last-runtime','a30-r42')}catch{}miniRemove(MINI_DISMISS_KEY);ensurePlayerControls();safeRenderMiniResume(false);setTimeout(()=>safeRenderMiniResume(false),120)},{once:true});
 Promise.resolve().then(()=>S.boot());
 })();
+})();
+
+(()=>{
+'use strict';
+const S=window.SRH25;
+if(!S||S.__srhLanguageVariants)return;
+S.__srhLanguageVariants=true;
+
+const VERSION='cover-language-v1';
+const SIMILARITY_THRESHOLD=0.80;
+const HASH_COLUMNS=9,HASH_ROWS=8,HASH_HEX_LENGTH=16;
+const LOAD_TIMEOUT=6500;
+const HASH_TTL=60*24*60*60*1000;
+const DB_NAME='srh25-cover-vision-debug-v1',DB_STORE='hashes';
+const memory=new Map();
+const groupsById=new Map();
+let sourceItems=[];
+let scanTimer=0;
+let scanGeneration=0;
+let scanRunning=false;
+let languageButton=null,languageSheet=null,languageBackdrop=null,languageList=null;
+const pop=[0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4];
+
+function clean(s){return String(s??'').trim()}
+function norm(s){
+  let v=clean(s).toLocaleLowerCase('pt-BR');
+  try{v=v.normalize('NFD').replace(/[\u0300-\u036f]/g,'')}catch{}
+  return v
+}
+function variantKind(name){
+  const raw=clean(name),n=norm(raw).replace(/[_.-]+/g,' ').replace(/\s+/g,' ');
+  if(/\[\s*(?:l|leg|lg)\s*\]/i.test(raw)||/\b(?:legendad[oa]s?|legendas?|leg|lg|sub|subbed|subtitle[sd]?|idioma original|audio original)\b/.test(n))return'legendado';
+  if(/\[\s*(?:d|dub)\s*\]/i.test(raw)||/\b(?:dublad[oa]s?|dublagem|dub|dubbed|pt\s*br|ptbr|portugues|audio portugues|voz portuguesa)\b/.test(n))return'dublado';
+  return'';
+}
+function canonicalTitle(item){
+  let s=norm(item?.name||item?.title||'');
+  s=s.replace(/\[\s*(?:l|leg|lg|d|dub)\s*\]/g,' ');
+  s=s.replace(/\([^)]{0,80}\)|\[[^\]]{0,80}\]|\{[^}]{0,80}\}/g,' ');
+  s=s.replace(/\b(?:legendad[oa]s?|legendas?|leg|lg|sub|subbed|subtitle[sd]?|dublad[oa]s?|dublagem|dub|dubbed|pt\s*br|ptbr|portugues|audio portugues|voz portuguesa|idioma original|audio original)\b/g,' ');
+  s=s.replace(/\b(?:versao|version)\s*\d+\b/g,' ');
+  return s.replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ').trim()
+}
+function coverUrl(item){return clean(S.image?.(item)||item?.stream_icon||item?.movie_image||item?.cover||'')}
+function canonicalCover(url){
+  const raw=clean(url);if(!raw)return'';
+  try{const u=new URL(raw,location.href);return (u.origin+decodeURIComponent(u.pathname)).toLowerCase().replace(/\.(?:jpe?g|png|webp|avif)$/,'').replace(/[@_-](?:w\d+|h\d+|\d{2,4}x\d{2,4}|thumb(?:nail)?|small|medium|large|mini|original|hd|sd)$/,'')}
+  catch{return norm(raw).replace(/[?#].*$/,'').replace(/\.(?:jpe?g|png|webp|avif)$/,'')}
+}
+function similarity(a,b){
+  const x=String(a||''),y=String(b||'');if(!x||x.length!==y.length)return 0;
+  let d=0;for(let i=0;i<x.length;i++){const xa=parseInt(x[i],16),xb=parseInt(y[i],16);if(!Number.isFinite(xa)||!Number.isFinite(xb))return 0;d+=pop[(xa^xb)&15]}
+  return 1-d/(x.length*4)
+}
+function openDb(){
+  return new Promise((resolve,reject)=>{
+    if(!window.indexedDB){reject(new Error('IndexedDB indisponível'));return}
+    let q;try{q=indexedDB.open(DB_NAME,1)}catch(e){reject(e);return}
+    q.onupgradeneeded=()=>{try{if(!q.result.objectStoreNames.contains(DB_STORE))q.result.createObjectStore(DB_STORE)}catch{}};
+    q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error||new Error('IndexedDB falhou'))
+  })
+}
+async function dbRead(key){
+  try{const db=await openDb();return await new Promise(resolve=>{let r;try{r=db.transaction(DB_STORE,'readonly').objectStore(DB_STORE).get(key)}catch{resolve(null);return}r.onsuccess=()=>resolve(r.result||null);r.onerror=()=>resolve(null)})}catch{return null}
+}
+async function dbWrite(key,value){
+  try{const db=await openDb();await new Promise(resolve=>{let tx;try{tx=db.transaction(DB_STORE,'readwrite');tx.objectStore(DB_STORE).put(value,key)}catch{resolve();return}tx.oncomplete=()=>resolve();tx.onerror=()=>resolve();tx.onabort=()=>resolve()})}catch{}
+}
+function loadImage(url){
+  return new Promise((resolve,reject)=>{
+    const img=new Image();let done=false;
+    const timer=setTimeout(()=>{if(done)return;done=true;img.src='';reject(new Error('cover timeout'))},LOAD_TIMEOUT);
+    img.crossOrigin='anonymous';img.referrerPolicy='no-referrer';img.decoding='async';
+    img.onload=()=>{if(done)return;done=true;clearTimeout(timer);resolve(img)};
+    img.onerror=()=>{if(done)return;done=true;clearTimeout(timer);reject(new Error('cover load'))};
+    img.src=url
+  })
+}
+function imageHash(img){
+  const canvas=document.createElement('canvas');canvas.width=HASH_COLUMNS;canvas.height=HASH_ROWS;
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});if(!ctx)return null;
+  ctx.drawImage(img,0,0,HASH_COLUMNS,HASH_ROWS);
+  const data=ctx.getImageData(0,0,HASH_COLUMNS,HASH_ROWS).data,luma=new Float64Array(HASH_COLUMNS*HASH_ROWS);
+  for(let i=0;i<luma.length;i++){const o=i*4;luma[i]=data[o]*.299+data[o+1]*.587+data[o+2]*.114}
+  let out='',n=0,bits=0;
+  for(let y=0;y<HASH_ROWS;y++)for(let x=0;x<HASH_COLUMNS-1;x++){
+    const left=luma[y*HASH_COLUMNS+x],right=luma[y*HASH_COLUMNS+x+1];
+    n=(n<<1)|(left>right?1:0);bits++;
+    if(bits===4){out+=n.toString(16);n=0;bits=0}
+  }
+  return out.length===HASH_HEX_LENGTH?out:null
+}
+async function hashCover(url){
+  const raw=clean(url);if(!raw)return null;
+  const key=canonicalCover(raw)||raw;
+  const cached=memory.get(key);if(cached)return cached;
+  const stored=await dbRead(key);
+  if(stored?.hash&&Date.now()-Number(stored.at||0)<HASH_TTL){memory.set(key,stored.hash);return stored.hash}
+  const candidates=typeof S.coverProxyCandidates==='function'?S.coverProxyCandidates(raw):[raw];
+  for(const candidate of [...new Set((candidates||[]).filter(Boolean))]){
+    try{const img=await loadImage(candidate),h=imageHash(img);if(!h)continue;memory.set(key,h);void dbWrite(key,{hash:h,at:Date.now(),url:raw});return h}catch{}
+  }
+  return null
+}
+async function parallel(rows,fn,limit=2){
+  let cursor=0;const out=new Array(rows.length);
+  const worker=async()=>{for(;;){const i=cursor++;if(i>=rows.length)return;out[i]=await fn(rows[i],i)}};
+  await Promise.all(Array.from({length:Math.min(limit,rows.length)},()=>worker()));return out
+}
+function buildCandidateRows(items){
+  const byName=new Map(),byCover=new Map();
+  for(const item of items){
+    const id=S.id(item),name=canonicalTitle(item),cover=canonicalCover(coverUrl(item));
+    if(!id)continue;
+    if(name){if(!byName.has(name))byName.set(name,[]);byName.get(name).push(item)}
+    if(cover){if(!byCover.has(cover))byCover.set(cover,[]);byCover.get(cover).push(item)}
+  }
+  const ids=new Set(),rows=[];
+  for(const list of [...byName.values(),...byCover.values()])if(list.length>1)for(const item of list){const id=S.id(item);if(!ids.has(id)){ids.add(id);rows.push(item)}}
+  return{rows,byName,byCover}
+}
+function parentHelpers(items){
+  const parent=items.map((_,i)=>i),byId=new Map(items.map((x,i)=>[S.id(x),i]));
+  const find=i=>{while(parent[i]!==i){parent[i]=parent[parent[i]];i=parent[i]}return i};
+  const union=(a,b)=>{const x=find(a),y=find(b);if(x!==y)parent[y]=x};
+  return{parent,byId,find,union}
+}
+function labelledVariants(items,similarityToPrimary){
+  const rank={dublado:0,legendado:1,'':2};
+  const ordered=items.map((item,index)=>({item,index,kind:variantKind(item?.name||item?.title||'')})).sort((a,b)=>(rank[a.kind]??3)-(rank[b.kind]??3)||a.index-b.index);
+  const totals=ordered.reduce((m,x)=>(m[x.kind]=(m[x.kind]||0)+1,m),{}),seen={};
+  return ordered.map((x,index)=>{
+    seen[x.kind]=(seen[x.kind]||0)+1;
+    let label=x.kind==='dublado'?'Dublado':x.kind==='legendado'?'Legendado':'Versão '+(index+1);
+    if(x.kind&&totals[x.kind]>1)label+=' '+seen[x.kind];
+    return{item:x.item,id:S.id(x.item),kind:x.kind,label,similarity:Number(similarityToPrimary?.get(S.id(x.item))||1)}
+  })
+}
+function makeGroups(items,hashes,byName,byCover){
+  const {byId,find,union}=parentHelpers(items);
+  for(const list of byCover.values())if(list.length>1){const base=byId.get(S.id(list[0]));for(let i=1;i<list.length;i++){const j=byId.get(S.id(list[i]));if(base!=null&&j!=null)union(base,j)}}
+  for(const list of byName.values()){
+    if(list.length<2)continue;
+    for(let a=0;a<list.length;a++)for(let b=a+1;b<list.length;b++){
+      const ia=byId.get(S.id(list[a])),ib=byId.get(S.id(list[b]));if(ia==null||ib==null)continue;
+      const ca=canonicalCover(coverUrl(list[a])),cb=canonicalCover(coverUrl(list[b]));
+      if(ca&&ca===cb){union(ia,ib);continue}
+      const ha=hashes.get(S.id(list[a])),hb=hashes.get(S.id(list[b]));
+      if(ha&&hb&&similarity(ha,hb)>=SIMILARITY_THRESHOLD)union(ia,ib)
+    }
+  }
+  const clustered=new Map();
+  items.forEach((item,i)=>{const root=find(i);if(!clustered.has(root))clustered.set(root,[]);clustered.get(root).push(item)});
+  return[...clustered.values()].filter(x=>x.length>1)
+}
+function collapse(items,clusters,hashes){
+  groupsById.clear();const hidden=new Set(),groups=[];
+  for(const members of clusters){
+    const sim=new Map(),first=members[0],firstHash=hashes.get(S.id(first));
+    for(const item of members){const h=hashes.get(S.id(item));sim.set(S.id(item),firstHash&&h?similarity(firstHash,h):canonicalCover(coverUrl(first))===canonicalCover(coverUrl(item))?1:0)}
+    const variants=labelledVariants(members,sim),primary=variants[0]?.item||members[0],group={id:'lang:'+S.id(primary),primary,variants,threshold:SIMILARITY_THRESHOLD};
+    groups.push(group);
+    for(const v of variants){groupsById.set(v.id,group);if(v.item!==primary)hidden.add(v.id)}
+  }
+  return{items:items.filter(item=>!hidden.has(S.id(item))),groups}
+}
+function patchDebug(stats){
+  try{window.SRHDebug?.state.patch('shorts',{languageVariants:stats})}catch{}
+  try{window.SRHDebug?.log('info','shorts.language_variants',stats)}catch{}
+}
+async function scan(items){
+  if(scanRunning||window.__SRH_SAFE_MODE__)return;
+  const generation=++scanGeneration,list=(Array.isArray(items)?items:[]).filter(Boolean);
+  if(list.length<2)return;
+  scanRunning=true;
+  try{
+    const {rows,byName,byCover}=buildCandidateRows(list);
+    if(rows.length<2){groupsById.clear();syncLanguageUi(S.state.current?.item);patchDebug({version:VERSION,threshold:SIMILARITY_THRESHOLD,candidates:rows.length,groups:0,collapsed:0});return}
+    const hashes=new Map();
+    await parallel(rows,async item=>{const h=await hashCover(coverUrl(item));if(h)hashes.set(S.id(item),h);return h},2);
+    if(generation!==scanGeneration)return;
+    const clusters=makeGroups(list,hashes,byName,byCover),result=collapse(list,clusters,hashes);
+    sourceItems=list.slice();
+    S.state.languageVariantGroups=result.groups;
+    S.languageVariantsFor=item=>groupsById.get(S.id(item))||null;
+    S.languageVariantPrimary=item=>groupsById.get(S.id(item))?.primary||item;
+    if(result.groups.length&&typeof S.renderCatalogItems==='function'){
+      const y=window.scrollY||0;S.__variantApplying=true;
+      try{S.renderCatalogItems(result.items)}finally{S.__variantApplying=false}
+      requestAnimationFrame(()=>{try{window.scrollTo(0,y)}catch{}})
+    }
+    syncLanguageUi(S.state.current?.item);
+    patchDebug({version:VERSION,threshold:SIMILARITY_THRESHOLD,candidates:rows.length,hashed:hashes.size,groups:result.groups.length,collapsed:list.length-result.items.length})
+  }finally{scanRunning=false}
+}
+function schedule(items){
+  if(S.__variantApplying||window.__SRH_SAFE_MODE__)return;
+  sourceItems=(Array.isArray(items)?items:S.state.items||[]).slice();
+  clearTimeout(scanTimer);scanGeneration++;
+  const run=()=>{scanTimer=0;scan(sourceItems)};
+  if('requestIdleCallback'in window)requestIdleCallback(run,{timeout:1800});else scanTimer=setTimeout(run,650)
+}
+function ensureUi(){
+  if(languageButton)return;
+  const rail=document.querySelector('#shortPlayer .srh25-player__rail'),stage=document.getElementById('playerStage');if(!rail||!stage)return;
+  if(!document.getElementById('srh25LanguageVariantStyle')){
+    const st=document.createElement('style');st.id='srh25LanguageVariantStyle';
+    st.textContent='.srh25-language-sheet{position:absolute;z-index:28;left:12px;right:12px;bottom:14px;max-height:min(54vh,430px);overflow:auto;padding:12px;border:1px solid rgba(255,255,255,.16);border-radius:18px;background:rgba(10,14,19,.94);box-shadow:0 18px 54px rgba(0,0,0,.46);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}.srh25-language-sheet.is-hidden,.srh25-language-backdrop.is-hidden{display:none!important}.srh25-language-backdrop{position:absolute;z-index:27;inset:0;background:rgba(0,0,0,.25)}.srh25-language-head{display:flex;align-items:center;justify-content:space-between;margin:2px 3px 10px}.srh25-language-head strong{font:800 14px/1.2 system-ui;color:#fff}.srh25-language-close{width:34px;height:34px;border:0;border-radius:50%;background:rgba(255,255,255,.08);color:#fff;font-size:20px}.srh25-language-list{display:grid;gap:7px}.srh25-language-option{min-height:46px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 13px;border:1px solid rgba(255,255,255,.12);border-radius:12px;background:rgba(255,255,255,.055);color:#fff;text-align:left;font:700 12px/1.2 system-ui}.srh25-language-option.is-active{border-color:rgba(255,255,255,.42);background:rgba(255,255,255,.13)}.srh25-language-option small{font-size:9px;font-weight:650;opacity:.6}.srh25-player__action[hidden]{display:none!important}';
+    document.head.appendChild(st)
+  }
+  languageButton=document.createElement('button');languageButton.type='button';languageButton.id='playerLanguages';languageButton.className='srh25-player__action';languageButton.hidden=true;languageButton.innerHTML='<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M4.5 12h15M12 4c2.2 2.4 3.2 5.1 3.2 8S14.2 17.6 12 20M12 4C9.8 6.4 8.8 9.1 8.8 12S9.8 17.6 12 20"/></svg><small>Idiomas</small>';
+  const favorite=document.getElementById('playerFavorite');favorite?.insertAdjacentElement('afterend',languageButton);
+  languageBackdrop=document.createElement('div');languageBackdrop.className='srh25-language-backdrop is-hidden';
+  languageSheet=document.createElement('section');languageSheet.className='srh25-language-sheet is-hidden';languageSheet.innerHTML='<div class="srh25-language-head"><strong>Idiomas</strong><button class="srh25-language-close" type="button" aria-label="Fechar">×</button></div><div class="srh25-language-list"></div>';
+  languageList=languageSheet.querySelector('.srh25-language-list');stage.append(languageBackdrop,languageSheet);
+  const close=()=>{languageBackdrop.classList.add('is-hidden');languageSheet.classList.add('is-hidden')};
+  languageButton.onclick=e=>{e.stopPropagation();renderLanguageOptions(S.state.current?.item);languageBackdrop.classList.remove('is-hidden');languageSheet.classList.remove('is-hidden')};
+  languageBackdrop.onclick=close;languageSheet.querySelector('.srh25-language-close').onclick=close
+}
+function renderLanguageOptions(item){
+  ensureUi();if(!languageList)return;
+  const group=groupsById.get(S.id(item));languageList.replaceChildren();if(!group)return;
+  const current=S.id(S.state.current?.item);
+  for(const v of group.variants){
+    const b=document.createElement('button');b.type='button';b.className='srh25-language-option';b.classList.toggle('is-active',v.id===current);
+    const score=Math.round(Math.max(0,Math.min(1,Number(v.similarity)||0))*100);
+    b.innerHTML='<span>'+v.label+'</span><small>'+(v.id===current?'Em reprodução':score+'% capa')+'</small>';
+    b.onclick=()=>{const pos=Math.max(0,Number(document.getElementById('shortVideo')?.currentTime)||0),dur=Math.max(0,Number(document.getElementById('shortVideo')?.duration)||0);languageBackdrop.classList.add('is-hidden');languageSheet.classList.add('is-hidden');if(v.id!==current)S.openPlayer(v.item,{position:pos,duration:dur})};
+    languageList.appendChild(b)
+  }
+}
+function syncLanguageUi(item){
+  ensureUi();if(!languageButton)return;
+  const group=item?groupsById.get(S.id(item)):null,show=!!group&&group.variants.length>1;
+  languageButton.hidden=!show;
+  if(show)languageButton.querySelector('small').textContent='Idiomas';
+  else{languageBackdrop?.classList.add('is-hidden');languageSheet?.classList.add('is-hidden')}
+}
+S.languageVariantDebug={version:VERSION,threshold:SIMILARITY_THRESHOLD,canonicalTitle,variantKind,similarity,groups:()=>[...(S.state.languageVariantGroups||[])]};
+const baseOpen=S.openPlayer;
+if(typeof baseOpen==='function')S.openPlayer=function(item,resume){const out=baseOpen.apply(this,arguments);syncLanguageUi(item);return out};
+window.addEventListener('srh25:catalog-render',e=>schedule(e.detail?.items||S.state.items));
+window.addEventListener('srh25:ready',()=>{ensureUi();schedule(S.state.items);syncLanguageUi(S.state.current?.item)});
+setTimeout(()=>{ensureUi();if(S.state.items?.length)schedule(S.state.items)},900);
 })();
