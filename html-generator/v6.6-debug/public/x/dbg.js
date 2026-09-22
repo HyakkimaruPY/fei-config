@@ -116,13 +116,14 @@ function recoverTransportFailures(detail={}){
   return count
 }
 function syncIncidentState(last=null){
-  const all=incidentHistory;
+  const all=incidentHistory,current=all.filter(x=>x?.sessionId===SESSION_ID);
   patch('incidents',{
-    active:[...activeIncidents.values()].filter(x=>x.status==='active').length,
-    total:all.length,
-    recovered:all.filter(x=>x.status==='recovered').length,
-    slow:all.filter(x=>x.type==='slow').length,
-    last:last||all.at(-1)||null
+    active:[...activeIncidents.values()].filter(x=>x.status==='active'&&x.sessionId===SESSION_ID).length,
+    total:current.length,
+    recovered:current.filter(x=>x.status==='recovered').length,
+    slow:current.filter(x=>x.type==='slow').length,
+    last:last?.sessionId===SESSION_ID?last:(current.at(-1)||null),
+    historyTotal:all.length
   });
   updateDebugBadge()
 }
@@ -157,11 +158,11 @@ function noteSlow(meta={}){
   incidentHistory.push(row);if(incidentHistory.length>80)incidentHistory=incidentHistory.slice(-80);persistIncidents();syncIncidentState(row);bus.dispatchEvent(new CustomEvent('incident',{detail:clone(row)}));return row
 }
 function incidentSummary(){
-  const rows=incidentHistory.slice(-80).reverse();
-  return{sessionId:SESSION_ID,active:rows.filter(x=>x.status==='active'),recovered:rows.filter(x=>x.status==='recovered'),slow:rows.filter(x=>x.type==='slow'),recent:rows}
+  const history=incidentHistory.slice(-80).reverse(),rows=history.filter(x=>x?.sessionId===SESSION_ID);
+  return{sessionId:SESSION_ID,active:rows.filter(x=>x.status==='active'),recovered:rows.filter(x=>x.status==='recovered'),slow:rows.filter(x=>x.type==='slow'),recent:rows,historyCount:history.length}
 }
 function issueExport(){
-  const rows=incidentHistory.slice(-80).filter(x=>(x.type==='slow'||x.status==='active'||x.status==='recovered')&&x.status!=='stale'&&!/transport-won|route-lost|proxy-lost|superseded/i.test(String(x.message||''))&&!(x.status==='recovered'&&x.kind==='proxy'&&/rota alternativa concluiu a requisição/i.test(String(x.recoveryMessage||'')))&&!(x.type==='slow'&&x.kind==='network.other'&&x.layer==='resource'&&String(x.details?.initiatorType||'').toLowerCase()==='img')).map(x=>({
+  const rows=incidentHistory.slice(-80).filter(x=>x?.sessionId===SESSION_ID&&(x.type==='slow'||x.status==='active'||x.status==='recovered')&&x.status!=='stale'&&!/transport-won|route-lost|proxy-lost|superseded/i.test(String(x.message||''))&&!(x.status==='recovered'&&x.kind==='proxy'&&/rota alternativa concluiu a requisição/i.test(String(x.recoveryMessage||'')))&&!(x.type==='slow'&&x.kind==='network.other'&&x.layer==='resource'&&String(x.details?.initiatorType||'').toLowerCase()==='img')).map(x=>({
     time:new Date(Number(x.lastAt||x.firstAt||Date.now())).toISOString(),
     kind:x.kind||'unknown',
     status:x.status||'unknown',
