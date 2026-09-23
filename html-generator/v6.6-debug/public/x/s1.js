@@ -2524,6 +2524,31 @@ async function closeDetail(){
 
   if(state.activeType)buildHero(state.renderToken);
 })();
+
+/* Floating classic header: hero/content passes underneath; hide only beyond first category. */
+(function installClassicFloatingHeader(){
+  const topbar=document.querySelector('.topbar');if(!topbar)return;
+  let raf=0;
+  const sync=()=>{
+    raf=0;
+    if(state.collectionOpen||document.body.classList.contains('srh-searching')){
+      document.body.classList.remove('srh-topbar-hidden');
+      return
+    }
+    const first=el.content?.querySelector('.rail-section');
+    if(!first){document.body.classList.remove('srh-topbar-hidden');return}
+    const boundary=Math.max(6,Math.round(topbar.getBoundingClientRect().height*.18));
+    const passed=first.getBoundingClientRect().top<=boundary;
+    document.body.classList.toggle('srh-topbar-hidden',passed)
+  };
+  const schedule=()=>{if(raf)return;raf=requestAnimationFrame(sync)};
+  addEventListener('scroll',schedule,{passive:true});
+  addEventListener('resize',schedule,{passive:true});
+  document.addEventListener('click',e=>{if(e.target.closest?.('.tab-button[data-type],.collection-close,[data-stream-open]'))setTimeout(schedule,60)},true);
+  const baseHeaderRender=renderActiveType;
+  renderActiveType=function(){const out=baseHeaderRender.apply(this,arguments);requestAnimationFrame(()=>requestAnimationFrame(sync));return out};
+  requestAnimationFrame(sync)
+})();
 Promise.resolve().then(()=>hydrateStandardRuntime()).then(()=>window.__srhHydrateStandardPersonal?.()).catch(e=>playbackDebug('indexeddb-hydrate-failed',{message:e?.message||String(e)})).finally(()=>{playbackDebug('indexeddb-ready',{db:STANDARD_DB,provider:standardProviderId(),storage:window.__SRH_STANDARD_STORAGE__?.stats?.()||{}});init();setTimeout(()=>ensureHls().then(()=>playbackDebug('hlsjs-warm',{version:window.Hls?.version||''})).catch(e=>playbackDebug('hlsjs-warm-failed',{message:e?.message||String(e)})),700)});
 })();
 })();
