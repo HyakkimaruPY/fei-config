@@ -990,6 +990,10 @@ async function closeDetail(){
     try{p.video?.pause?.();p.video?.removeAttribute?.('src');p.video?.load?.()}catch{}
     try{if(p.owned)p.video?.remove?.()}catch{}
   }
+  const resumeBaseOpenDetail=openDetail;
+  openDetail=function(title){clearResumePreview();return resumeBaseOpenDetail(title)};
+  const resumeBaseCloseDetail=closeDetail;
+  closeDetail=async function(){clearResumePreview();return resumeBaseCloseDetail.apply(this,arguments)};
   function seekPreviewFrame(video,position,timeout=5200){
     return new Promise(resolve=>{
       let done=false,timer=0;
@@ -1069,7 +1073,8 @@ async function closeDetail(){
     const ok=await loadResumePreview(video,sources,entry.position);
     if(!isDetailCurrent(token)){clearResumePreview();return}
     if(ok){if(image)image.classList.add('is-hidden');video.classList.remove('is-hidden');art.classList.add('srh-resume-previewing')}
-    el.detailBody.querySelectorAll('.episode').forEach(row=>row.addEventListener('click',()=>{clearResumePreview();art.classList.remove('srh-resume-previewing');video.controls=true;video.autoplay=true},{once:true,capture:true}));
+    const resumeEpisodeStart=e=>{if(!e.target.closest?.('.episode'))return;el.detailBody.removeEventListener('click',resumeEpisodeStart,true);clearResumePreview();art.classList.remove('srh-resume-previewing');video.muted=false;video.controls=true;video.autoplay=true};
+    el.detailBody.addEventListener('click',resumeEpisodeStart,true);
   }
 
   let continueOpenSeq=0;
