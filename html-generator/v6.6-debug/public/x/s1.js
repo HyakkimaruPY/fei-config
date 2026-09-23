@@ -43,7 +43,7 @@ function getStandardLastWatched(type){return standardLastWatchedMemory[type==='s
 function markStandardLastWatched(entry){
   if(!entry||!['vod','series'].includes(entry.type))return false;
   const type=entry.type,key=String(entry.key||''),prev=standardLastWatchedMemory[type],now=Date.now();
-  const row={type,key,title:entry.title||'',image:entry.image||'',seriesId:entry.seriesId,season:entry.season,episodeNumber:entry.episodeNumber,containerExtension:entry.containerExtension||'',itemSnapshot:entry.itemSnapshot||null,updatedAt:now};
+  const row={type,key,title:entry.title||'',image:entry.image||'',tmdbId:entry.tmdbId||entry.itemSnapshot?.tmdb_id||null,seriesId:entry.seriesId,season:entry.season,episodeNumber:entry.episodeNumber,containerExtension:entry.containerExtension||'',itemSnapshot:entry.itemSnapshot||null,updatedAt:now};
   standardLastWatchedMemory[type]=row;
   if(!prev||prev.key!==key||now-Number(prev.updatedAt||0)>60000)void standardStateSet(STANDARD_LAST_WATCHED_PREFIX+type,row);
   return true
@@ -867,10 +867,12 @@ async function closeDetail(){
 
   saveHistory=function(entry){
     if(!entry||entry.type==='live')return false;
-    if(Number(entry.position)<MIN_CONTINUE_SECONDS)return false;
-    const bucket=entry.type==='series'?'series':'vod',identity=continueIdentity(entry);
-    let list=getHistory(bucket).filter(x=>continueIdentity(x)!==identity);
-    const normalized={...entry,frameKey:continueFrameKey(entry)};
+    const bucket=entry.type==='series'?'series':'vod',identity=continueIdentity(entry),current=getHistory(bucket);
+    const previous=current.find(x=>continueIdentity(x)===identity)||null;
+    const qualified=Number(entry.position)>=MIN_CONTINUE_SECONDS||!!previous?.resumeQualified||(entry.type==='series'&&!!previous);
+    if(!qualified)return false;
+    let list=current.filter(x=>continueIdentity(x)!==identity);
+    const normalized={...entry,resumeQualified:true,frameKey:continueFrameKey(entry)};
     list.unshift(normalized);
     const ok=writeHistoryBucket(bucket,list);
     renderContinue();
@@ -886,7 +888,7 @@ async function closeDetail(){
     return ok;
   };
 
-  function pruneShortContinueEntries(){for(const type of ['vod','series']){const list=getHistory(type),clean=list.filter(x=>Number(x.position)>=MIN_CONTINUE_SECONDS&&Number(x.duration)>0);if(clean.length!==list.length)writeHistoryBucket(type,clean)}}
+  function pruneShortContinueEntries(){for(const type of ['vod','series']){const list=getHistory(type),clean=list.filter(x=>Number(x.duration)>0&&(Number(x.position)>=MIN_CONTINUE_SECONDS||!!x.resumeQualified));if(clean.length!==list.length)writeHistoryBucket(type,clean)}}
   function legacyList(key){for(const store of [localStorage,sessionStorage])try{const raw=store.getItem(key);if(raw!==null){const rows=JSON.parse(raw||'[]');if(Array.isArray(rows))return rows}}catch{}return[]}
   function mergeRows(primary,legacy,type='vod'){
     const map=new Map();
@@ -1705,7 +1707,7 @@ async function closeDetail(){
   renderContinue=function(){
     purgeContinueFrameWorkers();
     releaseContinueCardResources();
-    const type=state.activeType,list=getHistory(type).filter(x=>x.duration>0&&x.position>=MIN_CONTINUE_SECONDS).slice(0,12);
+    const type=state.activeType,list=getHistory(type).filter(x=>x.duration>0&&(x.position>=MIN_CONTINUE_SECONDS||!!x.resumeQualified)).slice(0,12);
     if(!list.length||type==='live'){
       el.continueSection.classList.add('is-hidden');el.continueRow.innerHTML='';return
     }
