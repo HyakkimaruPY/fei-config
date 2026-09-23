@@ -1405,9 +1405,13 @@ async function closeDetail(){
   }
 
   function cacheRead(key){
-    const all=readJson(CACHE_STORE,{});
-    const x=all[key];
+    const all=readJson(CACHE_STORE,{}),x=all[key];
     if(!x||Date.now()-Number(x.savedAt||0)>CACHE_TTL)return null;
+    return x.data||null;
+  }
+  function cacheReadStale(key){
+    const all=readJson(CACHE_STORE,{}),x=all[key];
+    if(!x||Date.now()-Number(x.savedAt||0)>30*24*60*60*1000)return null;
     return x.data||null;
   }
   function cacheWrite(key,data){
@@ -1456,46 +1460,71 @@ async function closeDetail(){
     const clean=cleanTitle(rawTitle);
     const year=titleYear(rawTitle)||titleYear(extra?.name||extra?.title||'');
     const cacheKey=kind+':'+(explicit?'id:'+explicit:'q:'+clean.toLocaleLowerCase('pt-BR')+':'+year);
-    const cached=cacheRead(cacheKey);
-    if(cached?.logo||cached&&logoRefreshTried.has(cacheKey))return cached;
+    const cached=cacheRead(cacheKey),stale=cached||cacheReadStale(cacheKey);
+    if(Number(cached?.visualVersion||0)>=2)return cached;
 
-    let id=explicit||String(cached?.id||'');
-    if(cached&&!cached.logo)logoRefreshTried.add(cacheKey);
+    let id=explicit||String(stale?.id||''),picked=null;
     if(!id&&clean){
-      const params={query:clean,language:'pt-BR',include_adult:false};
-      if(year)params[kind==='movie'?'year':'first_air_date_year']=year;
-      const search=await tmdbFetch('/search/'+kind,params);
-      const results=Array.isArray(search?.results)?search.results:[];
-      const picked=year?results.find(r=>resultYear(kind,r)===year):results[0];
-      if(year&&!picked)return null;
-      id=picked?.id?String(picked.id):'';
+      try{
+        const params={query:clean,language:'pt-BR',include_adult:false};
+        if(year)params[kind==='movie'?'year':'first_air_date_year']=year;
+        const search=await tmdbFetch('/search/'+kind,params);
+        const results=Array.isArray(search?.results)?search.results:[];
+        picked=year?results.find(r=>resultYear(kind,r)===year):results[0];
+        if(year&&!picked)return stale||null;
+        id=picked?.id?String(picked.id):'';
+      }catch(e){
+        if(stale)return stale;
+        throw e
+      }
     }
-    if(!id)return null;
+    if(!id)return stale||null;
 
-    const pt=await detailsById(kind,id,'pt-BR');
-    let en=null;
+    let pt=null,en=null;
+    try{pt=await detailsById(kind,id,'pt-BR')}
+    catch(e){
+      if(picked?.backdrop_path||picked?.poster_path){
+        return{
+          ...(stale||{}),
+          id:String(id),
+          title:picked?.title||picked?.name||stale?.title||clean||rawTitle,
+          backdrop:imageUrl(picked?.backdrop_path,'w1280')||stale?.backdrop||'',
+          poster:imageUrl(picked?.poster_path,'w500')||stale?.poster||'',
+          visualVersion:Number(stale?.visualVersion||0)
+        }
+      }
+      if(stale)return stale;
+      throw e
+    }
+
     const ptLogo=chooseLogo(pt?.images?.logos);
-    if(!pt?.overview||!ptLogo){
+    if(!pt?.overview||!ptLogo||!pt?.backdrop_path||!pt?.poster_path){
       try{en=await detailsById(kind,id,'en-US')}catch{}
     }
     const logo=ptLogo||chooseLogo(en?.images?.logos);
+    const backdropPath=pt?.backdrop_path||en?.backdrop_path||
+      pt?.images?.backdrops?.find?.(x=>x?.file_path)?.file_path||
+      en?.images?.backdrops?.find?.(x=>x?.file_path)?.file_path||'';
+    const posterPath=pt?.poster_path||en?.poster_path||
+      pt?.images?.posters?.find?.(x=>x?.file_path)?.file_path||
+      en?.images?.posters?.find?.(x=>x?.file_path)?.file_path||'';
     const releaseRaw=kind==='movie'?(pt?.release_date||en?.release_date):(pt?.first_air_date||en?.first_air_date);
     const voteRaw=Number(pt?.vote_average??en?.vote_average);
     const data={
       id:String(id),
       title:pt?.title||pt?.name||en?.title||en?.name||clean||rawTitle,
       overview:pt?.overview||en?.overview||'',
-      backdrop:imageUrl(pt?.backdrop_path||en?.backdrop_path,'w1280'),
-      poster:imageUrl(pt?.poster_path||en?.poster_path,'w500'),
+      backdrop:imageUrl(backdropPath,'w1280'),
+      poster:imageUrl(posterPath,'w500'),
       logo:imageUrl(logo?.file_path,'w500'),
       year:/^\d{4}/.test(String(releaseRaw||''))?String(releaseRaw).slice(0,4):'',
       vote:Number.isFinite(voteRaw)&&voteRaw>0?Math.round(voteRaw*10)/10:null,
-      posterHero:!(pt?.backdrop_path||en?.backdrop_path)&&!!(pt?.poster_path||en?.poster_path)
+      posterHero:!backdropPath&&!!posterPath,
+      visualVersion:2
     };
     cacheWrite(cacheKey,data);
     return data;
   }
-
   async function seasonData(tvId,season){
     const key='season:'+tvId+':'+season;
     const cached=cacheRead(key);if(cached)return cached;
@@ -1750,6 +1779,27 @@ async function closeDetail(){
     }
   }
 
+  function applyTmdbDetailBackdrop(type,data){
+    const src=String(data?.backdrop||'').trim();if(!src)return;
+    const token=state.detailToken,art=el.detailBody.querySelector('.detail-art');
+    const img=type==='series'?el.detailBody.querySelector('#seriesImage'):art?.querySelector(':scope > img');
+    if(!art||!img)return;
+    const probe=new Image();
+    probe.onload=()=>{
+      if(!isDetailCurrent(token)||!img.isConnected)return;
+      img.src=src;img.classList.add('srh-tmdb-backdrop');
+      art.classList.remove('srh-poster-hero-fallback');
+      if(type==='series'&&state.currentSeries)state.currentSeries.backdrop=src;
+      if(type==='vod'&&state.currentDetail?.entry){
+        state.currentDetail.entry.image=src;
+        if(state.currentDetail.entry.itemSnapshot)state.currentDetail.entry.itemSnapshot.backdrop_path=[src]
+      }
+      playbackDebug('tmdb-backdrop-applied',{type,mediaId:String(type==='series'?(state.currentSeries?.item?.series_id||''):(state.currentDetail?.entry?.itemSnapshot?.stream_id||''))})
+    };
+    probe.onerror=()=>playbackDebug('tmdb-backdrop-fallback',{type});
+    probe.src=src
+  }
+
   function installBranding(type,item,data){
     if(!['vod','series'].includes(type))return;
     const modal=detailModal();
@@ -1759,6 +1809,7 @@ async function closeDetail(){
 
     modal.classList.add('srh-branded-detail');
     art.classList.toggle('srh-poster-hero-fallback',!!data?.posterHero);
+    applyTmdbDetailBackdrop(type,data);
     art.querySelector('.srh-art-brand')?.remove();
     art.parentElement?.querySelector(':scope > .srh-full-title-reveal')?.remove();
 
@@ -1870,7 +1921,7 @@ async function closeDetail(){
     const type=kind==='tv'?'series':'vod';
     const id=String(kind==='tv'?(item?.series_id??item?.id??''):(item?.stream_id??item?.id??''));
     const rich=id?detailTmdb.get(type+':'+id):null;
-    if(rich?.logo)return rich;
+    if(Number(rich?.visualVersion||0)>=2)return rich;
     const resolved=await resolveTmdb(kind,item,extra);
     if(rich){
       if(!resolved)return rich;
@@ -1887,7 +1938,7 @@ async function closeDetail(){
     await loading;
     if(!isDetailCurrent(token))return;
     const key='vod:'+String(item?.stream_id??item?.id??'');
-    const data=detailTmdb.get(key)||await resolveTmdb('movie',item,null).catch(()=>null);
+    const data=await resolveCatalogMetadata('movie',item,null).catch(()=>detailTmdb.get(key)||null);
     if(!isDetailCurrent(token))return;
     installBranding('vod',item,data);
   };
@@ -1898,7 +1949,7 @@ async function closeDetail(){
     await loading;
     if(!isDetailCurrent(token))return;
     const key='series:'+String(item?.series_id??item?.id??'');
-    const data=detailTmdb.get(key)||await resolveTmdb('tv',item,state.currentSeries?.data||null).catch(()=>null);
+    const data=await resolveCatalogMetadata('tv',item,state.currentSeries?.data||null).catch(()=>detailTmdb.get(key)||null);
     if(!isDetailCurrent(token))return;
     if(data?.id)state.srhTmdbSeriesId=data.id;
     installBranding('series',item,data);
@@ -2443,10 +2494,10 @@ async function closeDetail(){
     if(type==='live')return null;
     const key=type+':'+String(itemId(item,type)||itemTitle(item));
     const cached=heroMeta.get(key);
-    if(cached?.logo)return cached;
+    if(Number(cached?.visualVersion||0)>=2)return cached;
     try{
       const data=await resolveCatalogMetadata?.(type==='series'?'tv':'movie',item,null);
-      const best=data?.logo?data:(cached||data||null);
+      const best=data?.backdrop||data?.poster||data?.logo?data:(cached||data||null);
       heroMeta.set(key,best);
       return best;
     }catch{
