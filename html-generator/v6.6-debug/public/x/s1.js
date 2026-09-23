@@ -1469,6 +1469,7 @@ async function closeDetail(){
     clearResumePreview();
     state.srhContinueOpening=false;
     state.srhOpeningContinue=false;
+    state.srhContinueFramePromise=null;
     el.detailLayer.style.removeProperty('visibility');
     el.detailLayer.style.removeProperty('pointer-events');
     return resumeBaseCloseDetail.apply(this,arguments)
@@ -1672,24 +1673,34 @@ async function closeDetail(){
     return true
   }
 
+  async function continueFrameForModal(entry,type){
+    let frame=await readContinueFrame(entry);
+    if(!isExactFramePayload(frame)){
+      frame=await queueContinueCardFrame(()=>ensureContinueFrameOnce(entry,type).catch(()=>frame))
+    }
+    return frame
+  }
+
   async function openContinueMovie(entry){
     const item=historyVodItem(entry);
     if(!item.stream_id)return;
     clearResumePreview();
     purgeContinueFrameWorkers();
-    let frame=await readContinueFrame(entry);
-    if(!isExactFramePayload(frame))frame=await queueContinueCardFrame(()=>ensureContinueFrameOnce(entry,'vod').catch(()=>frame));
-    const reveal=holdContinueDetail();
+    const framePromise=continueFrameForModal(entry,'vod');
+    state.srhContinueFramePromise=framePromise;
     const loading=openFilm(item),token=state.detailToken;
     try{
+      const frame=await framePromise;
       await loading;
       if(!isDetailCurrent(token))return;
       const art=el.detailBody.querySelector('.detail-art'),image=art?.querySelector('img'),watch=el.detailBody.querySelector('#watchFilm');
       if(!art)return;
       const exact=useStoredFrameImage(image,{...entry,type:'vod'},frame);
-      playbackDebug('continue-frame-gate',{type:'vod',key:entry.key,exact,source:exact?'indexeddb':'catalog-fallback'});
+      playbackDebug('continue-frame-gate',{type:'vod',key:entry.key,exact,source:exact?'indexeddb':'catalog-fallback',modalSkeleton:true});
       if(watch)watch.addEventListener('click',()=>{clearResumePreview();art.classList.remove('srh-resume-previewing')},{once:true,capture:true})
-    }finally{if(isDetailCurrent(token))reveal()}
+    }finally{
+      if(state.srhContinueFramePromise===framePromise)state.srhContinueFramePromise=null
+    }
   }
 
   async function openContinueSeries(entry){
@@ -1697,17 +1708,15 @@ async function closeDetail(){
     if(!item.series_id)return;
     clearResumePreview();
     purgeContinueFrameWorkers();
-    let frame=await readContinueFrame(entry);
-    if(!isExactFramePayload(frame))frame=await queueContinueCardFrame(()=>ensureContinueFrameOnce(entry,'series').catch(()=>frame));
-    const reveal=holdContinueDetail();
+    const framePromise=continueFrameForModal(entry,'series');
+    state.srhContinueFramePromise=framePromise;
     const loading=openSeries(item),token=state.detailToken;
     try{
+      const frame=await framePromise;
       await loading;
       if(!isDetailCurrent(token))return;
       const season=String(entry.season??''),collections=state.currentSeries?.episodes||{},seasonKey=season&&collections[season]?season:Object.keys(collections).sort((a,b)=>Number(a)-Number(b))[0];
       if(seasonKey){const option=[...el.detailBody.querySelectorAll('[data-season]')].find(b=>String(b.dataset.season)===String(seasonKey));option?.click()}
-      /* drawSeason may replace the episode artwork; apply the persisted frame only
-         after the saved season/episode has been selected. */
       await new Promise(resolve=>requestAnimationFrame(()=>requestAnimationFrame(resolve)));
       if(!isDetailCurrent(token))return;
       const image=el.detailBody.querySelector('#seriesImage'),art=el.detailBody.querySelector('#seriesArt');
@@ -1717,8 +1726,10 @@ async function closeDetail(){
       if(video){try{video.pause()}catch{};video.classList.add('is-hidden');video.muted=true;video.controls=false}
       image.classList.remove('is-hidden');
       art.classList.remove('srh-resume-previewing','is-playing');
-      playbackDebug('continue-frame-gate',{type:'series',key:entry.key,exact,source:exact?'indexeddb':'catalog-fallback'});
-    }finally{if(isDetailCurrent(token))reveal()}
+      playbackDebug('continue-frame-gate',{type:'series',key:entry.key,exact,source:exact?'indexeddb':'catalog-fallback',modalSkeleton:true});
+    }finally{
+      if(state.srhContinueFramePromise===framePromise)state.srhContinueFramePromise=null
+    }
   }
 
   let continueOpenSeq=0;
