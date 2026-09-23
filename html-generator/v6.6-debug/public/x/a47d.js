@@ -1232,9 +1232,10 @@ async function resolveVodAlternative(item,mediaKey,currentUrl,catalogExtension){
   let url='',sourceKind='';
   if(direct&&direct!==currentUrl){url=direct;sourceKind='direct_source'}
   else if(vodInfoExtension&&vodInfoExtension!==String(catalogExtension||'').toLowerCase()){url=mediaMovieUrl(mediaKey,vodInfoExtension);sourceKind='vod_info_extension'}
-  const detail={ok:true,mediaId:mediaKey,catalogExtension:String(catalogExtension||''),vodInfoExtension,directSource:!!direct,alternative:!!url,sourceKind};
+  else if(String(catalogExtension||'').toLowerCase()!=='mkv'){url=mediaMovieUrl(mediaKey,'mkv');sourceKind='extension_probe_mkv'}
+  const detail={ok:true,mediaId:mediaKey,catalogExtension:String(catalogExtension||''),vodInfoExtension:sourceKind==='extension_probe_mkv'?'mkv':vodInfoExtension,directSource:!!direct,alternative:!!url,sourceKind,mkvProbe:sourceKind==='extension_probe_mkv'};
   mediaEvent('srh25:media-vod-info',detail);
-  return url?{url,sourceKind,extension:vodInfoExtension||catalogExtension,detail}:null
+  return url?{url,sourceKind,extension:sourceKind==='extension_probe_mkv'?'mkv':(vodInfoExtension||catalogExtension),detail}:null
 }
 window.addEventListener('srh25:catalog-render',()=>warmMediaOrigin(S.cfg?.server||''),{once:true});
 async function loadVideo(item,resume){
@@ -1607,4 +1608,62 @@ if(typeof baseOpen==='function')S.openPlayer=function(item,resume){const out=bas
 window.addEventListener('srh25:catalog-render',e=>schedule(e.detail?.items||S.state.items));
 window.addEventListener('srh25:ready',()=>{ensureUi();schedule(S.state.items);syncLanguageUi(S.state.current?.item)});
 setTimeout(()=>{ensureUi();if(S.state.items?.length)schedule(S.state.items)},900);
+})();
+(()=>{
+'use strict';
+const S=window.SRH25;
+if(!S||S.__shortSemanticRecommendation)return;
+S.__shortSemanticRecommendation=true;
+
+const VERSION='semantic-title-v1';
+const STATE=Object.freeze({MATCH:'MATCH',NONE:'NONE'});
+const TRIGGER_SECONDS=10;
+const ARC_SECONDS=120;
+const WATCHDOG_MS=35000;
+const STOP=new Set('a o as os um uma uns umas de da do das dos em no na nos nas por para com sem sob sobre e ou que seu sua seus suas meu minha meus minhas ele ela eles elas este esta esse essa isso aquilo como quando onde qual quais ao aos ate apos antes depois entre contra muito mais menos ja ainda tambem nao sim ser estar foi era sao filme serie short shorts episodio ep parte temporada versao dublado dublada legendado legendada portugues pt br ano anos'.split(' '));
+const BOOST={ceo:3.8,mafia:3.7,bilionario:3.6,milionario:3.2,magnata:3.3,contrato:3.25,divorcio:3.2,casamento:2.9,noivo:2.85,noiva:2.85,marido:2.9,esposa:2.9,herdeiro:3.0,rival:2.8,vinganca:2.85,gravida:2.8,bebe:2.75,chefe:2.45,segredo:2.3,secreta:2.3,guerra:2.55,draco:3.6,lobisomem:3.6,principe:2.9,princesa:2.9,duque:3.0,duquesa:3.0,rei:2.8,rainha:2.8,amor:.9,vida:.85};
+
+const video=document.getElementById('shortVideo');
+const player=document.getElementById('shortPlayer');
+const stage=document.getElementById('playerStage');
+if(!video||!player||!stage)return;
+
+let plan=null,preparedFor='',badge=null,badgeExpired=true,transitionBusy=false,statsCache=null,watchdog=0,watchdogToken=0;
+let chain={visited:new Set(),keywords:new Set()};
+const badMedia=new Set();
+
+function emit(name,detail){try{window.dispatchEvent(new CustomEvent(name,{detail}))}catch{}}
+function text(v){return String(v??'').trim()}
+function norm(v){let s=text(v).toLocaleLowerCase('pt-BR');try{s=s.normalize('NFD').replace(/[\u0300-\u036f]/g,'')}catch{}return s.replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ').trim()}
+function baseTitle(item){let s=text(S.title?.(item)||item?.name||item?.title||'');const cut=s.search(/[\(\[\{\u3010\uff08<]/);if(cut>0)s=s.slice(0,cut);s=s.replace(/\s+(?:-|—|\||\/)\s+(?:legendad[oa]|dublad[oa]|pt[\s-]?br|19\d{2}|20\d{2}).*$/i,'');return s.trim()}
+function lemma(t){const n=norm(t);const map={bilionaria:'bilionario',bilionarios:'bilionario',bilionarias:'bilionario',milionaria:'milionario',milionarios:'milionario',milionarias:'milionario',mafioso:'mafia',mafiosa:'mafia',mafiosos:'mafia',mafiosas:'mafia',contratada:'contrato',contratado:'contrato',contratados:'contrato',contratadas:'contrato',esposo:'marido',maridos:'marido',esposas:'esposa',noivos:'noivo',noivas:'noiva',divorciada:'divorcio',divorciado:'divorcio',divorciados:'divorcio',divorciadas:'divorcio',casada:'casamento',casado:'casamento',casei:'casamento',herdeira:'herdeiro',herdeiros:'herdeiro',herdeiras:'herdeiro',gravidez:'gravida',gravidas:'gravida',secretos:'segredo',secretas:'secreta',chefes:'chefe',rivais:'rival'};return map[n]||n}
+function tokenData(item){const base=baseTitle(item),raw=norm(base).split(' ').filter(Boolean),tokens=[];for(let i=0;i<raw.length;i++){const l=lemma(raw[i]);if(!l||STOP.has(l)||/^\d+$/.test(l)||(l.length<3&&l!=='ceo'))continue;tokens.push({raw:raw[i],lemma:l,index:i})}return{base,norm:norm(base),tokens}}
+function catalogStats(){const items=Array.isArray(S.state?.items)?S.state.items:[],first=items[0]?S.id(items[0]):'',last=items.length?S.id(items[items.length-1]):'',key=items.length+':'+first+':'+last;if(statsCache?.key===key)return statsCache;const df=new Map();for(const item of items){const seen=new Set(tokenData(item).tokens.map(x=>x.lemma));for(const t of seen)df.set(t,(df.get(t)||0)+1)}statsCache={key,total:Math.max(1,items.length),df};return statsCache}
+function classify(item,blocked=new Set()){const data=tokenData(item),stats=catalogStats(),ranked=[];for(let i=0;i<data.tokens.length;i++){const t=data.tokens[i],df=stats.df.get(t.lemma)||0,idf=Math.log((stats.total+1)/(df+1))+1,semantic=BOOST[t.lemma]||1.35,pos=i===data.tokens.length-1?1.22:i===0?1.08:1,len=1+Math.min(.28,Math.max(0,t.lemma.length-5)*.035),score=idf*semantic*pos*len*(blocked.has(t.lemma)?.08:1);ranked.push({...t,score,idf,semantic})}ranked.sort((a,b)=>b.score-a.score);const best=ranked.find(x=>!blocked.has(x.lemma))||ranked[0];if(!best)return{state:STATE.NONE,keyword:'',pair:'',score:0,title:data.base,ranked:[]};const original=data.tokens.findIndex(x=>x.lemma===best.lemma),neighbor=original>=0?(data.tokens[original+1]||data.tokens[original-1]||null):null;return{state:STATE.MATCH,keyword:best.lemma,pair:neighbor?best.lemma+' '+neighbor.lemma:'',score:Number(best.score.toFixed(3)),title:data.base,ranked:ranked.slice(0,5).map(x=>({keyword:x.lemma,score:Number(x.score.toFixed(3))}))}}
+function category(item){return String(item?.category_id??item?.categoryId??item?.category??'')}
+function select(current){const all=Array.isArray(S.state?.items)?S.state.items:[],currentId=String(S.id(current)||''),currentData=tokenData(current),cat=category(current),same=cat?all.filter(x=>category(x)===cat):[],pool=same.length>1?same:all,attempted=new Set();for(let round=0;round<Math.min(5,currentData.tokens.length||1);round++){const cls=classify(current,new Set([...chain.keywords,...attempted]));if(!cls.keyword||attempted.has(cls.keyword))break;attempted.add(cls.keyword);let best=null;for(const item of pool){const id=String(S.id(item)||'');if(!id||id===currentId||chain.visited.has(id)||badMedia.has(id))continue;const data=tokenData(item);if(data.norm===currentData.norm||!data.tokens.some(x=>x.lemma===cls.keyword))continue;const lemmas=new Set(data.tokens.map(x=>x.lemma));let score=7+(cat&&category(item)===cat?1.3:0);for(const src of currentData.tokens)if(lemmas.has(src.lemma))score+=Math.min(3.5,(BOOST[src.lemma]||1)*.75);if(cls.pair){const parts=cls.pair.split(' ');if(parts.length===2&&lemmas.has(parts[0])&&lemmas.has(parts[1]))score+=2.1}const hist=S.historyFor?.(item);if(hist&&Number(hist.duration)>0&&Number(hist.position)>=Number(hist.duration)-30)score-=1.8;if(!best||score>best.score)best={item,score}}if(best)return{state:STATE.MATCH,item:best.item,keyword:cls.keyword,pair:cls.pair,score:Number(best.score.toFixed(3)),classifier:cls,sourceId:currentId,targetId:String(S.id(best.item)||''),sourceTitle:baseTitle(current),targetTitle:baseTitle(best.item),sameCategory:!!cat&&category(best.item)===cat}}return{state:STATE.NONE,item:null,keyword:'',pair:'',score:0,sourceId:currentId,sourceTitle:baseTitle(current)}}
+
+function ensureStyle(){if(document.getElementById('srh25RecStyle'))return;const st=document.createElement('style');st.id='srh25RecStyle';st.textContent='.srh25-recommended-badge{display:inline-flex;align-items:center;min-height:14px;padding:2px 7px;margin:0 0 5px;border:1px solid rgba(255,255,255,.16);border-radius:5px;background:rgba(18,22,28,.58);color:rgba(255,255,255,.78);font-size:9px;line-height:11px;font-weight:720;letter-spacing:.015em;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}#playerStage{will-change:transform,opacity}.srh25-rec-exit{transition:transform .22s cubic-bezier(.4,0,.2,1),opacity .20s ease;transform:translate3d(0,-18%,0);opacity:0}.srh25-rec-preenter{transition:none!important;transform:translate3d(0,18%,0);opacity:0}.srh25-rec-enter{transition:transform .26s cubic-bezier(.22,1,.36,1),opacity .22s ease;transform:translate3d(0,0,0);opacity:1}';document.head.appendChild(st)}
+function ensureBadge(){ensureStyle();if(badge||badgeExpired)return;const title=document.getElementById('playerTitle');if(!title?.parentNode)return;badge=document.createElement('span');badge.className='srh25-recommended-badge';badge.textContent='Recomendado para você';title.parentNode.insertBefore(badge,title)}
+function updateBadge(position=video.currentTime){const cur=S.state?.current;if(!cur?.recommended){if(badge){badge.remove();badge=null}badgeExpired=true;return}if(badgeExpired)return;if((Number(position)||0)>=ARC_SECONDS){badgeExpired=true;if(badge){badge.remove();badge=null}return}ensureBadge()}
+function prepare(){const cur=S.state?.current?.item;if(!cur)return null;const id=String(S.id(cur)||'');if(!id)return null;if(preparedFor===id)return plan;preparedFor=id;plan=select(cur);emit('srh25:recommendation-prepared',{version:VERSION,state:plan.state,sourceId:id,targetId:plan.targetId||'',keyword:plan.keyword||'',pair:plan.pair||'',score:plan.score||0,sameCategory:!!plan.sameCategory});return plan}
+function resetChain(item){chain={visited:new Set(),keywords:new Set()};const id=String(S.id(item)||'');if(id)chain.visited.add(id)}
+function transition(next){if(transitionBusy||!next?.item)return false;transitionBusy=true;const from=S.state?.current?.item;if(from)chain.visited.add(String(S.id(from)||''));chain.visited.add(String(S.id(next.item)||''));if(next.keyword)chain.keywords.add(next.keyword);emit('srh25:recommendation-transition',{version:VERSION,sourceId:next.sourceId||'',targetId:next.targetId||'',keyword:next.keyword||'',pair:next.pair||'',score:next.score||0});stage.classList.remove('srh25-rec-preenter','srh25-rec-enter');stage.classList.add('srh25-rec-exit');setTimeout(()=>{stage.classList.remove('srh25-rec-exit');stage.classList.add('srh25-rec-preenter');S.openPlayer(next.item,{position:0,duration:0},{recommended:true,recommendation:next,preserveRecommendationChain:true});requestAnimationFrame(()=>requestAnimationFrame(()=>{stage.classList.remove('srh25-rec-preenter');stage.classList.add('srh25-rec-enter');setTimeout(()=>{stage.classList.remove('srh25-rec-enter');transitionBusy=false},280)}))},220);return true}
+
+function watchdogUnavailable(token,id,phase){if(token!==watchdogToken||String(S.id(S.state?.current?.item)||'')!==id||video.ended)return;emit('srh25:media-startup-watchdog',{phase,mediaId:id,readyState:video.readyState,networkState:video.networkState});document.getElementById('playerLoading')?.classList.add('is-hidden');S.toast?.('Mídia indisponível')}
+function armWatchdog(item){clearTimeout(watchdog);const token=++watchdogToken,id=String(S.id(item)||'');watchdog=setTimeout(()=>{if(token!==watchdogToken||String(S.id(S.state?.current?.item)||'')!==id||video.ended)return;if(video.readyState>0){emit('srh25:media-startup-watchdog',{phase:'play-retry',mediaId:id,readyState:video.readyState,networkState:video.networkState});try{video.play().catch(()=>{})}catch{}watchdog=setTimeout(()=>{if(!video.paused)return;watchdogUnavailable(token,id,'play-timeout')},10000);return}watchdogUnavailable(token,id,'no-metadata')},WATCHDOG_MS)}
+video.addEventListener('playing',()=>clearTimeout(watchdog),true);
+video.addEventListener('error',()=>clearTimeout(watchdog),true);
+window.addEventListener('srh25:media-error-final',e=>{const id=String(e.detail?.mediaId||'');if(id)badMedia.add(id)});
+
+const baseOpen=S.openPlayer;
+if(typeof baseOpen==='function')S.openPlayer=function(item,resume,options={}){if(!options?.preserveRecommendationChain)resetChain(item);else chain.visited.add(String(S.id(item)||''));plan=null;preparedFor='';badgeExpired=!options?.recommended;if(badge){badge.remove();badge=null}const out=baseOpen.apply(this,arguments);if(S.state?.current){S.state.current.recommended=!!options?.recommended;S.state.current.recommendation=options?.recommendation||null}updateBadge(Number(resume?.position)||0);armWatchdog(item);return out};
+
+const baseTime=video.ontimeupdate;
+video.ontimeupdate=function(e){try{baseTime?.call(this,e)}catch{}const cur=S.state?.current,pos=Number(video.currentTime)||0,dur=Number(video.duration)||0;updateBadge(pos);if(cur&&Number.isFinite(dur)&&dur>0&&dur-pos<=TRIGGER_SECONDS&&dur-pos>=0)prepare()};
+const baseEnded=video.onended;
+video.onended=function(e){try{baseEnded?.call(this,e)}catch{}clearTimeout(watchdog);const next=plan||prepare();if(next?.state===STATE.MATCH&&next.item)transition(next)};
+
+S.shortRecommendation={version:VERSION,state:STATE,classify,select,baseTitle,tokenData,prepare,current:()=>plan};
+emit('srh25:recommendation-ready',{version:VERSION,triggerSeconds:TRIGGER_SECONDS,arcSeconds:ARC_SECONDS});
 })();
