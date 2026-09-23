@@ -1847,11 +1847,16 @@ async function closeDetail(){
     });
   }
 
-  function clearHeroVisual(node,isLive=false){
+  function clearHeroBackground(node,isLive=false){
     if(!node)return;
     node.dataset.srhPainted='';
     const layers=[...node.querySelectorAll('.stream-hero__bg')];
-    layers.forEach((layer,i)=>{layer.classList.toggle('is-active',i===0);layer.classList.toggle('is-live',!!isLive);layer.style.backgroundImage='none';layer.dataset.srhUrl=''});
+    layers.forEach((layer,i)=>{layer.classList.toggle('is-active',i===0);layer.classList.toggle('is-live',!!isLive);layer.style.backgroundImage='none';layer.dataset.srhUrl=''})
+  }
+
+  function clearHeroVisual(node,isLive=false){
+    if(!node)return;
+    clearHeroBackground(node,isLive);
     const logo=node.querySelector('.stream-hero__logo'),fallback=node.querySelector('.stream-hero__brand-fallback'),box=node.querySelector('.stream-hero__brand');
     if(logo){logo.onload=null;logo.onerror=null;logo.classList.add('is-hidden');logo.removeAttribute('src');logo.removeAttribute('data-srh-normalized')}
     fallback?.classList.add('is-hidden');if(fallback)fallback.textContent='';
@@ -1864,7 +1869,7 @@ async function closeDetail(){
   async function paintHeroBackground(node,url,isLive,local){
     const src=String(url||'').trim();
     const layers=[...node.querySelectorAll('.stream-hero__bg')];
-    if(!src||layers.length<2){if(local===heroToken&&heroViewToken===state.renderToken)clearHeroVisual(node,isLive);return false}
+    if(!src||layers.length<2){if(local===heroToken&&heroViewToken===state.renderToken)clearHeroBackground(node,isLive);return false}
     let current=layers.find(x=>x.classList.contains('is-active'))||layers[0];
     if(current.dataset.srhUrl===src){
       current.classList.toggle('is-live',!!isLive);
@@ -1872,7 +1877,7 @@ async function closeDetail(){
       return true;
     }
     const ready=await preloadHeroImage(src);
-    if(!ready||local!==heroToken||heroViewToken!==state.renderToken){if(!ready&&local===heroToken&&heroViewToken===state.renderToken)clearHeroVisual(node,isLive);return false}
+    if(!ready||local!==heroToken||heroViewToken!==state.renderToken){if(!ready&&local===heroToken&&heroViewToken===state.renderToken)clearHeroBackground(node,isLive);return false}
     let next=layers.find(x=>x!==current);
     next.classList.remove('is-active');
     next.classList.toggle('is-live',!!isLive);
