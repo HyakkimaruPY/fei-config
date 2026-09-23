@@ -853,7 +853,8 @@ async function closeDetail(){
   window.__srhDropContinueFrameCache=(entry,key=continueFrameKey(entry))=>{
     const url=continueFrameUrlCache.get(key);
     if(url&&url.startsWith('blob:'))try{URL.revokeObjectURL(url)}catch{}
-    continueFrameUrlCache.delete(key)
+    continueFrameUrlCache.delete(key);
+    continueFramePayloadMemory.delete(key)
   };
 
   function purgeContinueFrameWorkers(){
@@ -880,6 +881,7 @@ async function closeDetail(){
         const frameKey=row.frameKey||continueFrameKey(row),cachedUrl=continueFrameUrlCache.get(frameKey);
         if(cachedUrl&&cachedUrl.startsWith('blob:'))try{URL.revokeObjectURL(cachedUrl)}catch{}
         continueFrameUrlCache.delete(frameKey);
+        continueFramePayloadMemory.delete(frameKey);
         void standardStateDelete(frameKey)
       }
     }
