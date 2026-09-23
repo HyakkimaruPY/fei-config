@@ -491,3 +491,60 @@ body.srh-main-stream-style .srh-playback-feedback__error small{
     padding-bottom:22px!important;
   }
 }
+
+
+/* SRHELL DEBUG STANDARD R51 — adaptive transparent loading branding */
+body.srh-main-stream-style .srh-playback-feedback--loading{
+  background:transparent!important;
+}
+body.srh-main-stream-style .srh-playback-feedback__inner{
+  background:transparent!important;
+  box-shadow:none!important;
+  border:0!important;
+}
+body.srh-main-stream-style .srh-playback-feedback__logo{
+  background:transparent!important;
+  box-shadow:none!important;
+  border:0!important;
+  border-radius:0!important;
+  filter:none!important;
+  isolation:isolate;
+}
+body.srh-main-stream-style .srh-feedback-outline-light .srh-playback-feedback__logo{
+  filter:
+    drop-shadow(1px 0 0 rgba(255,255,255,.34))
+    drop-shadow(-1px 0 0 rgba(255,255,255,.34))
+    drop-shadow(0 1px 0 rgba(255,255,255,.30))
+    drop-shadow(0 -1px 0 rgba(255,255,255,.30))
+    drop-shadow(0 2px 5px rgba(0,0,0,.18))!important;
+}
+body.srh-main-stream-style .srh-feedback-outline-dark .srh-playback-feedback__logo{
+  filter:
+    drop-shadow(1px 0 0 rgba(0,0,0,.46))
+    drop-shadow(-1px 0 0 rgba(0,0,0,.46))
+    drop-shadow(0 1px 0 rgba(0,0,0,.42))
+    drop-shadow(0 -1px 0 rgba(0,0,0,.42))
+    drop-shadow(0 2px 5px rgba(0,0,0,.20))!important;
+}
+body.srh-main-stream-style .srh-feedback-outline-neutral .srh-playback-feedback__logo{
+  filter:drop-shadow(0 1px 3px rgba(0,0,0,.26))!important;
+}
+body.srh-main-stream-style .srh-feedback-outline-light .srh-playback-feedback__name{
+  text-shadow:
+    1px 0 0 rgba(255,255,255,.26),
+    -1px 0 0 rgba(255,255,255,.26),
+    0 1px 0 rgba(255,255,255,.24),
+    0 -1px 0 rgba(255,255,255,.24),
+    0 2px 5px rgba(0,0,0,.18)!important;
+}
+body.srh-main-stream-style .srh-feedback-outline-dark .srh-playback-feedback__name{
+  text-shadow:
+    1px 0 0 rgba(0,0,0,.48),
+    -1px 0 0 rgba(0,0,0,.48),
+    0 1px 0 rgba(0,0,0,.44),
+    0 -1px 0 rgba(0,0,0,.44),
+    0 2px 5px rgba(0,0,0,.24)!important;
+}
+body.srh-main-stream-style .srh-feedback-outline-neutral .srh-playback-feedback__name{
+  text-shadow:0 2px 5px rgba(0,0,0,.32)!important;
+}
