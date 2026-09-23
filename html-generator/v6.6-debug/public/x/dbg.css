@@ -639,3 +639,21 @@ body.srh-main-stream-style .stream-hero{
     overflow-x:clip!important;
   }
 }
+
+
+/* SRHELL DEBUG STANDARD R54 — contain outer overflow */
+body.srh-main-stream-style .app,
+body.srh-main-stream-style main,
+body.srh-main-stream-style .content,
+body.srh-main-stream-style #content{
+  overflow-x:hidden!important;
+  overscroll-behavior-x:none!important;
+}
+@supports (overflow:clip){
+  body.srh-main-stream-style .app,
+  body.srh-main-stream-style main,
+  body.srh-main-stream-style .content,
+  body.srh-main-stream-style #content{
+    overflow-x:clip!important;
+  }
+}
