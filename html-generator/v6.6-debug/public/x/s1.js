@@ -246,7 +246,7 @@ function init(){installImageFallback();document.body.dataset.theme=CONFIG.theme|
 function srhFeedbackBrandMarkup(art,title){
   const brand=art?.querySelector('.srh-art-brand'),logo=brand?.querySelector('img:not(.is-hidden)'),fallback=brand?.querySelector('.srh-art-brand__fallback:not(.is-hidden)');
   const src=String(logo?.currentSrc||logo?.src||'').trim(),text=String(fallback?.textContent||title||state.currentMedia?.title||'').trim();
-  if(src)return '<img class="srh-playback-feedback__logo" src="'+escapeHtml(src)+'" alt="">';
+  if(src)return '<img class="srh-playback-feedback__logo" crossorigin="anonymous" src="'+escapeHtml(src)+'" alt="">';
   return '<div class="srh-playback-feedback__name">'+escapeHtml(text||'Carregando')+'</div>'
 }
 function srhClearPlaybackFeedback(art,{restoreBrand=true}={}){
@@ -255,13 +255,94 @@ function srhClearPlaybackFeedback(art,{restoreBrand=true}={}){
   art.classList.remove('srh-playback-loading','srh-playback-error');
   if(restoreBrand)art.querySelector('.srh-art-brand')?.classList.remove('srh-feedback-brand-hidden')
 }
+function srhFeedbackLuminance(rgb){
+  if(!rgb)return.12;
+  const f=x=>{x/=255;return x<=.04045?x/12.92:Math.pow((x+.055)/1.055,2.4)};
+  return .2126*f(rgb[0])+.7152*f(rgb[1])+.0722*f(rgb[2])
+}
+function srhFeedbackColorDistance(a,b){return Math.hypot((a?.[0]||0)-(b?.[0]||0),(a?.[1]||0)-(b?.[1]||0),(a?.[2]||0)-(b?.[2]||0))}
+function srhAverageLogoColor(img){
+  try{
+    const cv=document.createElement('canvas');cv.width=64;cv.height=32;
+    const cx=cv.getContext('2d',{willReadFrequently:true});cx.drawImage(img,0,0,64,32);
+    const d=cx.getImageData(0,0,64,32).data;let r=0,g=0,b=0,w=0,dark=0,light=0;
+    for(let i=0;i<d.length;i+=4){
+      const a=d[i+3]/255;if(a<.11)continue;
+      r+=d[i]*a;g+=d[i+1]*a;b+=d[i+2]*a;w+=a;
+      const l=srhFeedbackLuminance([d[i],d[i+1],d[i+2]]);if(l<.2)dark+=a;if(l>.8)light+=a
+    }
+    if(!w)return null;
+    const rgb=[r/w,g/w,b/w];return{rgb,lum:srhFeedbackLuminance(rgb),darkShare:dark/w,lightShare:light/w}
+  }catch{return null}
+}
+function srhArtworkColorBehind(art,target){
+  try{
+    const image=[...art.children].find(x=>x.tagName==='IMG'&&!x.classList.contains('srh-playback-feedback__logo'))||art.querySelector('img');
+    if(!image?.naturalWidth||!image?.naturalHeight)return null;
+    const ir=image.getBoundingClientRect(),tr=target.getBoundingClientRect();
+    if(ir.width<2||ir.height<2)return null;
+    const iw=image.naturalWidth,ih=image.naturalHeight,fit=getComputedStyle(image).objectFit||'cover';
+    let scaleX=ir.width/iw,scaleY=ir.height/ih,scale=fit==='contain'?Math.min(scaleX,scaleY):fit==='fill'?null:Math.max(scaleX,scaleY);
+    let dw=ir.width,dh=ir.height,ox=0,oy=0;
+    if(scale){dw=iw*scale;dh=ih*scale;ox=(ir.width-dw)/2;oy=(ir.height-dh)/2}
+    const sx0=scale?(tr.left-ir.left-ox)/scale:(tr.left-ir.left)/Math.max(.001,scaleX),sy0=scale?(tr.top-ir.top-oy)/scale:(tr.top-ir.top)/Math.max(.001,scaleY);
+    const sw0=scale?tr.width/scale:tr.width/Math.max(.001,scaleX),sh0=scale?tr.height/scale:tr.height/Math.max(.001,scaleY);
+    const sx=Math.max(0,Math.min(iw-1,sx0)),sy=Math.max(0,Math.min(ih-1,sy0)),sw=Math.max(1,Math.min(iw-sx,sw0)),sh=Math.max(1,Math.min(ih-sy,sh0));
+    const cv=document.createElement('canvas');cv.width=48;cv.height=24;
+    const cx=cv.getContext('2d',{willReadFrequently:true});cx.drawImage(image,sx,sy,sw,sh,0,0,48,24);
+    const d=cx.getImageData(0,0,48,24).data;let r=0,g=0,b=0,n=0;
+    for(let i=0;i<d.length;i+=4){if(d[i+3]<24)continue;r+=d[i];g+=d[i+1];b+=d[i+2];n++}
+    if(!n)return null;const rgb=[r/n,g/n,b/n];return{rgb,lum:srhFeedbackLuminance(rgb)}
+  }catch{return null}
+}
+async function srhWaitFeedbackImage(img,timeout=1800){
+  if(img?.complete&&img.naturalWidth>0)return true;
+  return new Promise(resolve=>{
+    let done=false;const finish=ok=>{if(done)return;done=true;clearTimeout(timer);img.onload=img.onerror=null;resolve(!!ok)},timer=setTimeout(()=>finish(false),timeout);
+    img.onload=()=>finish(true);img.onerror=()=>finish(false)
+  })
+}
+async function srhTunePlaybackFeedbackBrand(art,box){
+  const inner=box?.querySelector('.srh-playback-feedback__inner'),img=inner?.querySelector('.srh-playback-feedback__logo');
+  if(!inner)return;
+  inner.classList.remove('srh-feedback-outline-light','srh-feedback-outline-dark','srh-feedback-outline-neutral');
+  if(!img){inner.classList.add('srh-feedback-outline-dark');return}
+  await srhWaitFeedbackImage(img);
+  if(!box.isConnected)return;
+  try{
+    if(typeof normalizeCatalogLogo==='function'&&img.dataset.srhFeedbackNormalized!=='1'){
+      const normalized=await normalizeCatalogLogo(img);
+      if(normalized?.src&&normalized.src!==img.src){
+        img.dataset.srhFeedbackNormalized='1';img.src=normalized.src;
+        await srhWaitFeedbackImage(img)
+      }
+    }
+  }catch{}
+  if(!box.isConnected)return;
+  try{if(typeof tuneCatalogLogoContrast==='function')await tuneCatalogLogoContrast(img,inner)}catch{}
+  const logo=srhAverageLogoColor(img),bg=srhArtworkColorBehind(art,img);
+  if(!logo||!bg){inner.classList.add(logo?.lightShare>.65?'srh-feedback-outline-dark':'srh-feedback-outline-light');return}
+  const lumDiff=Math.abs(logo.lum-bg.lum),colorDiff=srhFeedbackColorDistance(logo.rgb,bg.rgb),similar=lumDiff<.22||colorDiff<105;
+  if(similar){
+    inner.classList.add(bg.lum>.52?'srh-feedback-outline-dark':'srh-feedback-outline-light')
+  }else if(logo.darkShare>.66&&bg.lum<.34){
+    inner.classList.add('srh-feedback-outline-light')
+  }else if(logo.lightShare>.72&&bg.lum>.67){
+    inner.classList.add('srh-feedback-outline-dark')
+  }else{
+    inner.classList.add('srh-feedback-outline-neutral')
+  }
+  playbackDebug('loading-logo-contrast',{logoLum:Number(logo.lum.toFixed(3)),bgLum:Number(bg.lum.toFixed(3)),colorDistance:Math.round(colorDiff),outline:inner.classList.contains('srh-feedback-outline-light')?'light':inner.classList.contains('srh-feedback-outline-dark')?'dark':'neutral'})
+}
 function srhShowPlaybackLoading(art,title){
   if(!art)return null;
   srhClearPlaybackFeedback(art,{restoreBrand:true});
   const brand=art.querySelector('.srh-art-brand');brand?.classList.add('srh-feedback-brand-hidden');
   const box=document.createElement('div');box.className='srh-playback-feedback srh-playback-feedback--loading';
   box.innerHTML='<div class="srh-playback-feedback__inner">'+srhFeedbackBrandMarkup(art,title)+'<span class="srh-playback-feedback__spinner" aria-hidden="true"></span><span class="srh-playback-feedback__label">Carregando</span></div>';
-  art.appendChild(box);art.classList.add('srh-playback-loading');return box
+  art.appendChild(box);art.classList.add('srh-playback-loading');
+  requestAnimationFrame(()=>srhTunePlaybackFeedbackBrand(art,box));
+  return box
 }
 function srhShowProviderError(art,err){
   if(!art)return;
