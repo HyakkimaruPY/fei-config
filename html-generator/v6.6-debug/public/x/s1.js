@@ -42,10 +42,10 @@ function normalizeServer(s){return String(s||'').trim().replace(/\/+$/,'')}
 function parseLogin(raw){let text=String(raw||'').trim();if(!text)throw new Error('Informe o novo M3U.');if(!/^https?:\/\//i.test(text))text='http://'+text;let u;try{u=new URL(text)}catch{throw new Error('URL inválida.')}let username=u.searchParams.get('username')||u.searchParams.get('user'),password=u.searchParams.get('password')||u.searchParams.get('pass');const path=u.pathname.split('/').filter(Boolean);if((!username||!password)&&path.length>=2&&!/\.php$/i.test(path[path.length-1])){username=username||decodeURIComponent(path[0]);password=password||decodeURIComponent(path[1])}if(!username||!password)throw new Error('Não encontrei username e password.');return{server:normalizeServer(u.origin),username,password,liveExtension:(u.searchParams.get('output')||'m3u8').toLowerCase()==='ts'?'ts':'m3u8'}}
 function apiUrl(params={},cfg=CONFIG){const u=new URL(normalizeServer(cfg.server)+'/player_api.php');u.searchParams.set('username',cfg.username);u.searchParams.set('password',cfg.password);Object.entries(params).forEach(([k,v])=>u.searchParams.set(k,String(v)));return u.toString()}
 function proxyUrl(url,cfg=CONFIG){const p=String(cfg.corsProxy||'').trim();if(!p)return url;return p.includes('{url}')?p.replace('{url}',encodeURIComponent(url)):p+encodeURIComponent(url)}
-async function requestJson(url,timeout=12000){
+async function requestJson(url,timeout=12000,fetchInit=null){
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeout);
   try{
-    const response=await fetch(url,{cache:'no-store',signal:controller.signal});
+    const response=await fetch(url,{cache:'no-store',...(fetchInit||{}),signal:controller.signal});
     if(!response.ok)throw new Error('HTTP '+response.status);
     return await response.json();
   }catch(error){
@@ -57,6 +57,29 @@ async function request(params={},cfg=CONFIG){
   const target=apiUrl(params,cfg);
   try{return await requestJson(target)}
   catch(error){if(!cfg.corsProxy)throw error;return requestJson(proxyUrl(target,cfg))}
+}
+const detailRequestInflight=new Map();
+async function requestDetail(params={},cfg=CONFIG){
+  const action=String(params?.action||''),mediaId=String(params?.series_id??params?.vod_id??params?.stream_id??''),origin=(()=>{try{return new URL(apiUrl({},cfg)).origin}catch{return''}})();
+  const key=[normalizeServer(cfg.server),String(cfg.username||''),action,mediaId].join('|');
+  if(detailRequestInflight.has(key))return detailRequestInflight.get(key);
+  const job=(async()=>{
+    const target=apiUrl(params,cfg),urls=[target];if(cfg.corsProxy)urls.push(proxyUrl(target,cfg));
+    const started=performance.now();let last=null;
+    for(const url of urls){
+      try{
+        const data=await requestJson(url,14000,{srhProbe:true});
+        const ms=Math.round(performance.now()-started);
+        if(ms>2600)window.SRHDebug?.noteSlow?.({kind:'detail.api',action,mediaId,origin,layer:'fetch',ms,message:'Detalhe demorou para carregar'});
+        window.SRHDebug?.noteRecovery?.({kind:'detail.api',action,mediaId,origin,layer:'fetch',ms,status:200});
+        return data
+      }catch(e){last=e}
+    }
+    const ms=Math.round(performance.now()-started);
+    window.SRHDebug?.noteFailure?.({kind:'detail.api',action,mediaId,origin,layer:'fetch',ms,message:last?.message||'Falha ao carregar detalhe'});
+    throw last||new Error('Não foi possível carregar os detalhes.')
+  })().finally(()=>detailRequestInflight.delete(key));
+  detailRequestInflight.set(key,job);return job
 }
 function targetId(t){return String(t?.id??t?.category_id??t?.categoryId??'').trim()}
 function targetKey(t){const id=targetId(t);return String(t?.type||'')+'::'+(id?'id:'+id:'name:'+String(t?.name||''))}
@@ -262,11 +285,11 @@ function openDetail(title){closePlayer(false);detailModal()?.classList.remove('i
 async function closeDetail(){if(state.seriesVideo){persistProgress(state.seriesVideo.video);state.seriesVideo.video.pause();destroyHls();state.seriesVideo=null}await leaveFullscreenPortrait();el.detailLayer.classList.add('is-hidden');detailModal()?.classList.remove('is-series');state.currentDetail=null;state.currentSeries=null;state.synopsisNode=null;state.synopsisText='';state.synopsisExpanded=false;freezePage(!el.collectionView.classList.contains('is-hidden'))}
 el.detailClose.onclick=closeDetail;
 el.detailLayer.addEventListener('click',e=>{if(e.target===el.detailLayer)closeDetail()});detailModal()?.addEventListener('click',e=>{if(state.synopsisExpanded&&!e.target.closest('.synopsis'))collapseSynopsis()},true);
-async function openFilm(item){openDetail(itemTitle(item));const token=state.detailToken;try{const data=await request({action:'get_vod_info',vod_id:item.stream_id});if(!isDetailCurrent(token))return;const info=data?.info||{},movie=data?.movie_data||item,art=(info.backdrop_path&&Array.isArray(info.backdrop_path)?info.backdrop_path[0]:info.backdrop_path)||info.movie_image||movie.stream_icon||imageFor(item,'vod'),title=movie.name||itemTitle(item),plot=info.plot||info.description||movie.plot||item.plot||'',sources=vodSourcesFromInfo(data,item),url=sources[0]||streamUrl('vod',{...movie,stream_id:movie.stream_id||item.stream_id,container_extension:movie.container_extension||item.container_extension}),entry={key:'vod:'+(movie.stream_id||item.stream_id),type:'vod',title,image:art,url,sources,containerExtension:String(movie.container_extension||info.container_extension||item.container_extension||'mp4').toLowerCase(),itemSnapshot:{stream_id:movie.stream_id||item.stream_id,name:title,stream_icon:movie.stream_icon||item.stream_icon,movie_image:info.movie_image||movie.movie_image||'',cover:item.cover||'',cover_big:info.cover_big||'',backdrop_path:info.backdrop_path||'',container_extension:movie.container_extension||info.container_extension||item.container_extension||'mp4'},position:0,duration:0};sources.forEach(warmMediaOrigin);state.currentDetail={type:'vod',entry};el.detailBody.innerHTML=`<div class="detail-content"><div class="detail-art"><img src="${escapeHtml(art||IMAGE_PLACEHOLDER)}" alt=""></div><div class="detail-title-row"><h2 class="detail-title">${escapeHtml(title)}</h2><button class="watch-button" id="watchFilm"><svg class="watch-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.8v12.4L18 12z"/></svg><span>Assistir</span></button></div><div class="synopsis" id="filmSynopsis">${synopsisMarkup(plot,false)}</div></div>`;const filmSynopsis=$('#filmSynopsis');setSynopsisState(filmSynopsis,plot,false);filmSynopsis.onclick=e=>{e.stopPropagation();setSynopsisState(filmSynopsis,plot,!state.synopsisExpanded)};$('#watchFilm').onclick=()=>{const old=getHistory('vod').find(x=>x.key===entry.key);openGeneralPlayer(entry.sources||url,title,old?{...entry,...old,sources:entry.sources}:entry)}}catch(e){if(!isDetailCurrent(token))return;el.detailBody.innerHTML='<div class="rail-load-error"><span>'+escapeHtml(e.message)+'</span><button type="button">Tentar novamente</button></div>';el.detailBody.querySelector('button').onclick=()=>openItem(item,item.series_id!==undefined?'series':'vod')}}
+async function openFilm(item){openDetail(itemTitle(item));const token=state.detailToken;try{const data=await requestDetail({action:'get_vod_info',vod_id:item.stream_id});if(!isDetailCurrent(token))return;const info=data?.info||{},movie=data?.movie_data||item,art=(info.backdrop_path&&Array.isArray(info.backdrop_path)?info.backdrop_path[0]:info.backdrop_path)||info.movie_image||movie.stream_icon||imageFor(item,'vod'),title=movie.name||itemTitle(item),plot=info.plot||info.description||movie.plot||item.plot||'',sources=vodSourcesFromInfo(data,item),url=sources[0]||streamUrl('vod',{...movie,stream_id:movie.stream_id||item.stream_id,container_extension:movie.container_extension||item.container_extension}),entry={key:'vod:'+(movie.stream_id||item.stream_id),type:'vod',title,image:art,url,sources,containerExtension:String(movie.container_extension||info.container_extension||item.container_extension||'mp4').toLowerCase(),itemSnapshot:{stream_id:movie.stream_id||item.stream_id,name:title,stream_icon:movie.stream_icon||item.stream_icon,movie_image:info.movie_image||movie.movie_image||'',cover:item.cover||'',cover_big:info.cover_big||'',backdrop_path:info.backdrop_path||'',container_extension:movie.container_extension||info.container_extension||item.container_extension||'mp4'},position:0,duration:0};sources.forEach(warmMediaOrigin);state.currentDetail={type:'vod',entry};el.detailBody.innerHTML=`<div class="detail-content"><div class="detail-art"><img src="${escapeHtml(art||IMAGE_PLACEHOLDER)}" alt=""></div><div class="detail-title-row"><h2 class="detail-title">${escapeHtml(title)}</h2><button class="watch-button" id="watchFilm"><svg class="watch-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.8v12.4L18 12z"/></svg><span>Assistir</span></button></div><div class="synopsis" id="filmSynopsis">${synopsisMarkup(plot,false)}</div></div>`;const filmSynopsis=$('#filmSynopsis');setSynopsisState(filmSynopsis,plot,false);filmSynopsis.onclick=e=>{e.stopPropagation();setSynopsisState(filmSynopsis,plot,!state.synopsisExpanded)};$('#watchFilm').onclick=()=>{const old=getHistory('vod').find(x=>x.key===entry.key);openGeneralPlayer(entry.sources||url,title,old?{...entry,...old,sources:entry.sources}:entry)}}catch(e){if(!isDetailCurrent(token))return;el.detailBody.innerHTML='<div class="rail-load-error"><span>'+escapeHtml(e.message)+'</span><button type="button">Tentar novamente</button></div>';el.detailBody.querySelector('button').onclick=()=>openItem(item,item.series_id!==undefined?'series':'vod')}}
 function normalizeEpisodes(v){if(Array.isArray(v))return{'1':v};return v&&typeof v==='object'?v:{}}
 function episodeKey(series,ep){return `series:${series.series_id}:${ep.id||ep.stream_id}`}
 async function stopInlineSeriesVideo(){const sv=state.seriesVideo;if(!sv)return;srhClearPlaybackFeedback(sv.art,{restoreBrand:true});persistProgress(sv.video);sv.video.pause();destroyHls();sv.video.onloadedmetadata=null;sv.video.onerror=null;sv.video.removeAttribute('src');sv.video.load();sv.video.classList.add('is-hidden');sv.image.classList.remove('is-hidden');sv.actions.classList.add('is-hidden');state.seriesVideo=null;state.currentMedia=null;await leaveFullscreenPortrait()}
-async function openSeries(item){openDetail(itemTitle(item));const token=state.detailToken;detailModal()?.classList.add('is-series');try{const data=await request({action:'get_series_info',series_id:item.series_id});if(!isDetailCurrent(token))return;const info=data?.info||{},episodes=normalizeEpisodes(data?.episodes),seasons=Object.keys(episodes).sort((a,b)=>Number(a)-Number(b)),backdrop=(Array.isArray(info.backdrop_path)?info.backdrop_path[0]:info.backdrop_path)||info.backdrop||info.cover_big||info.cover||item.cover||'',plot=info.plot||info.description||item.plot||'';state.currentSeries={item,data,episodes,backdrop};el.detailBody.innerHTML=`<div class="detail-content"><div class="series-static"><div class="detail-art" id="seriesArt"><img class="backdrop" id="seriesImage" src="${escapeHtml(backdrop||IMAGE_PLACEHOLDER)}" alt=""><video class="is-hidden" id="seriesInlineVideo" controls autoplay playsinline></video><div class="detail-art__actions is-hidden" id="seriesVideoActions"><button class="floating-action" id="seriesStop" title="Fechar vídeo"><svg class="ui-svg" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg></button><button class="floating-action" id="seriesExpand" title="Expandir ou minimizar"><svg class="ui-svg" viewBox="0 0 24 24"><path d="M8.5 4.5h-4v4M15.5 4.5h4v4M8.5 19.5h-4v-4M15.5 19.5h4v-4"/></svg></button></div></div><div class="detail-title-row"><h2 class="detail-title">${escapeHtml(itemTitle(item))}</h2></div><div class="synopsis" id="seriesSynopsis">${synopsisMarkup(plot,false)}</div><div class="season-box"><button class="season-trigger" id="seasonTrigger"><span id="seasonLabel">${seasons[0]?'Temporada '+escapeHtml(seasons[0]):'Temporadas'}</span><span>⌄</span></button><div class="season-menu is-hidden${seasons.length>4?' season-menu--scroll':''}" id="seasonMenu"></div></div></div><div class="episode-container"><div class="episode-list" id="episodeList"></div></div></div>`;const art=$('#seriesArt'),image=$('#seriesImage'),video=$('#seriesInlineVideo'),actions=$('#seriesVideoActions'),seasonMenu=$('#seasonMenu'),seasonLabel=$('#seasonLabel'),list=$('#episodeList'),syn=$('#seriesSynopsis');setSynopsisState(syn,plot,false);syn.onclick=e=>{e.stopPropagation();setSynopsisState(syn,plot,!state.synopsisExpanded)};seasonMenu.innerHTML=seasons.map((s,i)=>`<button class="season-option${i===0?' is-active':''}" data-season="${escapeHtml(s)}">Temporada ${escapeHtml(s)}</button>`).join('');$('#seasonTrigger').onclick=e=>{e.stopPropagation();seasonMenu.classList.toggle('is-hidden')};function drawSeason(key){seasonLabel.textContent='Temporada '+key;seasonMenu.classList.add('is-hidden');seasonMenu.querySelectorAll('[data-season]').forEach(b=>b.classList.toggle('is-active',b.dataset.season===key));const eps=Array.isArray(episodes[key])?episodes[key]:[],history=new Map(getHistory('series').map(x=>[x.key,x]));list.innerHTML=eps.map((ep,idx)=>{const n=ep.episode_num??idx+1,thumb=ep.info?.movie_image||ep.info?.cover_big||ep.info?.cover||ep.stream_icon||backdrop||IMAGE_PLACEHOLDER,h=history.get(episodeKey(item,ep)),done=getStandardCompleted(episodeKey(item,ep)),pct=h?.duration?Math.min(100,h.position/h.duration*100):(done?100:0);return `<article class="episode" data-ep="${idx}"><img class="episode__thumb" src="${escapeHtml(thumb)}" alt="" loading="lazy"><div><div class="episode__title">Episódio ${escapeHtml(n)}</div><div class="episode__meta">${escapeHtml(ep.info?.duration||'')}</div><div class="episode__progress"><span style="width:${pct}%"></span></div></div><div class="episode__play"><svg class="ui-svg" viewBox="0 0 24 24"><path d="M9 6.5v11l8-5.5z"/></svg></div></article>`}).join('');list.querySelectorAll('[data-ep]').forEach(row=>row.onclick=()=>playEpisode(eps[Number(row.dataset.ep)],Number(row.dataset.ep),key));list.scrollTop=0}async function playEpisode(ep,idx,season){const playToken=++state.seriesPlayToken;await stopInlineSeriesVideo();if(!isDetailCurrent(token)||playToken!==state.seriesPlayToken)return;const n=ep.episode_num??idx+1,eid=ep?.id||ep?.stream_id,catalogExt=String(ep?.container_extension||'mp4').toLowerCase(),infoExt=String(ep?.info?.container_extension||'').toLowerCase(),nativeUrl=mediaUrlWithExtension('series',eid,catalogExt),direct=normalizeMediaUrl(ep?.direct_source||ep?.info?.direct_source||''),corrected=infoExt&&infoExt!==catalogExt?mediaUrlWithExtension('series',eid,infoExt):'',mkv=(catalogExt!=='mkv'&&infoExt!=='mkv')?mediaUrlWithExtension('series',eid,'mkv'):'',sources=uniqueMediaUrls([nativeUrl,direct,corrected,mkv,mediaUrlWithExtension('series',eid,'m3u8')]),key=episodeKey(item,ep),old=getHistory('series').find(x=>x.key===key),entry={key,type:'series',title:itemTitle(item)+' — Episódio '+n,image:ep.info?.movie_image||ep.info?.cover_big||ep.info?.cover||ep.stream_icon||backdrop,url:sources[0],sources,seriesId:item.series_id,season,episodeNumber:n,containerExtension:infoExt||catalogExt,itemSnapshot:{series_id:item.series_id,stream_id:eid,name:itemTitle(item),cover:item.cover||backdrop,container_extension:infoExt||catalogExt,movie_image:ep.info?.movie_image||''},position:0,duration:0};sources.forEach(warmMediaOrigin);const episodeArt=ep.info?.movie_image||ep.info?.cover_big||ep.info?.cover||ep.stream_icon||backdrop||IMAGE_PLACEHOLDER;if(episodeArt)image.src=episodeArt;image.classList.remove('is-hidden');video.classList.add('is-hidden');actions.classList.remove('is-hidden');state.currentMedia=old?{...entry,...old,sources}:entry;state.saveTick=0;state.seriesVideo={video,image,actions,art};srhShowPlaybackLoading(art,itemTitle(item));attachVideo(video,sources,()=>{srhClearPlaybackFeedback(art,{restoreBrand:true});if(old?.position>5&&old.position<video.duration-5)video.currentTime=old.position;image.classList.add('is-hidden');video.classList.remove('is-hidden');art.classList.add('is-playing')},err=>{image.classList.remove('is-hidden');video.classList.add('is-hidden');art.classList.remove('is-playing');srhShowProviderError(art,err);toast('Não foi possível reproduzir este episódio.')});video.ontimeupdate=()=>{if(++state.saveTick%25===0)persistProgress(video)};video.onpause=()=>persistProgress(video);video.onended=()=>{markStandardCompleted(state.currentMedia||entry,video.duration);removeHistory(key,'series');drawSeason(season)};const stopButton=$('#seriesStop');if(stopButton)stopButton.onclick=e=>{e.stopPropagation();stopInlineSeriesVideo().then(()=>drawSeason(season))};$('#seriesExpand').onclick=e=>{e.stopPropagation();toggleFullscreen(art)}}seasonMenu.querySelectorAll('[data-season]').forEach(b=>b.onclick=e=>{e.stopPropagation();drawSeason(b.dataset.season)});if(seasons[0])drawSeason(seasons[0]);else list.innerHTML='<div class="skeleton">A API não retornou episódios.</div>'}catch(e){if(!isDetailCurrent(token))return;el.detailBody.innerHTML='<div class="rail-load-error"><span>'+escapeHtml(e.message)+'</span><button type="button">Tentar novamente</button></div>';el.detailBody.querySelector('button').onclick=()=>openItem(item,item.series_id!==undefined?'series':'vod')}}
+async function openSeries(item){openDetail(itemTitle(item));const token=state.detailToken;detailModal()?.classList.add('is-series');try{const data=await requestDetail({action:'get_series_info',series_id:item.series_id});if(!isDetailCurrent(token))return;const info=data?.info||{},episodes=normalizeEpisodes(data?.episodes),seasons=Object.keys(episodes).sort((a,b)=>Number(a)-Number(b)),backdrop=(Array.isArray(info.backdrop_path)?info.backdrop_path[0]:info.backdrop_path)||info.backdrop||info.cover_big||info.cover||item.cover||'',plot=info.plot||info.description||item.plot||'';state.currentSeries={item,data,episodes,backdrop};el.detailBody.innerHTML=`<div class="detail-content"><div class="series-static"><div class="detail-art" id="seriesArt"><img class="backdrop" id="seriesImage" src="${escapeHtml(backdrop||IMAGE_PLACEHOLDER)}" alt=""><video class="is-hidden" id="seriesInlineVideo" controls autoplay playsinline></video><div class="detail-art__actions is-hidden" id="seriesVideoActions"><button class="floating-action" id="seriesStop" title="Fechar vídeo"><svg class="ui-svg" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg></button><button class="floating-action" id="seriesExpand" title="Expandir ou minimizar"><svg class="ui-svg" viewBox="0 0 24 24"><path d="M8.5 4.5h-4v4M15.5 4.5h4v4M8.5 19.5h-4v-4M15.5 19.5h4v-4"/></svg></button></div></div><div class="detail-title-row"><h2 class="detail-title">${escapeHtml(itemTitle(item))}</h2></div><div class="synopsis" id="seriesSynopsis">${synopsisMarkup(plot,false)}</div><div class="season-box"><button class="season-trigger" id="seasonTrigger"><span id="seasonLabel">${seasons[0]?'Temporada '+escapeHtml(seasons[0]):'Temporadas'}</span><span>⌄</span></button><div class="season-menu is-hidden${seasons.length>4?' season-menu--scroll':''}" id="seasonMenu"></div></div></div><div class="episode-container"><div class="episode-list" id="episodeList"></div></div></div>`;const art=$('#seriesArt'),image=$('#seriesImage'),video=$('#seriesInlineVideo'),actions=$('#seriesVideoActions'),seasonMenu=$('#seasonMenu'),seasonLabel=$('#seasonLabel'),list=$('#episodeList'),syn=$('#seriesSynopsis');setSynopsisState(syn,plot,false);syn.onclick=e=>{e.stopPropagation();setSynopsisState(syn,plot,!state.synopsisExpanded)};seasonMenu.innerHTML=seasons.map((s,i)=>`<button class="season-option${i===0?' is-active':''}" data-season="${escapeHtml(s)}">Temporada ${escapeHtml(s)}</button>`).join('');$('#seasonTrigger').onclick=e=>{e.stopPropagation();seasonMenu.classList.toggle('is-hidden')};function drawSeason(key){seasonLabel.textContent='Temporada '+key;seasonMenu.classList.add('is-hidden');seasonMenu.querySelectorAll('[data-season]').forEach(b=>b.classList.toggle('is-active',b.dataset.season===key));const eps=Array.isArray(episodes[key])?episodes[key]:[],history=new Map(getHistory('series').map(x=>[x.key,x]));list.innerHTML=eps.map((ep,idx)=>{const n=ep.episode_num??idx+1,thumb=ep.info?.movie_image||ep.info?.cover_big||ep.info?.cover||ep.stream_icon||backdrop||IMAGE_PLACEHOLDER,h=history.get(episodeKey(item,ep)),done=getStandardCompleted(episodeKey(item,ep)),pct=h?.duration?Math.min(100,h.position/h.duration*100):(done?100:0);return `<article class="episode" data-ep="${idx}"><img class="episode__thumb" src="${escapeHtml(thumb)}" alt="" loading="lazy"><div><div class="episode__title">Episódio ${escapeHtml(n)}</div><div class="episode__meta">${escapeHtml(ep.info?.duration||'')}</div><div class="episode__progress"><span style="width:${pct}%"></span></div></div><div class="episode__play"><svg class="ui-svg" viewBox="0 0 24 24"><path d="M9 6.5v11l8-5.5z"/></svg></div></article>`}).join('');list.querySelectorAll('[data-ep]').forEach(row=>row.onclick=()=>playEpisode(eps[Number(row.dataset.ep)],Number(row.dataset.ep),key));list.scrollTop=0}async function playEpisode(ep,idx,season){const playToken=++state.seriesPlayToken;await stopInlineSeriesVideo();if(!isDetailCurrent(token)||playToken!==state.seriesPlayToken)return;const n=ep.episode_num??idx+1,eid=ep?.id||ep?.stream_id,catalogExt=String(ep?.container_extension||'mp4').toLowerCase(),infoExt=String(ep?.info?.container_extension||'').toLowerCase(),nativeUrl=mediaUrlWithExtension('series',eid,catalogExt),direct=normalizeMediaUrl(ep?.direct_source||ep?.info?.direct_source||''),corrected=infoExt&&infoExt!==catalogExt?mediaUrlWithExtension('series',eid,infoExt):'',mkv=(catalogExt!=='mkv'&&infoExt!=='mkv')?mediaUrlWithExtension('series',eid,'mkv'):'',sources=uniqueMediaUrls([nativeUrl,direct,corrected,mkv,mediaUrlWithExtension('series',eid,'m3u8')]),key=episodeKey(item,ep),old=getHistory('series').find(x=>x.key===key),entry={key,type:'series',title:itemTitle(item)+' — Episódio '+n,image:ep.info?.movie_image||ep.info?.cover_big||ep.info?.cover||ep.stream_icon||backdrop,url:sources[0],sources,seriesId:item.series_id,season,episodeNumber:n,containerExtension:infoExt||catalogExt,itemSnapshot:{series_id:item.series_id,stream_id:eid,name:itemTitle(item),cover:item.cover||backdrop,container_extension:infoExt||catalogExt,movie_image:ep.info?.movie_image||''},position:0,duration:0};sources.forEach(warmMediaOrigin);const episodeArt=ep.info?.movie_image||ep.info?.cover_big||ep.info?.cover||ep.stream_icon||backdrop||IMAGE_PLACEHOLDER;if(episodeArt)image.src=episodeArt;image.classList.remove('is-hidden');video.classList.add('is-hidden');actions.classList.remove('is-hidden');state.currentMedia=old?{...entry,...old,sources}:entry;state.saveTick=0;state.seriesVideo={video,image,actions,art};srhShowPlaybackLoading(art,itemTitle(item));attachVideo(video,sources,()=>{srhClearPlaybackFeedback(art,{restoreBrand:true});if(old?.position>5&&old.position<video.duration-5)video.currentTime=old.position;image.classList.add('is-hidden');video.classList.remove('is-hidden');art.classList.add('is-playing')},err=>{image.classList.remove('is-hidden');video.classList.add('is-hidden');art.classList.remove('is-playing');srhShowProviderError(art,err);toast('Não foi possível reproduzir este episódio.')});video.ontimeupdate=()=>{if(++state.saveTick%25===0)persistProgress(video)};video.onpause=()=>persistProgress(video);video.onended=()=>{markStandardCompleted(state.currentMedia||entry,video.duration);removeHistory(key,'series');drawSeason(season)};const stopButton=$('#seriesStop');if(stopButton)stopButton.onclick=e=>{e.stopPropagation();stopInlineSeriesVideo().then(()=>drawSeason(season))};$('#seriesExpand').onclick=e=>{e.stopPropagation();toggleFullscreen(art)}}seasonMenu.querySelectorAll('[data-season]').forEach(b=>b.onclick=e=>{e.stopPropagation();drawSeason(b.dataset.season)});if(seasons[0])drawSeason(seasons[0]);else list.innerHTML='<div class="skeleton">A API não retornou episódios.</div>'}catch(e){if(!isDetailCurrent(token))return;el.detailBody.innerHTML='<div class="rail-load-error"><span>'+escapeHtml(e.message)+'</span><button type="button">Tentar novamente</button></div>';el.detailBody.querySelector('button').onclick=()=>openItem(item,item.series_id!==undefined?'series':'vod')}}
 function openLive(group){openDetail(group.baseName);state.currentDetail={type:'live',group};const logo=group.image||IMAGE_PLACEHOLDER,variants=group.variants||[];el.detailBody.innerHTML=`<div class="detail-content"><div class="detail-art"><img class="channel-logo" src="${escapeHtml(logo)}" alt=""></div><div class="detail-title-row"><h2 class="detail-title">${escapeHtml(group.baseName)}</h2></div><div class="quality-list">${variants.map((v,i)=>`<button class="quality-row" data-quality-index="${i}"><span class="quality-row__name">${escapeHtml(group.baseName)}</span><span class="quality-row__quality">${escapeHtml(v._quality||'Padrão')}</span></button>`).join('')}</div></div>`;el.detailBody.querySelectorAll('[data-quality-index]').forEach(b=>b.onclick=()=>{const v=variants[Number(b.dataset.qualityIndex)],primary=streamUrl('live',v),base=normalizeServer(CONFIG.server),u=encodeURIComponent(CONFIG.username),p=encodeURIComponent(CONFIG.password),id=v?.id||v?.stream_id,m3u8=`${base}/live/${u}/${p}/${id}.m3u8`,ts=`${base}/live/${u}/${p}/${id}.ts`,declaredExt=String(v?.container_extension||CONFIG.liveExtension||'').toLowerCase(),sources=declaredExt==='ts'?uniqueMediaUrls([ts,primary,m3u8]):uniqueMediaUrls([m3u8,primary,ts]);sources.forEach(warmMediaOrigin);openGeneralPlayer(sources,group.baseName+' · '+(v._quality||'Padrão'),{key:'live:'+v.stream_id,type:'live',title:group.baseName,url:sources[0],sources,image:logo,position:0,duration:0})})}
 function openItem(item,type){if(type==='live')openLive(item);else if(type==='series')openSeries(item);else openFilm(item)}
 function normalizeUpdateCategories(raw,type){return(Array.isArray(raw)?raw:[]).map((c,i)=>({type,id:String(c.category_id??c.id??'').trim(),name:String(c.category_name??c.name??('Categoria '+(i+1)))})).filter(c=>c.id)}
@@ -1157,7 +1180,12 @@ async function closeDetail(){
   const resumeBaseOpenDetail=openDetail;
   openDetail=function(title){clearResumePreview();return resumeBaseOpenDetail(title)};
   const resumeBaseCloseDetail=closeDetail;
-  closeDetail=async function(){clearResumePreview();return resumeBaseCloseDetail.apply(this,arguments)};
+  closeDetail=async function(){
+    clearResumePreview();
+    state.srhContinueOpening=false;
+    state.srhOpeningContinue=false;
+    return resumeBaseCloseDetail.apply(this,arguments)
+  };
   function seekPreviewFrame(video,position,timeout=5200){
     return new Promise(resolve=>{
       let done=false,timer=0;
@@ -2498,11 +2526,21 @@ async function closeDetail(){
     return true;
   }
 
+  function hideHeroLogo(logo){
+    if(!logo)return;
+    logo.classList.add('is-hidden');
+    logo.style.setProperty('display','none','important')
+  }
+  function showHeroLogo(logo){
+    if(!logo)return;
+    logo.style.removeProperty('display');
+    logo.classList.remove('is-hidden')
+  }
   function holdHeroBrand(node,title=''){
     const box=node.querySelector('.stream-hero__brand'),logo=node.querySelector('.stream-hero__logo'),fallback=node.querySelector('.stream-hero__brand-fallback');
     if(!box||!logo||!fallback)return;
     box.classList.remove('srh-logo-flare-light','srh-logo-flare-dark','has-logo','has-fallback','is-ready');
-    logo.onload=null;logo.onerror=null;logo.classList.add('is-hidden');logo.removeAttribute('src');logo.removeAttribute('data-srh-normalized');
+    logo.onload=null;logo.onerror=null;hideHeroLogo(logo);logo.removeAttribute('src');logo.removeAttribute('data-srh-normalized');
     fallback.classList.add('is-hidden');fallback.textContent='';
     box.setAttribute('aria-label',String(title||'').trim())
   }
@@ -2514,7 +2552,7 @@ async function closeDetail(){
     if(!box||!logo||!fallback)return;
     box.classList.remove('srh-logo-flare-light','srh-logo-flare-dark','has-logo','has-fallback','is-ready');
     logo.onload=null;logo.onerror=null;
-    logo.classList.add('is-hidden');
+    hideHeroLogo(logo);
     logo.removeAttribute('src');
     logo.removeAttribute('data-srh-normalized');
     fallback.classList.add('is-hidden');
@@ -2523,7 +2561,9 @@ async function closeDetail(){
 
     const showFallback=()=>{
       if(local!==heroToken)return;
-      logo.classList.add('is-hidden');
+      logo.onload=null;logo.onerror=null;
+      hideHeroLogo(logo);
+      logo.removeAttribute('src');
       fallback.textContent=String(title||'').trim();
       fallback.classList.remove('is-hidden');
       box.classList.remove('has-logo');
@@ -2548,7 +2588,7 @@ async function closeDetail(){
       if(typeof tuneCatalogLogoContrast==='function')await tuneCatalogLogoContrast(logo,box);
       if(local!==heroToken)return;
       fallback.classList.add('is-hidden');
-      logo.classList.remove('is-hidden');
+      showHeroLogo(logo);
       box.classList.remove('has-fallback');
       box.classList.add('has-logo','is-ready');
     };
@@ -2605,12 +2645,16 @@ async function closeDetail(){
 
     const title=type==='live'?compactChannelTitle(item.baseName||'Canal'):stripEmoji(data?.title||itemTitle(item),'Sem título');
     const image=heroImage(item,type,data);
-    if(type!=='live'&&data?.logo)await preloadHeroImage(data.logo).catch(()=>false);
+    let brandData=data;
+    if(type!=='live'&&data?.logo){
+      const logoReady=await preloadHeroImage(data.logo).catch(()=>false);
+      if(!logoReady)brandData={...data,logo:''}
+    }
     await quickPaint;
     if(local!==heroToken||heroViewToken!==state.renderToken||state.activeType!==type)return;
     if(image&&image!==quickImage)await paintHeroBackground(node,image,type==='live',local);
     if(local!==heroToken||heroViewToken!==state.renderToken||state.activeType!==type)return;
-    setHeroBrand(node,title,data,local);
+    setHeroBrand(node,title,brandData,local);
     plot.textContent=type==='live'?'':(data?.overview||String(item?.plot||item?.description||''));
     metaNode.textContent=heroMetaText(type,data);
     skeleton?.classList.add('is-hidden');
@@ -2698,6 +2742,28 @@ async function closeDetail(){
   };
 
   if(state.activeType)buildHero(state.renderToken);
+})();
+
+/* SRHELL DEBUG STANDARD R56 — modal lifecycle + skeleton scroll guard */
+(function installStandardR56Guards(){
+  if(el.detailClose){
+    let closing=false;
+    el.detailClose.onclick=async e=>{
+      e?.stopPropagation?.();
+      if(closing)return;
+      closing=true;
+      try{await closeDetail()}finally{closing=false}
+    };
+  }
+  let scrollTimer=0;
+  const markSkeletonScroll=()=>{
+    if(!document.querySelector('.rail-skeleton-row,.srh-modal-loading,.skeleton'))return;
+    document.body.classList.add('srh-skeleton-scrolling');
+    clearTimeout(scrollTimer);
+    scrollTimer=setTimeout(()=>document.body.classList.remove('srh-skeleton-scrolling'),180)
+  };
+  addEventListener('scroll',markSkeletonScroll,{passive:true});
+  el.detailScroll?.addEventListener?.('scroll',markSkeletonScroll,{passive:true});
 })();
 
 /* Floating classic header: hero/content passes underneath; hide only beyond first category. */
