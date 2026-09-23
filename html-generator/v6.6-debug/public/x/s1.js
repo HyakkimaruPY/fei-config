@@ -58,9 +58,37 @@ async function request(params={},cfg=CONFIG){
   try{return await requestJson(target)}
   catch(error){if(!cfg.corsProxy)throw error;return requestJson(proxyUrl(target,cfg))}
 }
+function targetId(t){return String(t?.id??t?.category_id??t?.categoryId??'').trim()}
+function targetKey(t){const id=targetId(t);return String(t?.type||'')+'::'+(id?'id:'+id:'name:'+String(t?.name||''))}
+function targetsFor(type){const out=[],seen=new Set();for(const t of (CONFIG.targets||[])){if(t?.type!==type)continue;const key=targetKey(t);if(seen.has(key))continue;seen.add(key);out.push(t)}return out}
 function selectedTypes(){return [...new Set((CONFIG.targets||[]).map(t=>t.type).filter(t=>TYPE[t]))]}
-function targetsFor(type){return (CONFIG.targets||[]).filter(t=>t.type===type)}
-function targetKey(t){return t.type+'::'+t.name}
+function configuredTargetIds(type){return new Set(targetsFor(type).map(targetId).filter(Boolean))}
+function buildCategoryLookup(raw){
+  const map=new Map(),duplicates=new Set(),ids=new Set();
+  for(const c of (Array.isArray(raw)?raw:[])){
+    const name=String(c?.category_name??c?.name??''),id=String(c?.category_id??c?.id??'').trim();
+    if(!id)continue;ids.add(id);
+    if(map.has(name)&&map.get(name)!==id)duplicates.add(name);else if(!map.has(name))map.set(name,id)
+  }
+  map.__duplicates=duplicates;map.__ids=ids;return map
+}
+function itemDeclaredCategoryIds(item){
+  const vals=[item?.category_id,item?.categoryId,item?.category_ids,item?.categoryIds],out=new Set();
+  for(const v of vals){if(v===undefined||v===null||v==='')continue;const parts=Array.isArray(v)?v:String(v).split(/[,;|\s]+/);for(const x of parts){const s=String(x??'').trim();if(s)out.add(s)}}
+  return out
+}
+function scopeCategoryItems(raw,type,id){
+  const requested=String(id||''),out=[],membership=new Set();
+  for(const item of (Array.isArray(raw)?raw:[])){
+    if(!item||typeof item!=='object')continue;
+    const declared=itemDeclaredCategoryIds(item);if(declared.size&&!declared.has(requested))continue;
+    try{item._srhCategoryId=requested}catch{}
+    const iid=String(itemId(item,type)||'');if(iid)membership.add(iid);out.push(item)
+  }
+  if(!state.srhCatalogMembership)state.srhCatalogMembership=new Map();
+  state.srhCatalogMembership.set(type+':'+requested,membership);
+  return out
+}
 function itemTitle(item){return stripEmoji(String(item?.name||item?.title||'Sem título'),'Sem título')}
 function itemId(item,type){return type==='series'?item.series_id:item.stream_id}
 function imageFor(item,type){if(type==='series')return item.cover||item.stream_icon||item.movie_image||'';return item.stream_icon||item.movie_image||item.cover||''}
@@ -71,9 +99,15 @@ function saveHistory(entry){if(!entry||entry.type==='live')return;const type=ent
 function removeHistory(key,type){if(type==='live')return;const bucket=type==='series'?'series':'vod';localStorage.setItem(historyKey(bucket),JSON.stringify(getHistory(bucket).filter(x=>x.key!==key)));renderContinue()}
 function formatExpiry(account){const raw=account?.user_info?.exp_date;if(raw===null||raw===undefined||raw===''||String(raw)==='0')return{chip:'∞',date:'Sem expiração informada',days:'Sem limite informado'};const n=Number(raw);if(!Number.isFinite(n))return{chip:'—',date:'Não informada',days:'Não informado'};const d=new Date(n*1000);if(Number.isNaN(d.getTime()))return{chip:'—',date:'Não informada',days:'Não informado'};const diff=Math.ceil((d.getTime()-Date.now())/86400000);return{chip:diff<0?'0d':diff+'d',date:d.toLocaleDateString('pt-BR',{day:'2-digit',month:'2-digit',year:'numeric'}),days:diff<0?'Expirada':diff===0?'Expira hoje':diff===1?'1 dia restante':diff+' dias restantes'}}
 async function refreshAccount(){el.meta.textContent='Atualizando validade…';try{const account=await request({});const exp=formatExpiry(account);el.daysChip.textContent=exp.chip;el.expiryDate.textContent=exp.date;el.expiryDays.textContent=exp.days;const status=String(account?.user_info?.status||'').trim();el.meta.textContent=(status?status+' · ':'')+exp.days}catch{el.daysChip.textContent='—';el.expiryDate.textContent='Indisponível';el.expiryDays.textContent='Não foi possível consultar';el.meta.textContent='Falha ao consultar validade'}}
-async function categoryMap(type,force=false,cfg=CONFIG){if(!force&&cfg===CONFIG&&state.categoryMaps.has(type))return state.categoryMaps.get(type);const raw=await request({action:TYPE[type].categories},cfg);const map=new Map((Array.isArray(raw)?raw:[]).map(c=>[String(c.category_name??c.name??''),String(c.category_id??c.id??'')]));if(cfg===CONFIG)state.categoryMaps.set(type,map);return map}
-async function resolveCategoryId(target){const map=await categoryMap(target.type);const id=map.get(target.name);if(!id)throw new Error('Categoria não encontrada: '+stripEmoji(target.name));return id}
-async function loadTargetItems(target){const id=await resolveCategoryId(target);const raw=await request({action:TYPE[target.type].content,category_id:id});return Array.isArray(raw)?raw:[]}
+async function categoryMap(type,force=false,cfg=CONFIG){if(!force&&cfg===CONFIG&&state.categoryMaps.has(type))return state.categoryMaps.get(type);const raw=await request({action:TYPE[type].categories},cfg),map=buildCategoryLookup(raw);if(cfg===CONFIG)state.categoryMaps.set(type,map);return map}
+async function resolveCategoryId(target){
+  const explicit=targetId(target),allowed=configuredTargetIds(target?.type);
+  if(explicit){if(allowed.size&&!allowed.has(explicit))throw new Error('Categoria fora do escopo configurado.');return explicit}
+  const map=await categoryMap(target.type),name=String(target?.name||'');
+  if(map.__duplicates?.has(name))throw new Error('Categoria ambígua no HTML legado: '+stripEmoji(name)+'. Reconfigure a categoria.');
+  const id=map.get(name);if(!id)throw new Error('Categoria não encontrada: '+stripEmoji(name));return id
+}
+async function loadTargetItems(target){const id=await resolveCategoryId(target),raw=await request({action:TYPE[target.type].content,category_id:id});return scopeCategoryItems(raw,target.type,id)}
 function streamUrl(type,item){const base=normalizeServer(CONFIG.server),u=encodeURIComponent(CONFIG.username),p=encodeURIComponent(CONFIG.password),id=item?.id||item?.stream_id;let ext=item?.container_extension||item?.containerExtension||'';if(type==='live')return `${base}/live/${u}/${p}/${id}.${CONFIG.liveExtension||'m3u8'}`;if(type==='series')return `${base}/series/${u}/${p}/${id}.${ext||'mp4'}`;return `${base}/movie/${u}/${p}/${id}.${ext||'mp4'}`}
 function uniqueMediaUrls(values){const out=[];for(const raw of values||[]){const v=String(raw||'').trim();if(v&&!out.includes(v))out.push(v)}return out}
 function normalizeMediaUrl(value){const v=String(value||'').trim();if(!v)return'';if(/^https?:\/\//i.test(v))return v;if(v.startsWith('/'))return normalizeServer(CONFIG.server)+v;return''}
@@ -235,10 +269,11 @@ async function stopInlineSeriesVideo(){const sv=state.seriesVideo;if(!sv)return;
 async function openSeries(item){openDetail(itemTitle(item));const token=state.detailToken;detailModal()?.classList.add('is-series');try{const data=await request({action:'get_series_info',series_id:item.series_id});if(!isDetailCurrent(token))return;const info=data?.info||{},episodes=normalizeEpisodes(data?.episodes),seasons=Object.keys(episodes).sort((a,b)=>Number(a)-Number(b)),backdrop=(Array.isArray(info.backdrop_path)?info.backdrop_path[0]:info.backdrop_path)||info.backdrop||info.cover_big||info.cover||item.cover||'',plot=info.plot||info.description||item.plot||'';state.currentSeries={item,data,episodes,backdrop};el.detailBody.innerHTML=`<div class="detail-content"><div class="series-static"><div class="detail-art" id="seriesArt"><img class="backdrop" id="seriesImage" src="${escapeHtml(backdrop||IMAGE_PLACEHOLDER)}" alt=""><video class="is-hidden" id="seriesInlineVideo" controls autoplay playsinline></video><div class="detail-art__actions is-hidden" id="seriesVideoActions"><button class="floating-action" id="seriesStop" title="Fechar vídeo"><svg class="ui-svg" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg></button><button class="floating-action" id="seriesExpand" title="Expandir ou minimizar"><svg class="ui-svg" viewBox="0 0 24 24"><path d="M8.5 4.5h-4v4M15.5 4.5h4v4M8.5 19.5h-4v-4M15.5 19.5h4v-4"/></svg></button></div></div><div class="detail-title-row"><h2 class="detail-title">${escapeHtml(itemTitle(item))}</h2></div><div class="synopsis" id="seriesSynopsis">${synopsisMarkup(plot,false)}</div><div class="season-box"><button class="season-trigger" id="seasonTrigger"><span id="seasonLabel">${seasons[0]?'Temporada '+escapeHtml(seasons[0]):'Temporadas'}</span><span>⌄</span></button><div class="season-menu is-hidden${seasons.length>4?' season-menu--scroll':''}" id="seasonMenu"></div></div></div><div class="episode-container"><div class="episode-list" id="episodeList"></div></div></div>`;const art=$('#seriesArt'),image=$('#seriesImage'),video=$('#seriesInlineVideo'),actions=$('#seriesVideoActions'),seasonMenu=$('#seasonMenu'),seasonLabel=$('#seasonLabel'),list=$('#episodeList'),syn=$('#seriesSynopsis');setSynopsisState(syn,plot,false);syn.onclick=e=>{e.stopPropagation();setSynopsisState(syn,plot,!state.synopsisExpanded)};seasonMenu.innerHTML=seasons.map((s,i)=>`<button class="season-option${i===0?' is-active':''}" data-season="${escapeHtml(s)}">Temporada ${escapeHtml(s)}</button>`).join('');$('#seasonTrigger').onclick=e=>{e.stopPropagation();seasonMenu.classList.toggle('is-hidden')};function drawSeason(key){seasonLabel.textContent='Temporada '+key;seasonMenu.classList.add('is-hidden');seasonMenu.querySelectorAll('[data-season]').forEach(b=>b.classList.toggle('is-active',b.dataset.season===key));const eps=Array.isArray(episodes[key])?episodes[key]:[],history=new Map(getHistory('series').map(x=>[x.key,x]));list.innerHTML=eps.map((ep,idx)=>{const n=ep.episode_num??idx+1,thumb=ep.info?.movie_image||ep.info?.cover_big||ep.info?.cover||ep.stream_icon||backdrop||IMAGE_PLACEHOLDER,h=history.get(episodeKey(item,ep)),done=getStandardCompleted(episodeKey(item,ep)),pct=h?.duration?Math.min(100,h.position/h.duration*100):(done?100:0);return `<article class="episode" data-ep="${idx}"><img class="episode__thumb" src="${escapeHtml(thumb)}" alt="" loading="lazy"><div><div class="episode__title">Episódio ${escapeHtml(n)}</div><div class="episode__meta">${escapeHtml(ep.info?.duration||'')}</div><div class="episode__progress"><span style="width:${pct}%"></span></div></div><div class="episode__play"><svg class="ui-svg" viewBox="0 0 24 24"><path d="M9 6.5v11l8-5.5z"/></svg></div></article>`}).join('');list.querySelectorAll('[data-ep]').forEach(row=>row.onclick=()=>playEpisode(eps[Number(row.dataset.ep)],Number(row.dataset.ep),key));list.scrollTop=0}async function playEpisode(ep,idx,season){const playToken=++state.seriesPlayToken;await stopInlineSeriesVideo();if(!isDetailCurrent(token)||playToken!==state.seriesPlayToken)return;const n=ep.episode_num??idx+1,eid=ep?.id||ep?.stream_id,catalogExt=String(ep?.container_extension||'mp4').toLowerCase(),infoExt=String(ep?.info?.container_extension||'').toLowerCase(),nativeUrl=mediaUrlWithExtension('series',eid,catalogExt),direct=normalizeMediaUrl(ep?.direct_source||ep?.info?.direct_source||''),corrected=infoExt&&infoExt!==catalogExt?mediaUrlWithExtension('series',eid,infoExt):'',mkv=(catalogExt!=='mkv'&&infoExt!=='mkv')?mediaUrlWithExtension('series',eid,'mkv'):'',sources=uniqueMediaUrls([nativeUrl,direct,corrected,mkv,mediaUrlWithExtension('series',eid,'m3u8')]),key=episodeKey(item,ep),old=getHistory('series').find(x=>x.key===key),entry={key,type:'series',title:itemTitle(item)+' — Episódio '+n,image:ep.info?.movie_image||ep.info?.cover_big||ep.info?.cover||ep.stream_icon||backdrop,url:sources[0],sources,seriesId:item.series_id,season,episodeNumber:n,containerExtension:infoExt||catalogExt,itemSnapshot:{series_id:item.series_id,stream_id:eid,name:itemTitle(item),cover:item.cover||backdrop,container_extension:infoExt||catalogExt,movie_image:ep.info?.movie_image||''},position:0,duration:0};sources.forEach(warmMediaOrigin);const episodeArt=ep.info?.movie_image||ep.info?.cover_big||ep.info?.cover||ep.stream_icon||backdrop||IMAGE_PLACEHOLDER;if(episodeArt)image.src=episodeArt;image.classList.remove('is-hidden');video.classList.add('is-hidden');actions.classList.remove('is-hidden');state.currentMedia=old?{...entry,...old,sources}:entry;state.saveTick=0;state.seriesVideo={video,image,actions,art};srhShowPlaybackLoading(art,itemTitle(item));attachVideo(video,sources,()=>{srhClearPlaybackFeedback(art,{restoreBrand:true});if(old?.position>5&&old.position<video.duration-5)video.currentTime=old.position;image.classList.add('is-hidden');video.classList.remove('is-hidden');art.classList.add('is-playing')},err=>{image.classList.remove('is-hidden');video.classList.add('is-hidden');art.classList.remove('is-playing');srhShowProviderError(art,err);toast('Não foi possível reproduzir este episódio.')});video.ontimeupdate=()=>{if(++state.saveTick%25===0)persistProgress(video)};video.onpause=()=>persistProgress(video);video.onended=()=>{markStandardCompleted(state.currentMedia||entry,video.duration);removeHistory(key,'series');drawSeason(season)};const stopButton=$('#seriesStop');if(stopButton)stopButton.onclick=e=>{e.stopPropagation();stopInlineSeriesVideo().then(()=>drawSeason(season))};$('#seriesExpand').onclick=e=>{e.stopPropagation();toggleFullscreen(art)}}seasonMenu.querySelectorAll('[data-season]').forEach(b=>b.onclick=e=>{e.stopPropagation();drawSeason(b.dataset.season)});if(seasons[0])drawSeason(seasons[0]);else list.innerHTML='<div class="skeleton">A API não retornou episódios.</div>'}catch(e){if(!isDetailCurrent(token))return;el.detailBody.innerHTML='<div class="rail-load-error"><span>'+escapeHtml(e.message)+'</span><button type="button">Tentar novamente</button></div>';el.detailBody.querySelector('button').onclick=()=>openItem(item,item.series_id!==undefined?'series':'vod')}}
 function openLive(group){openDetail(group.baseName);state.currentDetail={type:'live',group};const logo=group.image||IMAGE_PLACEHOLDER,variants=group.variants||[];el.detailBody.innerHTML=`<div class="detail-content"><div class="detail-art"><img class="channel-logo" src="${escapeHtml(logo)}" alt=""></div><div class="detail-title-row"><h2 class="detail-title">${escapeHtml(group.baseName)}</h2></div><div class="quality-list">${variants.map((v,i)=>`<button class="quality-row" data-quality-index="${i}"><span class="quality-row__name">${escapeHtml(group.baseName)}</span><span class="quality-row__quality">${escapeHtml(v._quality||'Padrão')}</span></button>`).join('')}</div></div>`;el.detailBody.querySelectorAll('[data-quality-index]').forEach(b=>b.onclick=()=>{const v=variants[Number(b.dataset.qualityIndex)],primary=streamUrl('live',v),base=normalizeServer(CONFIG.server),u=encodeURIComponent(CONFIG.username),p=encodeURIComponent(CONFIG.password),id=v?.id||v?.stream_id,m3u8=`${base}/live/${u}/${p}/${id}.m3u8`,ts=`${base}/live/${u}/${p}/${id}.ts`,declaredExt=String(v?.container_extension||CONFIG.liveExtension||'').toLowerCase(),sources=declaredExt==='ts'?uniqueMediaUrls([ts,primary,m3u8]):uniqueMediaUrls([m3u8,primary,ts]);sources.forEach(warmMediaOrigin);openGeneralPlayer(sources,group.baseName+' · '+(v._quality||'Padrão'),{key:'live:'+v.stream_id,type:'live',title:group.baseName,url:sources[0],sources,image:logo,position:0,duration:0})})}
 function openItem(item,type){if(type==='live')openLive(item);else if(type==='series')openSeries(item);else openFilm(item)}
-function normalizeUpdateCategories(raw,type){return(Array.isArray(raw)?raw:[]).map((c,i)=>({type,id:String(c.category_id??c.id??''),name:String(c.category_name??c.name??('Categoria '+(i+1)))}))}
-function renderUpdateGroups(){const grouped={live:[],vod:[],series:[]};state.updateCategories.forEach(c=>grouped[c.type]?.push(c));el.updateGroups.innerHTML=Object.entries(grouped).map(([type,cats])=>cats.length?`<section class="update-group"><div class="update-group__title">${TYPE[type].label}</div><div class="update-list">${cats.map(c=>{const key=type+'::'+c.name;return `<label class="update-option"><input type="checkbox" data-update-key="${escapeHtml(key)}" ${state.updateSelected.has(key)?'checked':''}><span>${escapeHtml(stripEmoji(c.name))}</span></label>`}).join('')}</div></section>`:'').join('');el.updateGroups.querySelectorAll('[data-update-key]').forEach(ch=>ch.onchange=()=>{ch.checked?state.updateSelected.add(ch.dataset.updateKey):state.updateSelected.delete(ch.dataset.updateKey);el.updateApply.disabled=!state.updateSelected.size})}
-async function loadUpdateCategories(){state.updateCategories=[];state.updateSelected.clear();el.updateApply.disabled=true;el.updateGroups.innerHTML='';try{const candidate={...CONFIG,...parseLogin(el.updateM3u.value)};state.updateCandidate=candidate;el.updateStatus.textContent='Validando login e lendo categorias…';el.updateLoad.disabled=true;const account=await request({},candidate),active=account?.user_info&&(String(account.user_info.auth)==='1'||String(account.user_info.status||'').toLowerCase()==='active');if(!active)throw new Error('O novo login não retornou uma conta ativa.');const groups=await Promise.all(Object.entries(TYPE).map(async([type,meta])=>normalizeUpdateCategories(await request({action:meta.categories},candidate),type)));state.updateCategories=groups.flat();const old=new Set((CONFIG.targets||[]).map(t=>t.type+'::'+t.name));state.updateCategories.forEach(c=>{const k=c.type+'::'+c.name;if(old.has(k))state.updateSelected.add(k)});renderUpdateGroups();el.updateStatus.textContent=state.updateCategories.length+' categorias disponíveis.'}catch(e){el.updateStatus.textContent=e.message}finally{el.updateLoad.disabled=false}}
-async function applyUpdate(){if(!state.updateCandidate||!state.updateSelected.size)return;const targets=state.updateCategories.filter(c=>state.updateSelected.has(c.type+'::'+c.name)).map(c=>({type:c.type,id:c.id,name:c.name})),runtime={server:state.updateCandidate.server,username:state.updateCandidate.username,password:state.updateCandidate.password,liveExtension:state.updateCandidate.liveExtension,targets},providerChanged=!!standardProviderId(CONFIG)&&!!standardProviderId(runtime)&&standardProviderId(CONFIG)!==standardProviderId(runtime);try{if(providerChanged){for(const key of [`srhell:${STANDARD_APP_NS}:standard:favorites:v1`,`srhell:${STANDARD_APP_NS}:standard:continue:vod`,`srhell:${STANDARD_APP_NS}:standard:continue:series`,STANDARD_COMPLETED_KEY,STANDARD_LAST_WATCHED_PREFIX+'vod',STANDARD_LAST_WATCHED_PREFIX+'series','srhell:'+STANDARD_APP_NS+':standard:similar:'+standardProviderId(CONFIG)+':v1'])await standardStateDelete(key)}const ok=await standardStateSet(storageKey(),runtime);if(!ok)throw new Error('IndexedDB');try{localStorage.removeItem(storageKey())}catch{}toast('Lista atualizada. Recarregando…');setTimeout(()=>location.reload(),350)}catch{toast('Não foi possível salvar a lista no IndexedDB.')}}
+function normalizeUpdateCategories(raw,type){return(Array.isArray(raw)?raw:[]).map((c,i)=>({type,id:String(c.category_id??c.id??'').trim(),name:String(c.category_name??c.name??('Categoria '+(i+1)))})).filter(c=>c.id)}
+function updateCategoryKey(c){return String(c?.type||'')+'::'+String(c?.id||'')}
+function renderUpdateGroups(){const grouped={live:[],vod:[],series:[]};state.updateCategories.forEach(c=>grouped[c.type]?.push(c));el.updateGroups.innerHTML=Object.entries(grouped).map(([type,cats])=>cats.length?`<section class="update-group"><div class="update-group__title">${TYPE[type].label}</div><div class="update-list">${cats.map(c=>{const key=updateCategoryKey(c);return `<label class="update-option"><input type="checkbox" data-update-key="${escapeHtml(key)}" ${state.updateSelected.has(key)?'checked':''}><span>${escapeHtml(stripEmoji(c.name))}</span></label>`}).join('')}</div></section>`:'').join('');el.updateGroups.querySelectorAll('[data-update-key]').forEach(ch=>ch.onchange=()=>{ch.checked?state.updateSelected.add(ch.dataset.updateKey):state.updateSelected.delete(ch.dataset.updateKey);el.updateApply.disabled=!state.updateSelected.size})}
+async function loadUpdateCategories(){state.updateCategories=[];state.updateSelected.clear();el.updateApply.disabled=true;el.updateGroups.innerHTML='';try{const candidate={...CONFIG,...parseLogin(el.updateM3u.value)};state.updateCandidate=candidate;el.updateStatus.textContent='Validando login e lendo categorias…';el.updateLoad.disabled=true;const account=await request({},candidate),active=account?.user_info&&(String(account.user_info.auth)==='1'||String(account.user_info.status||'').toLowerCase()==='active');if(!active)throw new Error('O novo login não retornou uma conta ativa.');const groups=await Promise.all(Object.entries(TYPE).map(async([type,meta])=>normalizeUpdateCategories(await request({action:meta.categories},candidate),type)));state.updateCategories=groups.flat();const oldIds=new Set((CONFIG.targets||[]).map(t=>targetId(t)?String(t.type)+'::'+targetId(t):'').filter(Boolean)),legacy=(CONFIG.targets||[]).filter(t=>!targetId(t));state.updateCategories.forEach(c=>{const k=updateCategoryKey(c);if(oldIds.has(k)){state.updateSelected.add(k);return}const matches=state.updateCategories.filter(x=>x.type===c.type&&x.name===c.name);if(matches.length===1&&legacy.some(t=>t.type===c.type&&t.name===c.name))state.updateSelected.add(k)});renderUpdateGroups();el.updateStatus.textContent=state.updateCategories.length+' categorias disponíveis.'}catch(e){el.updateStatus.textContent=e.message}finally{el.updateLoad.disabled=false}}
+async function applyUpdate(){if(!state.updateCandidate||!state.updateSelected.size)return;const targets=state.updateCategories.filter(c=>state.updateSelected.has(updateCategoryKey(c))).map(c=>({type:c.type,id:String(c.id),name:c.name})),runtime={server:state.updateCandidate.server,username:state.updateCandidate.username,password:state.updateCandidate.password,liveExtension:state.updateCandidate.liveExtension,targets},providerChanged=!!standardProviderId(CONFIG)&&!!standardProviderId(runtime)&&standardProviderId(CONFIG)!==standardProviderId(runtime);try{if(providerChanged){for(const key of [`srhell:${STANDARD_APP_NS}:standard:favorites:v1`,`srhell:${STANDARD_APP_NS}:standard:continue:vod`,`srhell:${STANDARD_APP_NS}:standard:continue:series`,STANDARD_COMPLETED_KEY,STANDARD_LAST_WATCHED_PREFIX+'vod',STANDARD_LAST_WATCHED_PREFIX+'series','srhell:'+STANDARD_APP_NS+':standard:similar:'+standardProviderId(CONFIG)+':v1'])await standardStateDelete(key)}const ok=await standardStateSet(storageKey(),runtime);if(!ok)throw new Error('IndexedDB');try{localStorage.removeItem(storageKey())}catch{}toast('Lista atualizada. Recarregando…');setTimeout(()=>location.reload(),350)}catch{toast('Não foi possível salvar a lista no IndexedDB.')}}
 el.settingsButton.onclick=()=>{const opening=el.settingsPanel.classList.contains('is-hidden');el.settingsPanel.classList.toggle('is-hidden');if(opening)refreshAccount()};el.updateAccordionButton.onclick=()=>{const hidden=el.updateAccordionBody.classList.toggle('is-hidden');el.updateAccordionIcon.textContent=hidden?'⌄':'⌃'};el.updateLoad.onclick=loadUpdateCategories;el.updateApply.onclick=applyUpdate;
 document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement&&isMobile())screen.orientation?.lock?.('portrait')?.catch?.(()=>{})});
 function init(){installImageFallback();document.body.dataset.theme=CONFIG.theme||'graphene';document.title=CONFIG.appName;el.title.textContent=CONFIG.appName;const types=selectedTypes();if(!types.length){el.homeStatus.textContent='Nenhuma categoria configurada.';return}state.activeType=types[0];renderActiveType();refreshAccount()}
@@ -836,7 +871,7 @@ async function closeDetail(){
     const count=Math.max(3,Math.min(12,Math.ceil((available+m.gap)/(m.w+m.gap))+1));
     return '<div class="rail-skeleton-row" style="--sk-w:'+m.w+'px;--sk-h:'+m.h+'px">'+Array.from({length:count},()=>'<span class="rail-skeleton-card"></span>').join('')+'</div>';
   }
-  function railFetchJson(params,timeout=7200){
+  function railFetchJson(params,timeout=7200,opts=null){
     const target=apiUrl(params,CONFIG);
     const urls=[target];
     if(CONFIG.corsProxy)urls.push(proxyUrl(target,CONFIG));
@@ -847,7 +882,7 @@ async function closeDetail(){
       const ctrl=new AbortController();
       const timer=setTimeout(()=>ctrl.abort(),timeout);
       try{
-        const r=await fetch(url,{cache:'no-store',signal:ctrl.signal});
+        const r=await fetch(url,{cache:'no-store',signal:ctrl.signal,...(opts?.probe?{srhProbe:true}:{})});
         if(!r.ok)throw new Error('HTTP '+r.status);
         return await r.json();
       }catch(e){last=e;return next()}
@@ -859,7 +894,7 @@ async function closeDetail(){
     if(state.categoryMaps.has(type))return state.categoryMaps.get(type);
     if(srhRailCategoryInflight.has(type))return srhRailCategoryInflight.get(type);
     const p=railFetchJson({action:TYPE[type].categories},6500).then(raw=>{
-      const map=new Map((Array.isArray(raw)?raw:[]).map(c=>[String(c.category_name??c.name??''),String(c.category_id??c.id??'')]));
+      const map=buildCategoryLookup(raw);
       state.categoryMaps.set(type,map);
       return map;
     }).finally(()=>srhRailCategoryInflight.delete(type));
@@ -880,8 +915,13 @@ async function closeDetail(){
   }
   loadTargetItems=async function(target,token=state.renderToken,opts=null){
     if(token!==state.renderToken)return[];
-    let id=String(target.id??'').trim();
-    if(!id){const map=await stableRailCategoryMap(target.type);id=map.get(target.name)}
+    let id=targetId(target),allowed=configuredTargetIds(target?.type);
+    if(id&&allowed.size&&!allowed.has(id))throw new Error('Categoria fora do escopo configurado.');
+    if(!id){
+      const map=await stableRailCategoryMap(target.type),name=String(target?.name||'');
+      if(map.__duplicates?.has(name))throw new Error('Categoria ambígua no HTML legado: '+stripEmoji(name)+'.');
+      id=map.get(name)
+    }
     if(token!==state.renderToken)return[];
     if(!id)throw new Error('Categoria não encontrada: '+stripEmoji(target.name));
     const key=target.type+':'+id,cached=catalogCache.get(key);
@@ -890,14 +930,15 @@ async function closeDetail(){
       return cached.items;
     }
     catalogCache.delete(key);
-    const flightKey=token+':'+key;
+    const flightKey=token+':'+key+':'+(opts?.probe?'probe':'ui');
     if(catalogInflight.has(flightKey))return catalogInflight.get(flightKey);
     const pending=scheduleRailTask(async()=>{
       if(token!==state.renderToken)return[];
-      const raw=await railFetchJson({action:TYPE[target.type].content,category_id:id},10500);
+      const raw=await railFetchJson({action:TYPE[target.type].content,category_id:id},10500,{probe:!!opts?.probe});
       if(!Array.isArray(raw))throw new Error('A categoria retornou dados inválidos.');
-      if(token===state.renderToken)rememberCatalog(key,raw);
-      return raw;
+      const scoped=scopeCategoryItems(raw,target.type,id);
+      if(token===state.renderToken)rememberCatalog(key,scoped);
+      return scoped;
     },token,Number(opts?.priority)||0).finally(()=>catalogInflight.delete(flightKey));
     catalogInflight.set(flightKey,pending);
     return pending;
@@ -1924,12 +1965,20 @@ async function closeDetail(){
   const CLOSE='<svg class="ui-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>';
   const recCache=new Map(),probeCache=new Map(),configuredIndexCache=new Map();
   const similarStoreKey=()=> 'srhell:'+STANDARD_APP_NS+':standard:similar:'+standardProviderId()+':v1';
-  let recSeq=0,endRecoSeq=0,similarStorePromise=null,similarStoreBoundKey='',similarWriteTail=Promise.resolve();
+  let recSeq=0,endRecoSeq=0,similarStorePromise=null,similarStoreBoundKey='',similarWriteTail=Promise.resolve(),similarJobTail=Promise.resolve();
+  const similarJobs=new Map();
+  function similarIdle(ms=850){return new Promise(resolve=>{if(typeof requestIdleCallback==='function')requestIdleCallback(()=>resolve(),{timeout:ms+500});else setTimeout(resolve,ms)})}
+  function queueSimilarDiscovery(type,source,limit){
+    const key=standardProviderId()+':'+type+':'+String(itemId(source,type)||'');if(similarJobs.has(key))return similarJobs.get(key);
+    const job=similarJobTail.catch(()=>{}).then(async()=>{await similarIdle();return getRecommendations(type,source,limit,{budgetMs:22000,preferCache:false})}).finally(()=>similarJobs.delete(key));
+    similarJobTail=job.catch(()=>{});similarJobs.set(key,job);return job
+  }
 
   function similarLocalKey(type,item){return type+':'+String(itemId(item,type)||'')}
   function compactRecoItem(type,item){
-    if(type==='series')return{series_id:item?.series_id??item?.id,name:itemTitle(item),cover:imageFor(item,'series')||item?.cover||'',tmdb_id:item?.tmdb_id??item?.tmdb??item?.tmdbId??''};
-    return{stream_id:item?.stream_id??item?.id,name:itemTitle(item),stream_icon:imageFor(item,'vod')||item?.stream_icon||'',container_extension:item?.container_extension||'mp4',tmdb_id:item?.tmdb_id??item?.tmdb??item?.tmdbId??''}
+    const categoryId=String(item?._srhCategoryId??item?.category_id??item?.categoryId??'').trim();
+    if(type==='series')return{series_id:item?.series_id??item?.id,name:itemTitle(item),cover:imageFor(item,'series')||item?.cover||'',tmdb_id:item?.tmdb_id??item?.tmdb??item?.tmdbId??'',categoryId,_srhCategoryId:categoryId};
+    return{stream_id:item?.stream_id??item?.id,name:itemTitle(item),stream_icon:imageFor(item,'vod')||item?.stream_icon||'',container_extension:item?.container_extension||'mp4',tmdb_id:item?.tmdb_id??item?.tmdb??item?.tmdbId??'',categoryId,_srhCategoryId:categoryId}
   }
   function compactTmdbRow(row,type){
     if(!row)return null;
@@ -1967,19 +2016,14 @@ async function closeDetail(){
     }
     queueSimilarStoreWrite(store)
   }
-  async function configuredItemIndex(type){
-    const token=state.renderToken,key=type+':'+token,cached=configuredIndexCache.get(key);if(cached)return cached;
-    const p=(async()=>{const map=new Map();for(const target of targetsFor(type)){if(token!==state.renderToken)break;let raw=[];try{raw=await loadTargetItems(target,token)}catch{continue}const seen=new Set();for(let i=0;i<raw.length;i++){const item=raw[i],id=String(itemId(item,type)||'');if(id&&!seen.has(id)){seen.add(id);if(!map.has(id))map.set(id,item)}if(i&&i%220===0)await recoYield()}await recoYield()}return map})();
-    configuredIndexCache.clear();configuredIndexCache.set(key,p);return p
-  }
   async function revalidateCachedRows(type,rows,limit=12){
-    const index=await configuredItemIndex(type),present=[];
-    for(const saved of rows||[]){const id=String(itemId(saved?.item||saved,type)||''),actual=index.get(id);if(actual)present.push({item:actual,type,tmdb:saved?.tmdb||null})}
-    const out=[];
-    for(let i=0;i<present.length&&out.length<limit;i+=3){
-      const batch=present.slice(i,i+3),oks=await Promise.all(batch.map(x=>probeItem(x.item,type).catch(()=>false)));
-      batch.forEach((x,j)=>{if(oks[j]&&out.length<limit)out.push(x)})
-      if(out.length>=limit)break
+    const allowed=configuredTargetIds(type),out=[];
+    for(const saved of rows||[]){
+      const item=saved?.item||saved,cid=String(item?._srhCategoryId??item?.categoryId??item?.category_id??'').trim(),iid=String(itemId(item,type)||'');
+      if(!cid||!allowed.has(cid)||!iid)continue;
+      const membership=state.srhCatalogMembership?.get(type+':'+cid);
+      if(membership&&membership.size&&!membership.has(iid))continue;
+      out.push({item,type,tmdb:saved?.tmdb||null});if(out.length>=limit)break
     }
     return out
   }
@@ -2107,7 +2151,7 @@ async function closeDetail(){
     const direct=[],fuzzy=[],seenLocal=new Set(),token=state.renderToken,deadline=Date.now()+budgetMs,api=recoApi(),kind=type==='series'?'tv':'movie';
     for(const target of targetsFor(type)){
       if(Date.now()>deadline||token!==state.renderToken)break;
-      let raw=[];try{raw=await loadTargetItems(target,token)}catch{continue}
+      let raw=[];try{raw=await loadTargetItems(target,token,{priority:-30,probe:true})}catch{continue}
       const localSeen=new Set();
       for(let localIndex=0;localIndex<raw.length;localIndex++){
         const item=raw[localIndex],localId=String(itemId(item,type)||'');if(!localId||localSeen.has(localId)||seenLocal.has(localId)){if(localIndex&&localIndex%180===0)await recoYield();continue}
@@ -2199,24 +2243,14 @@ async function closeDetail(){
   }
   async function prepareSimilar(type,item,token){
     const source=sourceItem(type,item)||item,limit=matchMedia('(max-width: 680px)').matches?6:12;
-    let rows=[];
-    try{rows=await cachedRecommendations(type,source,limit)}catch{}
+    let rows=[];try{rows=await cachedRecommendations(type,source,limit)}catch{}
     if(token===state.detailToken&&!el.detailLayer.classList.contains('is-hidden')&&rows.length>=3)installSimilarButton(type,item,rows);
     if(rows.length>=limit)return rows;
-    let quick=[];
-    try{quick=await getRecommendations(type,source,3,{budgetMs:13500,preferCache:false})}catch{}
-    if(quick.length>=3){
-      rows=mergeRecoRows(quick,rows,type);
-      if(token===state.detailToken&&!el.detailLayer.classList.contains('is-hidden'))installSimilarButton(type,item,rows)
-    }
-    Promise.resolve().then(async()=>{
-      let full=[];try{full=await getRecommendations(type,source,limit,{budgetMs:30000,preferCache:false})}catch{}
-      if(full.length>=3){
-        const merged=mergeRecoRows(full,rows,type);
-        await saveRecommendationCluster(type,source,merged);
-        if(token===state.detailToken&&!el.detailLayer.classList.contains('is-hidden'))installSimilarButton(type,item,merged)
-      }
-    });
+    queueSimilarDiscovery(type,source,limit).then(async full=>{
+      if(!Array.isArray(full)||full.length<3)return;
+      const merged=mergeRecoRows(full,rows,type);await saveRecommendationCluster(type,source,merged);
+      if(token===state.detailToken&&!el.detailLayer.classList.contains('is-hidden'))installSimilarButton(type,item,merged)
+    }).catch(()=>{});
     return rows
   }
 
