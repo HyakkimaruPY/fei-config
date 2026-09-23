@@ -1594,26 +1594,39 @@ async function closeDetail(){
   }
 
   async function tuneLogoContrast(img,box){
-    box.classList.remove('srh-logo-flare-light','srh-logo-flare-dark');
+    box.classList.remove('srh-logo-flare-light','srh-logo-flare-dark','srh-logo-flare-neutral');
+    try{await img.decode?.()}catch{}
+    const art=box.closest('.detail-art');
+    const logo=typeof srhAverageLogoColor==='function'?srhAverageLogoColor(img):null;
+    const bg=art&&typeof srhArtworkColorBehind==='function'?srhArtworkColorBehind(art,img):null;
+    if(logo&&bg){
+      const lumDiff=Math.abs(logo.lum-bg.lum),colorDiff=typeof srhFeedbackColorDistance==='function'?srhFeedbackColorDistance(logo.rgb,bg.rgb):colorDistance(logo.rgb,bg.rgb),similar=lumDiff<.22||colorDiff<105;
+      if(similar){
+        box.classList.add(bg.lum>.52?'srh-logo-flare-dark':'srh-logo-flare-light');
+      }else if(logo.darkShare>.66&&bg.lum<.34){
+        box.classList.add('srh-logo-flare-light');
+      }else if(logo.lightShare>.72&&bg.lum>.67){
+        box.classList.add('srh-logo-flare-dark');
+      }else{
+        box.classList.add('srh-logo-flare-neutral');
+      }
+      playbackDebug('detail-logo-contrast',{logoLum:Number(logo.lum.toFixed(3)),bgLum:Number(bg.lum.toFixed(3)),colorDistance:Math.round(colorDiff),outline:box.classList.contains('srh-logo-flare-light')?'light':box.classList.contains('srh-logo-flare-dark')?'dark':'neutral'});
+      return
+    }
     let dark=0,light=0,total=0;
     try{
-      await img.decode?.();
       const cv=document.createElement('canvas');cv.width=64;cv.height=32;
-      const cx=cv.getContext('2d',{willReadFrequently:true});
-      cx.drawImage(img,0,0,64,32);
+      const cx=cv.getContext('2d',{willReadFrequently:true});cx.drawImage(img,0,0,64,32);
       const d=cx.getImageData(0,0,64,32).data;
       for(let i=0;i<d.length;i+=4){
         if(d[i+3]<28)continue;
-        const l=luminance([d[i],d[i+1],d[i+2]]);
-        total++;
-        if(l<.18)dark++;
-        if(l>.82)light++;
+        const l=luminance([d[i],d[i+1],d[i+2]]);total++;if(l<.18)dark++;if(l>.82)light++
       }
     }catch{}
     const darkShare=total?dark/total:0,lightShare=total?light/total:0;
-    if(darkShare>.72)box.classList.add('srh-logo-flare-light');
-    else if(lightShare<.12&&darkShare>.45)box.classList.add('srh-logo-flare-light');
-    else if(lightShare>.9)box.classList.add('srh-logo-flare-dark');
+    if(darkShare>.58)box.classList.add('srh-logo-flare-light');
+    else if(lightShare>.72)box.classList.add('srh-logo-flare-dark');
+    else box.classList.add('srh-logo-flare-neutral')
   }
 
   function pseudoLogoText(title){
