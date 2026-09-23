@@ -584,7 +584,7 @@ function panel(){
   const render=()=>{
     markDebugUiWork(220);
     const d=diagnostic(),ps=Object.values(d.points);
-    status.textContent=(d.state.health?.router?'Router OK':'Router ?')+' · '+(d.state.health?.storage?'Storage OK':'Storage bloqueado')+' · '+d.state.network.active+' req ativa(s) · '+d.incidents.active.length+' incidente(s) ativo(s)';
+    status.textContent=(d.state?.health?.router?'Router OK':'Router ?')+' · '+(d.state?.health?.storage?'Storage OK':'Storage bloqueado')+' · '+Number(d.state?.network?.active||0)+' req ativa(s) · '+(Array.isArray(d.incidents?.active)?d.incidents.active.length:0)+' incidente(s) ativo(s)';
     const recent=d.incidents.recent;incidents.innerHTML='<div class="srh-debug-incidents__title">Incidentes capturados · sessão '+d.sessionId+'</div>'+(recent.length?recent.map(x=>'<div class="srh-debug-incident '+x.status+'"><b>'+String(x.kind||'erro')+'</b><span>'+String(x.message||'').replace(/[<>&]/g,m=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[m]))+'</span><em>'+Math.round(x.ms||x.recoveryMs||0)+' ms · '+x.status+'</em></div>').join(''):'<div class="srh-debug-incident empty">Nenhum incidente registrado nesta janela.</div>');
     points.innerHTML=ps.map((p,i)=>'<div class="'+(p.ok?'ok':'bad')+'"><span>'+(i+1)+'</span><b>'+p.name+'</b><em>'+(p.ok?'OK':'PENDENTE')+'</em></div>').join('');
     out.textContent=JSON.stringify(d,null,2)
