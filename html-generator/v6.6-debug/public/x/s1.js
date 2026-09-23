@@ -673,7 +673,9 @@ function srhFixInlinePlayer(url,title,entry=null){
   video.ontimeupdate=()=>{if(++state.saveTick%25===0)persistProgress(video)};
   video.onpause=()=>persistProgress(video,{frame:true});
   video.onended=()=>{
-    if(state.currentMedia?.key)removeHistory(state.currentMedia.key,state.currentMedia.type);
+    const cur=state.currentMedia;
+    if(cur?.type==='vod'){markStandardTitleCompleted(cur,video.duration);clearContinueFrame(cur);removeContinueForEntry(cur)}
+    else if(cur?.type==='series')finalizeSeriesEpisode(cur,video.duration);
     status.textContent='Finalizado';
   };
 
@@ -1525,46 +1527,62 @@ async function closeDetail(){
   async function readContinueFrame(entry){
     const key=entry?.frameKey||continueFrameKey(entry),payload=await standardStateGet(key);
     if(!payload||Number(payload.version||0)!==CONTINUE_FRAME_VERSION)return null;
-    /* Presentation reuses the last persisted exact frame even if a periodic
-       progress tick advanced the history timestamp afterwards. Pause/close
-       captures replace it with the final stopped position. */
     return payload
+  }
+  function isExactFramePayload(payload){
+    return !!payload&&((payload.kind==='data-url'&&payload.dataUrl)||(payload.kind==='blob'&&payload.blob instanceof Blob))
+  }
+  function frameProxyCandidates(sources){
+    if(!CONFIG.corsProxy)return[];
+    const out=[];
+    for(const src of sources){
+      if(!/^https?:\/\//i.test(String(src||'')))continue;
+      try{const p=proxyUrl(src,CONFIG);if(p&&p!==src)out.push(p)}catch{}
+    }
+    return uniqueMediaUrls(out)
   }
 
   async function ensureContinueFrameRecord(entry,type){
     if(!entry)return null;
     const existing=await readContinueFrame(entry);
-    if(existing)return existing;
+    if(isExactFramePayload(existing))return existing;
     const normalized={...entry,type:type==='series'?'series':'vod',frameKey:continueFrameKey({...entry,type:type==='series'?'series':'vod'})};
-    const sources=continueFrameSources(normalized);
-    if(!sources.length)return null;
-    const video=document.createElement('video');
-    video.className='srh-resume-frame-worker';
-    video.muted=true;video.playsInline=true;video.preload='metadata';
-    let result=null;
-    try{
-      /* Deliberately never append this video to the DOM. Android/WebView cannot
-         promote a detached decoder surface over the application UI. */
-      result=await loadIsolatedFrame(video,sources,entry.position,6200);
-      if(!result.ok)return null;
-      const dataUrl=captureContinueFrameDataUrl(video);
-      if(!dataUrl){
-        playbackDebug('continue-frame-migrate-skip',{type,key:entry.key,reason:'canvas-unavailable'});
-        return null
+    const direct=uniqueMediaUrls([existing?.source,...(existing?.sources||[]),...continueFrameSources(normalized)]);
+    if(!direct.length)return existing||null;
+    const groups=[{name:'direct',sources:direct,cors:false}];
+    const proxied=frameProxyCandidates(direct);
+    if(proxied.length)groups.push({name:'cors-proxy',sources:proxied,cors:true});
+    for(const group of groups){
+      const video=document.createElement('video');
+      video.className='srh-resume-frame-worker';
+      video.muted=true;video.playsInline=true;video.preload='metadata';
+      if(group.cors)video.crossOrigin='anonymous';
+      let result=null;
+      try{
+        /* This decoder is never appended to the DOM. */
+        result=await loadIsolatedFrame(video,group.sources,entry.position,6200);
+        if(!result.ok)continue;
+        const dataUrl=captureContinueFrameDataUrl(video);
+        if(!dataUrl){
+          playbackDebug('continue-frame-capture-skip',{type,key:entry.key,path:group.name,reason:'canvas-unavailable'});
+          continue
+        }
+        const payload={version:CONTINUE_FRAME_VERSION,kind:'data-url',dataUrl,position:Number(entry.position)||Number(video.currentTime)||0,capturedAt:Date.now(),migrated:true,capturePath:group.name};
+        await standardStateSet(normalized.frameKey,payload);
+        if(entry.frameKey!==normalized.frameKey){
+          const bucket=type==='series'?'series':'vod',rows=getHistory(bucket).map(row=>continueIdentity(row)===continueIdentity(normalized)?{...row,frameKey:normalized.frameKey,frameVersion:CONTINUE_FRAME_VERSION}:row);
+          contMemory[bucket]=rows;void standardStateSet(historyKey(bucket),rows)
+        }
+        playbackDebug('continue-frame-migrate',{type,key:entry.key,kind:'data-url',position:payload.position,path:group.name});
+        return payload
+      }finally{
+        try{result?.hls?.destroy?.()}catch{}
+        try{video.pause();video.removeAttribute('src');video.load()}catch{}
       }
-      const payload={version:CONTINUE_FRAME_VERSION,kind:'data-url',dataUrl,position:Number(entry.position)||Number(video.currentTime)||0,capturedAt:Date.now(),migrated:true};
-      await standardStateSet(normalized.frameKey,payload);
-      if(entry.frameKey!==normalized.frameKey){
-        const bucket=type==='series'?'series':'vod',rows=getHistory(bucket).map(row=>continueIdentity(row)===continueIdentity(normalized)?{...row,frameKey:normalized.frameKey,frameVersion:CONTINUE_FRAME_VERSION}:row);
-        contMemory[bucket]=rows;void standardStateSet(historyKey(bucket),rows)
-      }
-      playbackDebug('continue-frame-migrate',{type,key:entry.key,kind:'data-url',position:payload.position});
-      return payload
-    }finally{
-      try{result?.hls?.destroy?.()}catch{}
-      try{video.pause();video.removeAttribute('src');video.load()}catch{}
     }
+    return existing||null
   }
+  window.__srhUpgradeContinueFrame=entry=>queueContinueCardFrame(()=>ensureContinueFrameRecord(entry,entry?.type||'vod'));
 
   async function migrateContinueFrames(){
     const rows=[];
@@ -1573,7 +1591,7 @@ async function closeDetail(){
     }
     for(const row of rows){
       if(state.playerActive||!el.detailLayer.classList.contains('is-hidden'))break;
-      if(!await readContinueFrame(row.entry))await ensureContinueFrameRecord(row.entry,row.type).catch(()=>null);
+      if(!isExactFramePayload(await readContinueFrame(row.entry)))await ensureContinueFrameRecord(row.entry,row.type).catch(()=>null);
       await new Promise(resolve=>setTimeout(resolve,120))
     }
     if(['vod','series'].includes(state.activeType))renderContinue();
@@ -1599,8 +1617,9 @@ async function closeDetail(){
 
   async function hydrateContinueCard(card,entry,type){
     if(!card?.isConnected)return;
-    const payload=await readContinueFrame(entry);
-    if(!payload||!card.isConnected)return;
+    let payload=await readContinueFrame(entry);
+    if(!isExactFramePayload(payload))payload=await queueContinueCardFrame(()=>ensureContinueFrameRecord(entry,type).catch(()=>payload));
+    if(!isExactFramePayload(payload)||!card.isConnected)return;
     const img=card.querySelector('.continue-card__media img');
     const url=storedFrameUrl(entry,payload);
     if(url&&img){
@@ -1625,7 +1644,8 @@ async function closeDetail(){
     if(!item.stream_id)return;
     clearResumePreview();
     purgeContinueFrameWorkers();
-    const frame=await readContinueFrame(entry);
+    let frame=await readContinueFrame(entry);
+    if(!isExactFramePayload(frame))frame=await queueContinueCardFrame(()=>ensureContinueFrameRecord(entry,'vod').catch(()=>frame));
     const reveal=holdContinueDetail();
     const loading=openFilm(item),token=state.detailToken;
     try{
@@ -1644,7 +1664,8 @@ async function closeDetail(){
     if(!item.series_id)return;
     clearResumePreview();
     purgeContinueFrameWorkers();
-    const frame=await readContinueFrame(entry);
+    let frame=await readContinueFrame(entry);
+    if(!isExactFramePayload(frame))frame=await queueContinueCardFrame(()=>ensureContinueFrameRecord(entry,'series').catch(()=>frame));
     const reveal=holdContinueDetail();
     const loading=openSeries(item),token=state.detailToken;
     try{
@@ -1684,7 +1705,7 @@ async function closeDetail(){
   renderContinue=function(){
     purgeContinueFrameWorkers();
     releaseContinueCardResources();
-    const type=state.activeType,list=getHistory(type).filter(x=>x.duration>0&&x.position>=MIN_CONTINUE_SECONDS&&x.position/x.duration<.97).slice(0,12);
+    const type=state.activeType,list=getHistory(type).filter(x=>x.duration>0&&x.position>=MIN_CONTINUE_SECONDS).slice(0,12);
     if(!list.length||type==='live'){
       el.continueSection.classList.add('is-hidden');el.continueRow.innerHTML='';return
     }
