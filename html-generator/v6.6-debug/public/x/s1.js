@@ -1604,9 +1604,9 @@ async function closeDetail(){
     const target=frameTargetPosition(entry,existing);
     const normalized={...entry,position:target,type:type==='series'?'series':'vod',frameKey:continueFrameKey({...entry,type:type==='series'?'series':'vod'})};
     const direct=uniqueMediaUrls([
-      existing?.pendingSource,...(existing?.pendingSources||[]),
-      existing?.source,...(existing?.sources||[]),
-      ...continueFrameSources(normalized)
+      normalized?.lastWorkingUrl,existing?.pendingSource,
+      ...continueFrameSources(normalized),
+      ...(existing?.pendingSources||[]),existing?.source,...(existing?.sources||[])
     ]);
     if(!direct.length)return existing||null;
     const groups=[{name:'direct',sources:direct.slice(0,2),cors:false}];
@@ -1667,7 +1667,7 @@ async function closeDetail(){
     try{
       const first=state.activeType==='series'?'series':'vod',types=first==='series'?['series','vod']:['vod','series'],rows=[];
       for(const type of types){
-        for(const entry of getHistory(type).filter(x=>Number(x.position)>=MIN_CONTINUE_SECONDS&&Number(x.duration)>0).slice(0,12))rows.push({type,entry})
+        for(const entry of getHistory(type).filter(x=>Number(x.duration)>0&&(Number(x.position)>=MIN_CONTINUE_SECONDS||!!x.resumeQualified)).slice(0,12))rows.push({type,entry})
       }
       for(const row of rows){
         if(state.playerActive||!el.detailLayer.classList.contains('is-hidden')){interrupted=true;break}
