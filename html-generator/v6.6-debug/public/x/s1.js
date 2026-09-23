@@ -1130,6 +1130,7 @@ async function closeDetail(){
   const coverQueue=[];
   const coverQueued=new Set();
   const detailTmdb=new Map();
+  const logoRefreshTried=new Set();
 
   function readJson(k,f){try{return JSON.parse(localStorage.getItem(k)||'null')??f}catch{return f}}
   function writeJson(k,v){try{localStorage.setItem(k,JSON.stringify(v));return true}catch{return false}}
@@ -1267,9 +1268,10 @@ async function closeDetail(){
     const year=titleYear(rawTitle)||titleYear(extra?.name||extra?.title||'');
     const cacheKey=kind+':'+(explicit?'id:'+explicit:'q:'+clean.toLocaleLowerCase('pt-BR')+':'+year);
     const cached=cacheRead(cacheKey);
-    if(cached)return cached;
+    if(cached?.logo||cached&&logoRefreshTried.has(cacheKey))return cached;
 
-    let id=explicit;
+    let id=explicit||String(cached?.id||'');
+    if(cached&&!cached.logo)logoRefreshTried.add(cacheKey);
     if(!id&&clean){
       const params={query:clean,language:'pt-BR',include_adult:false};
       if(year)params[kind==='movie'?'year':'first_air_date_year']=year;
