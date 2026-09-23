@@ -1563,12 +1563,26 @@ async function closeDetail(){
   }
 
   async function readContinueFrame(entry){
-    const key=entry?.frameKey||continueFrameKey(entry),payload=await standardStateGet(key);
+    const key=entry?.frameKey||continueFrameKey(entry);
+    if(continueFramePayloadMemory.has(key))return continueFramePayloadMemory.get(key);
+    const payload=await standardStateGet(key);
     if(!payload||Number(payload.version||0)!==CONTINUE_FRAME_VERSION)return null;
+    continueFramePayloadMemory.set(key,payload);
     return payload
   }
-  function isExactFramePayload(payload){
-    return !!payload&&((payload.kind==='data-url'&&payload.dataUrl)||(payload.kind==='blob'&&payload.blob instanceof Blob))
+  function isExactFramePayload(payload){return exactContinueFramePayload(payload)}
+  function frameTargetPosition(entry,payload){
+    const pending=Number(payload?.pendingPosition);
+    if(Number.isFinite(pending)&&pending>0)return pending;
+    const current=Number(entry?.position);
+    if(Number.isFinite(current)&&current>0)return current;
+    return Math.max(0,Number(payload?.position)||0)
+  }
+  function isFrameFreshForEntry(payload,entry){
+    if(!isExactFramePayload(payload))return false;
+    const stored=Math.max(0,Number(payload?.position)||0),target=frameTargetPosition(entry,payload);
+    if(Number(payload?.pendingPosition)>0&&Math.abs(Number(payload.pendingPosition)-stored)>1.5)return false;
+    return !(target>0&&Math.abs(target-stored)>2.5)
   }
   function frameProxyCandidates(sources){
     if(!CONFIG.corsProxy)return[];
@@ -1583,12 +1597,17 @@ async function closeDetail(){
   async function ensureContinueFrameRecord(entry,type){
     if(!entry)return null;
     const existing=await readContinueFrame(entry);
-    if(isExactFramePayload(existing))return existing;
-    const normalized={...entry,type:type==='series'?'series':'vod',frameKey:continueFrameKey({...entry,type:type==='series'?'series':'vod'})};
-    const direct=uniqueMediaUrls([existing?.source,...(existing?.sources||[]),...continueFrameSources(normalized)]);
+    if(isFrameFreshForEntry(existing,entry))return existing;
+    const target=frameTargetPosition(entry,existing);
+    const normalized={...entry,position:target,type:type==='series'?'series':'vod',frameKey:continueFrameKey({...entry,type:type==='series'?'series':'vod'})};
+    const direct=uniqueMediaUrls([
+      existing?.pendingSource,...(existing?.pendingSources||[]),
+      existing?.source,...(existing?.sources||[]),
+      ...continueFrameSources(normalized)
+    ]);
     if(!direct.length)return existing||null;
-    const groups=[{name:'direct',sources:direct,cors:false}];
-    const proxied=frameProxyCandidates(direct);
+    const groups=[{name:'direct',sources:direct.slice(0,2),cors:false}];
+    const proxied=frameProxyCandidates(direct).slice(0,2);
     if(proxied.length)groups.push({name:'cors-proxy',sources:proxied,cors:true});
     for(const group of groups){
       const video=document.createElement('video');
@@ -1597,21 +1616,21 @@ async function closeDetail(){
       if(group.cors)video.crossOrigin='anonymous';
       let result=null;
       try{
-        /* This decoder is never appended to the DOM. */
-        result=await loadIsolatedFrame(video,group.sources,entry.position,6200);
+        result=await loadIsolatedFrame(video,group.sources,target,5600);
         if(!result.ok)continue;
         const dataUrl=captureContinueFrameDataUrl(video);
         if(!dataUrl){
-          playbackDebug('continue-frame-capture-skip',{type,key:entry.key,path:group.name,reason:'canvas-unavailable'});
+          playbackDebug('continue-frame-capture-skip',{type,key:entry.key,path:group.name,reason:'canvas-unavailable',position:target});
           continue
         }
-        const payload={version:CONTINUE_FRAME_VERSION,kind:'data-url',dataUrl,position:Number(entry.position)||Number(video.currentTime)||0,capturedAt:Date.now(),migrated:true,capturePath:group.name};
-        await standardStateSet(normalized.frameKey,payload);
+        const payload={version:CONTINUE_FRAME_VERSION,kind:'data-url',dataUrl,position:Number(video.currentTime)||target,capturedAt:Date.now(),migrated:true,capturePath:group.name};
+        const ok=await standardStateSet(normalized.frameKey,payload);
+        if(ok)continueFramePayloadMemory.set(normalized.frameKey,payload);
         if(entry.frameKey!==normalized.frameKey){
           const bucket=type==='series'?'series':'vod',rows=getHistory(bucket).map(row=>continueIdentity(row)===continueIdentity(normalized)?{...row,frameKey:normalized.frameKey,frameVersion:CONTINUE_FRAME_VERSION}:row);
           contMemory[bucket]=rows;void standardStateSet(historyKey(bucket),rows)
         }
-        playbackDebug('continue-frame-migrate',{type,key:entry.key,kind:'data-url',position:payload.position,path:group.name});
+        playbackDebug('continue-frame-migrate',{type,key:entry.key,kind:'data-url',position:payload.position,path:group.name,ok});
         return payload
       }finally{
         try{result?.hls?.destroy?.()}catch{}
@@ -1627,17 +1646,35 @@ async function closeDetail(){
     continueFrameUpgradeInflight.set(key,job);
     return job
   }
-  window.__srhUpgradeContinueFrame=entry=>queueContinueCardFrame(()=>ensureContinueFrameOnce(entry,entry?.type||'vod'));
+  window.__srhUpgradeContinueFrame=entry=>ensureContinueFrameOnce(entry,entry?.type||'vod');
 
+  let continueMigrationTimer=0,continueMigrationRunning=false;
+  function scheduleContinueFrameMigration(delay=900){
+    clearTimeout(continueMigrationTimer);
+    continueMigrationTimer=setTimeout(()=>{
+      const run=()=>migrateContinueFrames().catch(()=>{});
+      if(typeof requestIdleCallback==='function')requestIdleCallback(run,{timeout:1800});
+      else run()
+    },Math.max(0,delay))
+  }
   async function migrateContinueFrames(){
-    const rows=[];
-    for(const type of ['vod','series']){
-      for(const entry of getHistory(type).filter(x=>Number(x.position)>=MIN_CONTINUE_SECONDS&&Number(x.duration)>0).slice(0,12))rows.push({type,entry})
-    }
-    for(const row of rows){
-      if(state.playerActive||!el.detailLayer.classList.contains('is-hidden'))break;
-      if(!isExactFramePayload(await readContinueFrame(row.entry)))await ensureContinueFrameOnce(row.entry,row.type).catch(()=>null);
-      await new Promise(resolve=>setTimeout(resolve,120))
+    if(continueMigrationRunning)return false;
+    continueMigrationRunning=true;
+    let interrupted=false;
+    try{
+      const first=state.activeType==='series'?'series':'vod',types=first==='series'?['series','vod']:['vod','series'],rows=[];
+      for(const type of types){
+        for(const entry of getHistory(type).filter(x=>Number(x.position)>=MIN_CONTINUE_SECONDS&&Number(x.duration)>0).slice(0,12))rows.push({type,entry})
+      }
+      for(const row of rows){
+        if(state.playerActive||!el.detailLayer.classList.contains('is-hidden')){interrupted=true;break}
+        const payload=await readContinueFrame(row.entry);
+        if(!isFrameFreshForEntry(payload,row.entry))await ensureContinueFrameOnce(row.entry,row.type).catch(()=>null);
+        await new Promise(resolve=>setTimeout(resolve,90))
+      }
+    }finally{
+      continueMigrationRunning=false;
+      if(interrupted)scheduleContinueFrameMigration(2400)
     }
     if(['vod','series'].includes(state.activeType))renderContinue();
     return true
@@ -1660,18 +1697,23 @@ async function closeDetail(){
     return''
   }
 
+  function applyFrameToContinueCard(card,entry,type,payload){
+    if(!isExactFramePayload(payload)||!card?.isConnected)return false;
+    const img=card.querySelector('.continue-card__media img'),url=storedFrameUrl(entry,payload);
+    if(!url||!img)return false;
+    img.src=url;card.dataset.srhFrame='stored';
+    playbackDebug('continue-frame-use',{type,key:entry.key,target:'card',kind:payload.kind,fresh:isFrameFreshForEntry(payload,entry)});
+    return true
+  }
+
   async function hydrateContinueCard(card,entry,type){
     if(!card?.isConnected)return;
-    let payload=await readContinueFrame(entry);
-    if(!isExactFramePayload(payload))payload=await queueContinueCardFrame(()=>ensureContinueFrameOnce(entry,type).catch(()=>payload));
-    if(!isExactFramePayload(payload)||!card.isConnected)return;
-    const img=card.querySelector('.continue-card__media img');
-    const url=storedFrameUrl(entry,payload);
-    if(url&&img){
-      img.src=url;
-      card.dataset.srhFrame='stored';
-      playbackDebug('continue-frame-use',{type,key:entry.key,target:'card',kind:payload.kind})
-    }
+    const payload=await readContinueFrame(entry).catch(()=>null);
+    applyFrameToContinueCard(card,entry,type,payload);
+    if(isFrameFreshForEntry(payload,entry))return;
+    queueContinueCardFrame(()=>ensureContinueFrameOnce(entry,type)).then(updated=>{
+      applyFrameToContinueCard(card,entry,type,updated)
+    }).catch(()=>{})
   }
 
   function useStoredFrameImage(image,entry,payload){
@@ -1680,24 +1722,28 @@ async function closeDetail(){
     if(!url)return false;
     image.src=url;
     image.classList.remove('is-hidden');
-    playbackDebug('continue-frame-use',{type:entry?.type||'',key:entry?.key||'',target:'modal',kind:payload.kind});
+    playbackDebug('continue-frame-use',{type:entry?.type||'',key:entry?.key||'',target:'modal',kind:payload.kind,fresh:isFrameFreshForEntry(payload,entry)});
     return true
   }
 
-  async function continueFrameForModal(entry,type){
-    let frame=await readContinueFrame(entry);
-    if(!isExactFramePayload(frame)){
-      frame=await queueContinueCardFrame(()=>ensureContinueFrameOnce(entry,type).catch(()=>frame))
-    }
-    return frame
+  function refreshModalFrame(entry,type,token,image){
+    const seed=continueFramePayloadMemory.get(entry?.frameKey||continueFrameKey(entry))||null;
+    if(isFrameFreshForEntry(seed,entry))return Promise.resolve(seed);
+    return ensureContinueFrameOnce(entry,type).then(updated=>{
+      if(isDetailCurrent(token)&&isExactFramePayload(updated))useStoredFrameImage(image,{...entry,type},updated);
+      return updated
+    }).catch(()=>null)
   }
 
   async function openContinueMovie(entry){
     const item=historyVodItem(entry);
     if(!item.stream_id)return;
     clearResumePreview();
-    purgeContinueFrameWorkers();
-    const framePromise=continueFrameForModal(entry,'vod').catch(()=>null);
+    const framePromise=readContinueFrame(entry).catch(()=>null).then(frame=>{
+      const exact=isExactFramePayload(frame)?frame:null;
+      state.srhContinueFrameUrl=exact?storedFrameUrl({...entry,type:'vod'},exact):'';
+      return exact
+    });
     state.srhContinueFramePromise=framePromise;
     const loading=openFilm(item),token=state.detailToken;
     try{
@@ -1707,10 +1753,11 @@ async function closeDetail(){
       const art=el.detailBody.querySelector('.detail-art'),image=art?.querySelector('img'),watch=el.detailBody.querySelector('#watchFilm');
       if(!art)return;
       const exact=useStoredFrameImage(image,{...entry,type:'vod'},frame);
-      playbackDebug('continue-frame-gate',{type:'vod',key:entry.key,exact,source:exact?'indexeddb':'catalog-fallback',modalSkeleton:true});
+      playbackDebug('continue-frame-gate',{type:'vod',key:entry.key,exact,source:exact?'indexeddb':'catalog-fallback',modalSkeleton:true,fastRead:true});
+      void refreshModalFrame(entry,'vod',token,image);
       if(watch)watch.addEventListener('click',()=>{clearResumePreview();art.classList.remove('srh-resume-previewing')},{once:true,capture:true})
     }finally{
-      if(state.srhContinueFramePromise===framePromise)state.srhContinueFramePromise=null
+      if(state.srhContinueFramePromise===framePromise){state.srhContinueFramePromise=null;state.srhContinueFrameUrl=''}
     }
   }
 
@@ -1718,8 +1765,11 @@ async function closeDetail(){
     const item=historySeriesItem(entry);
     if(!item.series_id)return;
     clearResumePreview();
-    purgeContinueFrameWorkers();
-    const framePromise=continueFrameForModal(entry,'series').catch(()=>null);
+    const framePromise=readContinueFrame(entry).catch(()=>null).then(frame=>{
+      const exact=isExactFramePayload(frame)?frame:null;
+      state.srhContinueFrameUrl=exact?storedFrameUrl({...entry,type:'series'},exact):'';
+      return exact
+    });
     state.srhContinueFramePromise=framePromise;
     const loading=openSeries(item),token=state.detailToken;
     try{
@@ -1734,12 +1784,13 @@ async function closeDetail(){
       if(!art||!image)return;
       const exact=useStoredFrameImage(image,{...entry,type:'series'},frame);
       const video=el.detailBody.querySelector('#seriesInlineVideo');
-      if(video){try{video.pause()}catch{};video.classList.add('is-hidden');video.muted=true;video.controls=false}
+      if(video){try{video.pause()}catch{};video.classList.add('is-hidden');video.muted=false;video.volume=1;video.controls=true}
       image.classList.remove('is-hidden');
       art.classList.remove('srh-resume-previewing','is-playing');
-      playbackDebug('continue-frame-gate',{type:'series',key:entry.key,exact,source:exact?'indexeddb':'catalog-fallback',modalSkeleton:true});
+      playbackDebug('continue-frame-gate',{type:'series',key:entry.key,exact,source:exact?'indexeddb':'catalog-fallback',modalSkeleton:true,fastRead:true});
+      void refreshModalFrame(entry,'series',token,image)
     }finally{
-      if(state.srhContinueFramePromise===framePromise)state.srhContinueFramePromise=null
+      if(state.srhContinueFramePromise===framePromise){state.srhContinueFramePromise=null;state.srhContinueFrameUrl=''}
     }
   }
 
