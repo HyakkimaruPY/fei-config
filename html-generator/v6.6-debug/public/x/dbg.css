@@ -587,3 +587,19 @@ body.srh-main-stream-style .srh-art-brand.srh-logo-flare-dark img{
 body.srh-main-stream-style .srh-art-brand.srh-logo-flare-neutral img{
   filter:drop-shadow(0 1px 3px rgba(0,0,0,.22))!important;
 }
+
+
+/* SRHELL DEBUG STANDARD R52 — hero branding atomic reveal */
+body.srh-main-stream-style .stream-hero__brand{
+  opacity:0!important;
+  transform:translateY(2px);
+  transition:opacity .22s ease,transform .22s ease!important;
+}
+body.srh-main-stream-style .stream-hero__brand.is-ready{
+  opacity:1!important;
+  transform:translateY(0);
+}
+body.srh-main-stream-style .stream-hero__brand:not(.is-ready) .stream-hero__logo,
+body.srh-main-stream-style .stream-hero__brand:not(.is-ready) .stream-hero__brand-fallback{
+  visibility:hidden!important;
+}
