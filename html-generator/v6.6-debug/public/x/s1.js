@@ -1915,7 +1915,7 @@ async function closeDetail(){
     el.detailBody.querySelectorAll('.srh-lite-action--similar.is-active').forEach(x=>x.classList.remove('is-active'))
   }
   function similarCard(row,type){
-    const title=itemTitle(row.item),img=row.tmdb?.poster?recoApi()?.imageUrl?.(row.tmdb.poster,'w500'):imageFor(row.item,type);
+    const title=itemTitle(row.item),img=row.tmdb?.poster_path?recoApi()?.imageUrl?.(row.tmdb.poster_path,'w500'):imageFor(row.item,type);
     return '<button class="srh-similar-card" data-srh-reco-id="'+escapeHtml(String(itemId(row.item,type)||''))+'"><img src="'+escapeHtml(img||IMAGE_PLACEHOLDER)+'" alt=""><span>'+escapeHtml(title)+'</span></button>'
   }
   async function toggleSimilar(type,item,button){
@@ -1973,7 +1973,7 @@ async function closeDetail(){
     if(!next)return;
     const select=()=>{const row=[...el.detailBody.querySelectorAll('.episode')].find((r,i)=>{const n=next.ep?.episode_num??next.ep?.episode_number??next.index+1;return new RegExp('Epis[oó]dio\\s+'+String(n)+'(?:\\D|$)','i').test(r.querySelector('.episode__title')?.textContent||'')});row?.click()};
     const current=(el.detailBody.querySelector('#seasonLabel')?.textContent||'').match(/(\d+)/)?.[1];
-    if(String(current)!==String(next.season)){el.detailBody.querySelector('[data-season="'+CSS.escape(String(next.season))+'"]')?.click();setTimeout(select,60)}else select()
+    if(String(current)!==String(next.season)){[...el.detailBody.querySelectorAll('[data-season]')].find(b=>String(b.dataset.season)===String(next.season))?.click();setTimeout(select,60)}else select()
   }
   function showNextEpisode(next){
     const art=el.detailBody.querySelector('#seriesArt');if(!art||!next)return;
@@ -1991,7 +1991,7 @@ async function closeDetail(){
     const rows=await getRecommendations(type,item,3,{budgetMs:9500});if(seq!==endRecoSeq||!box.isConnected)return;
     const list=box.querySelector('.srh-end-recos__list');
     if(!rows.length){box.remove();return}
-    list.innerHTML=rows.map(row=>'<button type="button"><img src="'+escapeHtml((row.tmdb?.poster&&recoApi()?.imageUrl?.(row.tmdb.poster,'w342'))||imageFor(row.item,type)||IMAGE_PLACEHOLDER)+'" alt=""><span>'+escapeHtml(itemTitle(row.item))+'</span></button>').join('');
+    list.innerHTML=rows.map(row=>'<button type="button"><img src="'+escapeHtml((row.tmdb?.poster_path&&recoApi()?.imageUrl?.(row.tmdb.poster_path,'w342'))||imageFor(row.item,type)||IMAGE_PLACEHOLDER)+'" alt=""><span>'+escapeHtml(itemTitle(row.item))+'</span></button>').join('');
     [...list.children].forEach((b,i)=>b.onclick=e=>{e.stopPropagation();const row=rows[i];if(row)openItem(row.item,type)})
   }
   function removeEndRecommendations(){el.detailBody.querySelectorAll('.srh-end-recos').forEach(x=>x.remove())}
