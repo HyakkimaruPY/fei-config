@@ -308,3 +308,186 @@ body.srh-main-stream-style .srh-end-recos__list span{
   body.srh-main-stream-style .srh-end-recos__list button{grid-template-columns:42px minmax(0,1fr);gap:5px}
   body.srh-main-stream-style .srh-end-recos__list img{width:42px}
 }
+
+
+/* SRHELL DEBUG STANDARD R49 — Similar prefetch + floating header + media feedback */
+/* Header is a true overlay container; content/hero passes behind it. */
+body.srh-main-stream-style .topbar{
+  position:fixed!important;
+  top:0!important;
+  left:0!important;
+  right:0!important;
+  z-index:60!important;
+  transform:translateY(0);
+  opacity:1;
+  transition:transform .22s ease,opacity .18s ease!important;
+  will-change:transform,opacity;
+}
+body.srh-main-stream-style.srh-topbar-hidden .topbar{
+  transform:translateY(calc(-100% - 6px))!important;
+  opacity:0!important;
+  pointer-events:none!important;
+}
+
+/* Recover 6px from the hero without changing its composition. */
+body.srh-main-stream-style .stream-hero{
+  height:calc(var(--stream-hero-h) - 6px)!important;
+  min-height:354px!important;
+}
+
+/* Explicit Similar button text. */
+body.srh-main-stream-style .srh-lite-action--similar{
+  width:auto!important;
+  min-width:82px!important;
+  padding:0 10px!important;
+  display:inline-flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  gap:6px!important;
+  white-space:nowrap!important;
+}
+body.srh-main-stream-style .srh-lite-action--similar .srh-lite-icon{
+  width:16px!important;
+  height:16px!important;
+  flex:0 0 auto!important;
+}
+body.srh-main-stream-style .srh-lite-action--similar span{
+  display:inline!important;
+  font-size:10px!important;
+  font-weight:800!important;
+  line-height:1!important;
+}
+body.srh-main-stream-style .srh-series-season-actions .srh-lite-action--similar{
+  width:auto!important;
+  min-width:80px!important;
+}
+
+/* Loading / provider error feedback over film and episode artwork. */
+body.srh-main-stream-style .srh-feedback-brand-hidden{
+  opacity:0!important;
+  visibility:hidden!important;
+}
+body.srh-main-stream-style .srh-playback-feedback{
+  position:absolute!important;
+  inset:0!important;
+  z-index:8!important;
+  pointer-events:none!important;
+  display:flex!important;
+  justify-content:center!important;
+  color:#fff!important;
+}
+body.srh-main-stream-style .srh-playback-feedback--loading{
+  align-items:flex-end!important;
+  padding:0 18px clamp(24px,7%,56px)!important;
+  background:linear-gradient(0deg,rgba(0,0,0,.42),transparent 48%)!important;
+}
+body.srh-main-stream-style .srh-playback-feedback__inner{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  gap:7px;
+  max-width:min(68%,360px);
+  text-align:center;
+}
+body.srh-main-stream-style .srh-playback-feedback__logo{
+  display:block;
+  width:auto;
+  height:auto;
+  max-width:min(230px,72%);
+  max-height:54px;
+  object-fit:contain;
+  filter:drop-shadow(0 2px 9px rgba(0,0,0,.58));
+  opacity:.78;
+  animation:srhLoadingBrandPulse 1.65s ease-in-out infinite;
+}
+body.srh-main-stream-style .srh-playback-feedback__name{
+  max-width:100%;
+  overflow:hidden;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+  font-size:clamp(13px,2vw,17px);
+  font-weight:850;
+  letter-spacing:-.02em;
+  text-shadow:0 2px 8px rgba(0,0,0,.72);
+  opacity:.74;
+  animation:srhLoadingBrandPulse 1.65s ease-in-out infinite;
+}
+body.srh-main-stream-style .srh-playback-feedback__spinner{
+  width:21px;
+  height:21px;
+  margin-top:2px;
+  border:2px solid rgba(255,255,255,.26);
+  border-top-color:#fff;
+  border-radius:50%;
+  animation:srhPlaybackSpin .82s linear infinite;
+}
+body.srh-main-stream-style .srh-playback-feedback__label{
+  font-size:9px;
+  font-weight:750;
+  letter-spacing:.05em;
+  color:rgba(255,255,255,.76);
+}
+@keyframes srhPlaybackSpin{to{transform:rotate(360deg)}}
+@keyframes srhLoadingBrandPulse{
+  0%,100%{opacity:.58;transform:translateY(0) scale(.985)}
+  50%{opacity:.88;transform:translateY(-2px) scale(1)}
+}
+body.srh-main-stream-style .srh-playback-feedback--error{
+  align-items:center!important;
+  padding:18px!important;
+  background:rgba(0,0,0,.36)!important;
+}
+body.srh-main-stream-style .srh-playback-feedback__error{
+  display:flex;
+  flex-direction:column;
+  align-items:center;
+  justify-content:center;
+  gap:3px;
+  min-width:150px;
+  padding:15px 20px;
+  border-radius:12px;
+  background:rgba(8,10,12,.78);
+  border:1px solid rgba(255,255,255,.12);
+  box-shadow:0 14px 34px rgba(0,0,0,.28);
+  backdrop-filter:blur(7px);
+  -webkit-backdrop-filter:blur(7px);
+  text-align:center;
+}
+body.srh-main-stream-style .srh-playback-feedback__error strong{
+  font-size:17px;
+  line-height:1;
+}
+body.srh-main-stream-style .srh-playback-feedback__error span{
+  margin-top:3px;
+  font-size:11px;
+  font-weight:750;
+  color:rgba(255,255,255,.82);
+}
+body.srh-main-stream-style .srh-playback-feedback__error small{
+  margin-top:5px;
+  font-size:9px;
+  color:rgba(255,255,255,.58);
+}
+
+@media(max-width:680px){
+  body.srh-main-stream-style .stream-hero{
+    height:calc(var(--stream-hero-h) - 6px)!important;
+    min-height:384px!important;
+  }
+  body.srh-main-stream-style .srh-lite-action--similar{
+    min-width:76px!important;
+    padding:0 8px!important;
+    gap:5px!important;
+  }
+  body.srh-main-stream-style .srh-lite-action--similar span{font-size:9px!important}
+  body.srh-main-stream-style .srh-series-season-actions .srh-lite-action--similar{
+    min-width:74px!important;
+  }
+  body.srh-main-stream-style .srh-playback-feedback__logo{
+    max-width:min(200px,72%);
+    max-height:46px;
+  }
+  body.srh-main-stream-style .srh-playback-feedback--loading{
+    padding-bottom:22px!important;
+  }
+}
