@@ -2,7 +2,7 @@
 'use strict';
 if(window.SRHDebug)return;
 
-const VERSION='debug-supervisor-5';
+const VERSION='debug-supervisor-6';
 const STORAGE_SCHEMA=3;
 const HISTORY_SCHEMA=3;
 const CACHE_SCHEMA=2;
@@ -38,7 +38,7 @@ const state={
   cache:{schema:CACHE_SCHEMA,hits:0,misses:0,stale:0},
   network:{active:0,total:0,failed:0,retries:0,aborted:0},
   incidents:{active:0,total:0,recovered:0,slow:0,last:null},
-  performance:{longTasks:0,longestMs:0,slowResources:0,scrollBursts:0,jankBursts:0,worstFrameMs:0,missedFrames:0,interactionCount:0,slowInteractions:0,worstInteractionMs:0,layoutShifts:0,cumulativeLayoutShift:0,longAnimationFrames:0,worstRenderFrameMs:0,horizontalOverflowPx:0},
+  performance:{longTasks:0,longestMs:0,slowResources:0,scrollBursts:0,jankBursts:0,worstFrameMs:0,missedFrames:0,interactionCount:0,slowInteractions:0,worstInteractionMs:0,layoutShifts:0,cumulativeLayoutShift:0,longAnimationFrames:0,worstRenderFrameMs:0,horizontalOverflowPx:0,horizontalOverflowSources:[],ignoredDebugEvents:0},
   regression:{status:'idle',last:null},
   health:{},
   features:{safeMode}
@@ -162,7 +162,7 @@ function incidentSummary(){
   return{sessionId:SESSION_ID,active:rows.filter(x=>x.status==='active'),recovered:rows.filter(x=>x.status==='recovered'),slow:rows.filter(x=>x.type==='slow'),recent:rows,historyCount:history.length}
 }
 function issueExport(){
-  const rows=incidentHistory.slice(-80).filter(x=>x?.sessionId===SESSION_ID&&(x.type==='slow'||x.status==='active'||x.status==='recovered')&&x.status!=='stale'&&!/transport-won|route-lost|proxy-lost|superseded/i.test(String(x.message||''))&&!(x.status==='recovered'&&x.kind==='proxy'&&/rota alternativa concluiu a requisição/i.test(String(x.recoveryMessage||'')))&&!(x.type==='slow'&&x.kind==='network.other'&&x.layer==='resource'&&String(x.details?.initiatorType||'').toLowerCase()==='img')&&!(x.type==='slow'&&x.kind==='media.metadata'&&Number(x.ms||0)<6500&&/^(vod:|series:)/.test(String(x.mediaId||'')))).map(x=>({
+  const rows=incidentHistory.slice(-80).filter(x=>x?.sessionId===SESSION_ID&&(x.type==='slow'||x.status==='active'||x.status==='recovered')&&x.status!=='stale'&&!/transport-won|route-lost|proxy-lost|superseded/i.test(String(x.message||''))&&String(x.details?.region||'')!=='debug'&&!(Array.isArray(x.details?.regions)&&x.details.regions.length&&x.details.regions.every(r=>r==='debug'))&&!(x.status==='recovered'&&x.kind==='proxy'&&/rota alternativa concluiu a requisição/i.test(String(x.recoveryMessage||'')))&&!(x.type==='slow'&&x.kind==='network.other'&&x.layer==='resource'&&String(x.details?.initiatorType||'').toLowerCase()==='img')&&!(x.type==='slow'&&x.kind==='media.metadata'&&Number(x.ms||0)<6500&&/^(vod:|series:)/.test(String(x.mediaId||'')))).map(x=>({
     time:new Date(Number(x.lastAt||x.firstAt||Date.now())).toISOString(),
     kind:x.kind||'unknown',
     status:x.status||'unknown',
@@ -582,11 +582,12 @@ function panel(){
   document.body.appendChild(root);
   const q=s=>root.querySelector(s),out=q('[data-x="out"]'),status=q('[data-x="status"]'),points=q('[data-x="points"]'),incidents=q('[data-x="incidents"]');
   const render=()=>{
-    const d=diagnostic(),ps=Object.values(d.points);
-    status.textContent=(d.state.health?.router?'Router OK':'Router ?')+' · '+(d.state.health?.storage?'Storage OK':'Storage bloqueado')+' · '+d.state.network.active+' req ativa(s) · '+d.incidents.active.length+' incidente(s) ativo(s)';
-    const recent=d.incidents.recent;incidents.innerHTML='<div class="srh-debug-incidents__title">Incidentes capturados · sessão '+d.sessionId+'</div>'+(recent.length?recent.map(x=>'<div class="srh-debug-incident '+x.status+'"><b>'+String(x.kind||'erro')+'</b><span>'+String(x.message||'').replace(/[<>&]/g,m=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[m]))+'</span><em>'+Math.round(x.ms||x.recoveryMs||0)+' ms · '+x.status+'</em></div>').join(''):'<div class="srh-debug-incident empty">Nenhum incidente registrado nesta janela.</div>');
+    const ps=Object.values(pointStatus()),inc=incidentSummary(),perf=sanitize(get('performance')||{}),health=get('health')||{},network=get('network')||{};
+    status.textContent=(health.router?'Router OK':'Router ?')+' · '+(health.storage?'Storage OK':'Storage bloqueado')+' · '+Number(network.active||0)+' req ativa(s) · '+inc.active.length+' incidente(s) ativo(s)';
+    const recent=inc.recent.filter(x=>String(x?.details?.region||'')!=='debug').slice(0,36);
+    incidents.innerHTML='<div class="srh-debug-incidents__title">Incidentes capturados · sessão '+SESSION_ID+'</div>'+(recent.length?recent.map(x=>'<div class="srh-debug-incident '+x.status+'"><b>'+String(x.kind||'erro')+'</b><span>'+String(x.message||'').replace(/[<>&]/g,m=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[m]))+'</span><em>'+Math.round(x.ms||x.recoveryMs||0)+' ms · '+x.status+'</em></div>').join(''):'<div class="srh-debug-incident empty">Nenhum incidente da aplicação nesta janela.</div>');
     points.innerHTML=ps.map((p,i)=>'<div class="'+(p.ok?'ok':'bad')+'"><span>'+(i+1)+'</span><b>'+p.name+'</b><em>'+(p.ok?'OK':'PENDENTE')+'</em></div>').join('');
-    out.textContent=JSON.stringify(d,null,2)
+    out.textContent=JSON.stringify({sessionId:SESSION_ID,build:window.__SRH_DEBUG_BUILD__||{},performance:perf,incidents:{active:inc.active.length,slow:inc.slow.length,recovered:inc.recovered.length}},null,2)
   };
   root.render=render;
   q('[data-x="close"]').onclick=()=>root.classList.add('is-hidden');
@@ -600,7 +601,9 @@ function panel(){
   q('[data-x="safe"]').onclick=()=>{try{localStorage.setItem('srh:debug:safe',safeMode?'0':'1')}catch{}const u=new URL(location.href);if(safeMode)u.searchParams.delete('srhSafe');else u.searchParams.set('srhSafe','1');location.href=u.href};
   q('[data-x="migrate"]').onclick=()=>{const r=storage.migrate();status.textContent='Migração: '+r.changed+' alterado(s) em '+r.scanned+' base(s).';render()};
   q('[data-x="cache"]').onclick=()=>{const n=cache.invalidateAll();status.textContent='Cache debug limpo: '+n+' entrada(s).';render()};
-  bus.addEventListener('log',()=>{if(!root.classList.contains('is-hidden'))render()});render()
+  let panelRenderTimer=0;
+  const schedulePanelRender=()=>{if(root.classList.contains('is-hidden')||panelRenderTimer)return;panelRenderTimer=setTimeout(()=>{panelRenderTimer=0;if(!root.classList.contains('is-hidden'))render()},700)};
+  bus.addEventListener('log',schedulePanelRender);bus.addEventListener('incident',schedulePanelRender);render()
 }
 function attachButton(){
   panel();
@@ -669,14 +672,19 @@ function installConsoleCapture(){
     console[level]=function(){try{const message=[...arguments].map(x=>typeof x==='string'?x:JSON.stringify(sanitize(x))).join(' ').slice(0,1600);log(level==='error'?'error':'warn','console.'+level,{message});if(level==='error')noteFailure({kind:'console',layer:'console',origin:'page',message})}catch{}return original(...arguments)}
   }
 }
+function debugUiActive(){const p=document.getElementById('srhDebugPanel');return !!p&&!p.classList.contains('is-hidden')}
+function ignoreDebugPerf(region=''){
+  if(region==='debug'||debugUiActive()){state.performance.ignoredDebugEvents=Number(state.performance.ignoredDebugEvents||0)+1;return true}
+  return false
+}
 function perfRegion(target){
   const el=target?.nodeType===1?target:target?.parentElement;
   if(!el)return'page';
   const rules=[
+    ['#srhDebugPanel,#srhDebugButton,.srh-debug-panel,.srh-debug-button','debug'],
     ['.srh-similar-panel','similar'],['.detail-modal,.detail-layer,.detail-body','detail'],['video,.detail-inline-video,#seriesInlineVideo','player'],
     ['.stream-hero','hero'],['.continue','continue'],['.rail-section,.rail-viewport,.rail-track','rail'],
-    ['.grid-scroller,.grid-content','grid'],['.topbar','header'],['.bottom-nav,.tab-bar,.tabs','navigation'],
-    ['.srh-debug-panel','debug']
+    ['.grid-scroller,.grid-content','grid'],['.topbar','header'],['.bottom-nav,.tab-bar,.tabs','navigation']
   ];
   for(const [sel,name] of rules)try{if(el.closest?.(sel))return name}catch{}
   return'page'
@@ -690,7 +698,7 @@ function installInteractionPerformanceTracing(){
   const supported=typeof PerformanceObserver==='function'&&Array.isArray(PerformanceObserver.supportedEntryTypes)?PerformanceObserver.supportedEntryTypes:[];
 
   // Event Timing gives browser-measured interaction-to-next-paint latency when available.
-  let hasEventTiming=false;
+  let hasEventTiming=false;const interactionIssueGate=new Map(),renderIssueGate=new Map(),scrollIssueGate=new Map();
   if(typeof PerformanceObserver==='function'&&supported.includes('event'))try{
     hasEventTiming=true;
     const seen=new Set();
@@ -698,10 +706,11 @@ function installInteractionPerformanceTracing(){
       if(!/^(click|keydown|pointerup)$/.test(String(e.name||'')))continue;
       const iid=Number(e.interactionId||0);if(iid&&seen.has(iid))continue;if(iid){seen.add(iid);if(seen.size>80)seen.delete(seen.values().next().value)}
       const ms=Math.round(e.duration||0),delay=Math.max(0,Math.round((e.processingStart||0)-(e.startTime||0))),processing=Math.max(0,Math.round((e.processingEnd||0)-(e.processingStart||0))),region=perfRegion(e.target);
+      if(ignoreDebugPerf(region))continue;
       state.performance.interactionCount++;state.performance.worstInteractionMs=Math.max(state.performance.worstInteractionMs,ms);
       if(ms>=120)state.performance.slowInteractions++;
       updatePerf({interactionCount:state.performance.interactionCount,slowInteractions:state.performance.slowInteractions,worstInteractionMs:state.performance.worstInteractionMs});
-      if(ms>=120)noteSlow({kind:'interaction.latency',layer:'interaction',origin:'page',ms,message:'Interação demorou para responder',details:{event:e.name,region,inputDelayMs:delay,processingMs:processing,interactionId:iid||0}});
+      if(ms>=120){const gateKey=region+':'+e.name,last=interactionIssueGate.get(gateKey)||0;if(Date.now()-last>1800||ms>=300){interactionIssueGate.set(gateKey,Date.now());noteSlow({kind:'interaction.latency',layer:'interaction',origin:'page',ms,message:'Interação demorou para responder',details:{event:e.name,region,inputDelayMs:delay,processingMs:processing,interactionId:iid||0}})}}
       else if(ms>=70)log('info','performance.interaction',{event:e.name,region,ms,inputDelayMs:delay,processingMs:processing})
     }});
     obs.observe({type:'event',buffered:true,durationThreshold:40})
@@ -711,7 +720,7 @@ function installInteractionPerformanceTracing(){
   if(!hasEventTiming){
     const fallback=e=>{
       if(e.isTrusted===false)return;
-      const start=performance.now(),event=e.type,region=perfRegion(e.target);
+      const start=performance.now(),event=e.type,region=perfRegion(e.target);if(ignoreDebugPerf(region))return;
       requestAnimationFrame(()=>requestAnimationFrame(()=>{
         const ms=Math.round(performance.now()-start);
         state.performance.interactionCount++;state.performance.worstInteractionMs=Math.max(state.performance.worstInteractionMs,ms);
@@ -733,7 +742,7 @@ function installInteractionPerformanceTracing(){
     if(bad)state.performance.jankBursts++;
     updatePerf({scrollBursts:state.performance.scrollBursts,jankBursts:state.performance.jankBursts,worstFrameMs:state.performance.worstFrameMs,missedFrames:state.performance.missedFrames});
     const details={region:b.region,frames:b.frames,slowFrames:b.slowFrames,jankPct,missedFrames:b.missed,durationMs:duration,distancePx:distance,startY:Math.round(b.startY),endY:Math.round(scrollY||0)};
-    if(bad)noteSlow({kind:'scroll.jank',layer:'interaction',origin:'page',ms:Math.round(b.worst),message:'Scroll perdeu fluidez',details});
+    if(bad){const last=scrollIssueGate.get(b.region)||0;if(Date.now()-last>1800||b.worst>=180){scrollIssueGate.set(b.region,Date.now());noteSlow({kind:'scroll.jank',layer:'interaction',origin:'page',ms:Math.round(b.worst),message:'Scroll perdeu fluidez',details})}}
     else log('info','performance.scroll',{...details,worstFrameMs:Math.round(b.worst)})
   };
   const frame=t=>{
@@ -748,18 +757,20 @@ function installInteractionPerformanceTracing(){
     raf=requestAnimationFrame(frame)
   };
   addEventListener('scroll',()=>{
-    const t=performance.now();
-    if(!burst){burst={start:t,lastEvent:t,lastFrame:0,startY:scrollY||0,frames:0,slowFrames:0,missed:0,worst:0,region:perfViewportRegion()};raf=requestAnimationFrame(frame)}
+    if(debugUiActive())return;
+    const t=performance.now(),region=perfViewportRegion();if(region==='debug')return;
+    if(!burst){burst={start:t,lastEvent:t,lastFrame:0,startY:scrollY||0,frames:0,slowFrames:0,missed:0,worst:0,region};raf=requestAnimationFrame(frame)}
     else burst.lastEvent=t
   },{passive:true});
 
   // Layout instability without recent user input.
   if(typeof PerformanceObserver==='function'&&supported.includes('layout-shift'))try{
     const shiftObs=new PerformanceObserver(list=>{for(const e of list.getEntries()){
+      if(debugUiActive()){state.performance.ignoredDebugEvents++;continue}
+      const regions=(e.sources||[]).slice(0,4).map(x=>perfRegion(x.node));if(regions.length&&regions.every(x=>x==='debug')){state.performance.ignoredDebugEvents++;continue}
       const score=Number(e.value||0);state.performance.layoutShifts++;if(!e.hadRecentInput)state.performance.cumulativeLayoutShift+=score;
       updatePerf({layoutShifts:state.performance.layoutShifts,cumulativeLayoutShift:Number(state.performance.cumulativeLayoutShift.toFixed(4))});
       if(!e.hadRecentInput&&score>=.08){
-        const regions=(e.sources||[]).slice(0,4).map(x=>perfRegion(x.node));
         noteSlow({kind:'layout.shift',layer:'render',origin:'page',ms:0,message:'Layout deslocou sem interação',details:{score:Number(score.toFixed(4)),cumulative:Number(state.performance.cumulativeLayoutShift.toFixed(4)),regions}})
       }
     }});
@@ -769,10 +780,11 @@ function installInteractionPerformanceTracing(){
   // Long Animation Frame distinguishes rendering/style/layout stalls from generic long tasks.
   if(typeof PerformanceObserver==='function'&&supported.includes('long-animation-frame'))try{
     const loafObs=new PerformanceObserver(list=>{for(const e of list.getEntries()){
+      const region=perfViewportRegion();if(ignoreDebugPerf(region))continue;
       const ms=Math.round(e.duration||0);state.performance.longAnimationFrames++;state.performance.worstRenderFrameMs=Math.max(state.performance.worstRenderFrameMs,ms);
       updatePerf({longAnimationFrames:state.performance.longAnimationFrames,worstRenderFrameMs:state.performance.worstRenderFrameMs});
-      const details={region:perfViewportRegion(),blockingDurationMs:Math.round(e.blockingDuration||0),renderStart:Math.round(e.renderStart||0),styleAndLayoutStart:Math.round(e.styleAndLayoutStart||0),scripts:Number(e.scripts?.length||0)};
-      if(ms>=140)noteSlow({kind:'render.frame',layer:'render',origin:'page',ms,message:'Frame de renderização demorou',details});
+      const details={region,blockingDurationMs:Math.round(e.blockingDuration||0),renderStart:Math.round(e.renderStart||0),styleAndLayoutStart:Math.round(e.styleAndLayoutStart||0),scripts:Number(e.scripts?.length||0)};
+      if(ms>=140){const last=renderIssueGate.get(region)||0;if(Date.now()-last>2200||ms>=320){renderIssueGate.set(region,Date.now());noteSlow({kind:'render.frame',layer:'render',origin:'page',ms,message:'Frame de renderização demorou',details})}}
       else if(ms>=80)log('info','performance.render_frame',{ms,...details})
     }});
     loafObs.observe({type:'long-animation-frame',buffered:true})
@@ -780,9 +792,14 @@ function installInteractionPerformanceTracing(){
 
   // Detect raw horizontal overflow only when idle/resize, never during active scrolling.
   const scanOverflow=()=>{
-    const root=document.documentElement,body=document.body,viewport=Math.round(innerWidth||root.clientWidth||0),raw=Math.max(root.scrollWidth||0,body?.scrollWidth||0),overflow=Math.max(0,Math.round(raw-viewport));
-    state.performance.horizontalOverflowPx=overflow;updatePerf({horizontalOverflowPx:overflow});
-    if(overflow>2)log('info','layout.horizontal_overflow',{overflowPx:overflow,viewportPx:viewport,scrollWidth:raw,rootOverflowX:getComputedStyle(root).overflowX,bodyOverflowX:body?getComputedStyle(body).overflowX:''})
+    const root=document.documentElement,body=document.body,viewport=Math.round(innerWidth||root.clientWidth||0),raw=Math.max(root.scrollWidth||0,body?.scrollWidth||0),overflow=Math.max(0,Math.round(raw-viewport)),sources=[];
+    if(overflow>2){
+      const nodes=document.querySelectorAll('.stream-hero,.app,main,.content,#content,.topbar,.rail-section,.continue,#srhDebugButton');
+      for(const node of nodes){if(node.closest?.('#srhDebugPanel'))continue;const r=node.getBoundingClientRect(),extra=Math.max(0,Math.ceil(r.right-viewport),Math.ceil(-r.left));if(extra>1)sources.push({region:perfRegion(node),tag:String(node.tagName||'').toLowerCase(),id:String(node.id||''),className:String(node.className||'').slice(0,120),left:Math.round(r.left),right:Math.round(r.right),width:Math.round(r.width),extraPx:extra})}
+      sources.sort((a,b)=>b.extraPx-a.extraPx)
+    }
+    state.performance.horizontalOverflowPx=overflow;state.performance.horizontalOverflowSources=sources.slice(0,6);updatePerf({horizontalOverflowPx:overflow,horizontalOverflowSources:state.performance.horizontalOverflowSources});
+    if(overflow>2)log('info','layout.horizontal_overflow',{overflowPx:overflow,viewportPx:viewport,scrollWidth:raw,sources:sources.slice(0,6),rootOverflowX:getComputedStyle(root).overflowX,bodyOverflowX:body?getComputedStyle(body).overflowX:''})
   };
   setTimeout(scanOverflow,900);
   let resizeTimer=0;addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(scanOverflow,220)},{passive:true});
@@ -791,7 +808,7 @@ function installInteractionPerformanceTracing(){
 function installPerformanceTracing(){
   if(typeof PerformanceObserver!=='function'||window.__SRH_DEBUG_PERF_V2__)return;window.__SRH_DEBUG_PERF_V2__=true;
   try{
-    const recentLong=[];const longObserver=new PerformanceObserver(list=>{for(const e of list.getEntries()){const ms=Math.round(e.duration),t=performance.now();state.performance.longTasks++;state.performance.longestMs=Math.max(state.performance.longestMs,ms);patch('performance',{longTasks:state.performance.longTasks,longestMs:state.performance.longestMs,slowResources:state.performance.slowResources});if(ms>=120)log('info','performance.longtask',{ms,name:e.name,start:Math.round(e.startTime)});if(ms>=200){recentLong.push({t,ms});while(recentLong.length&&t-recentLong[0].t>6000)recentLong.shift()}if(ms>=400)noteSlow({kind:'main-thread',layer:'performance',origin:'page',ms,message:'Main thread bloqueada',details:{name:e.name,start:Math.round(e.startTime),burst:recentLong.length,region:perfViewportRegion(),scrollY:Math.round(scrollY||0)}});else if(recentLong.length>=3){const total=recentLong.reduce((a,x)=>a+x.ms,0);noteSlow({kind:'main-thread',layer:'performance',origin:'page',ms:Math.max(...recentLong.map(x=>x.ms)),message:'Rajada de bloqueios na main thread',details:{count:recentLong.length,totalMs:total,windowMs:6000}});recentLong.length=0}}});
+    const recentLong=[];const longObserver=new PerformanceObserver(list=>{for(const e of list.getEntries()){if(debugUiActive()){state.performance.ignoredDebugEvents++;continue}const region=perfViewportRegion();if(region==='debug'){state.performance.ignoredDebugEvents++;continue}const ms=Math.round(e.duration),t=performance.now();state.performance.longTasks++;state.performance.longestMs=Math.max(state.performance.longestMs,ms);patch('performance',{longTasks:state.performance.longTasks,longestMs:state.performance.longestMs,slowResources:state.performance.slowResources});if(ms>=120)log('info','performance.longtask',{ms,name:e.name,start:Math.round(e.startTime)});if(ms>=200){recentLong.push({t,ms});while(recentLong.length&&t-recentLong[0].t>6000)recentLong.shift()}if(ms>=400)noteSlow({kind:'main-thread',layer:'performance',origin:'page',ms,message:'Main thread bloqueada',details:{name:e.name,start:Math.round(e.startTime),burst:recentLong.length,region,scrollY:Math.round(scrollY||0)}});else if(recentLong.length>=3){const total=recentLong.reduce((a,x)=>a+x.ms,0);noteSlow({kind:'main-thread',layer:'performance',origin:'page',ms:Math.max(...recentLong.map(x=>x.ms)),message:'Rajada de bloqueios na main thread',details:{count:recentLong.length,totalMs:total,windowMs:6000,region,scrollY:Math.round(scrollY||0)}});recentLong.length=0}}});
     longObserver.observe({entryTypes:['longtask']})
   }catch{}
   try{
@@ -825,7 +842,7 @@ function installGlobalErrors(){addEventListener('error',e=>{
 
 function init(){
   boot.begin(window.__SRH_DEBUG_BUILD__||{});
-  boot.phase('supervisor-v5');
+  boot.phase('supervisor-v6');
   patch('meta',{sessionId:SESSION_ID,hotUpdate:true});syncIncidentState();
   syncAppState();
   installGlobalErrors();installConsoleCapture();installPerformanceTracing();installInteractionPerformanceTracing();
