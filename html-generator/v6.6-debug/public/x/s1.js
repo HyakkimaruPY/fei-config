@@ -1875,7 +1875,7 @@ async function closeDetail(){
   }
   async function configuredItemIndex(type){
     const token=state.renderToken,key=type+':'+token,cached=configuredIndexCache.get(key);if(cached)return cached;
-    const p=(async()=>{const map=new Map();for(const target of targetsFor(type)){if(token!==state.renderToken)break;let raw=[];try{raw=await loadTargetItems(target,token)}catch{continue}for(const item of uniqueById(raw,type)){const id=String(itemId(item,type)||'');if(id&&!map.has(id))map.set(id,item)}}return map})();
+    const p=(async()=>{const map=new Map();for(const target of targetsFor(type)){if(token!==state.renderToken)break;let raw=[];try{raw=await loadTargetItems(target,token)}catch{continue}const seen=new Set();for(let i=0;i<raw.length;i++){const item=raw[i],id=String(itemId(item,type)||'');if(id&&!seen.has(id)){seen.add(id);if(!map.has(id))map.set(id,item)}if(i&&i%220===0)await recoYield()}await recoYield()}return map})();
     configuredIndexCache.clear();configuredIndexCache.set(key,p);return p
   }
   async function revalidateCachedRows(type,rows,limit=12){
@@ -1896,6 +1896,12 @@ async function closeDetail(){
   }
 
   function recoApi(){return window.__srhTmdbRecommendations}
+  function recoYield(){
+    return new Promise(resolve=>{
+      if(typeof requestIdleCallback==='function')requestIdleCallback(()=>resolve(),{timeout:70});
+      else setTimeout(resolve,0)
+    })
+  }
   function recoTitle(result,type){return String(type==='series'?(result?.name||result?.original_name):(result?.title||result?.original_title)||'').trim()}
   function recoKey(raw){
     const api=recoApi();
@@ -2008,17 +2014,21 @@ async function closeDetail(){
     for(const target of targetsFor(type)){
       if(Date.now()>deadline||token!==state.renderToken)break;
       let raw=[];try{raw=await loadTargetItems(target,token)}catch{continue}
-      for(const item of uniqueById(raw,type)){
-        const localId=String(itemId(item,type)||'');if(!localId||seenLocal.has(localId))continue;
+      const localSeen=new Set();
+      for(let localIndex=0;localIndex<raw.length;localIndex++){
+        const item=raw[localIndex],localId=String(itemId(item,type)||'');if(!localId||localSeen.has(localId)||seenLocal.has(localId)){if(localIndex&&localIndex%180===0)await recoYield();continue}
+        localSeen.add(localId);
         const localKey=recoKey(itemTitle(item)),explicit=String(api?.explicitId?.(item)||'');
         let best=null,bestScore=0;
         for(const rec of recs){
           if(explicit&&rec.id&&explicit===rec.id){best=rec;bestScore=1;break}
           for(const alias of rec.aliases){const score=tokenScore(localKey,alias);if(score>bestScore){bestScore=score;best=rec}}
         }
-        if(!best)continue;
-        if(bestScore>=.995){seenLocal.add(localId);direct.push({item,type,tmdb:best.row,rank:best.i});continue}
-        if(bestScore>=.67){seenLocal.add(localId);fuzzy.push({item,type,tmdb:best.row,rank:best.i,score:bestScore})}
+        if(best){
+          if(bestScore>=.995){seenLocal.add(localId);direct.push({item,type,tmdb:best.row,rank:best.i})}
+          else if(bestScore>=.67){seenLocal.add(localId);fuzzy.push({item,type,tmdb:best.row,rank:best.i,score:bestScore})}
+        }
+        if(localIndex&&localIndex%180===0)await recoYield()
       }
     }
     const verified=[];
