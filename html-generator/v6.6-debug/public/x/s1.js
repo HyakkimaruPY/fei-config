@@ -233,7 +233,7 @@ function openItem(item,type){if(type==='live')openLive(item);else if(type==='ser
 function normalizeUpdateCategories(raw,type){return(Array.isArray(raw)?raw:[]).map((c,i)=>({type,id:String(c.category_id??c.id??''),name:String(c.category_name??c.name??('Categoria '+(i+1)))}))}
 function renderUpdateGroups(){const grouped={live:[],vod:[],series:[]};state.updateCategories.forEach(c=>grouped[c.type]?.push(c));el.updateGroups.innerHTML=Object.entries(grouped).map(([type,cats])=>cats.length?`<section class="update-group"><div class="update-group__title">${TYPE[type].label}</div><div class="update-list">${cats.map(c=>{const key=type+'::'+c.name;return `<label class="update-option"><input type="checkbox" data-update-key="${escapeHtml(key)}" ${state.updateSelected.has(key)?'checked':''}><span>${escapeHtml(stripEmoji(c.name))}</span></label>`}).join('')}</div></section>`:'').join('');el.updateGroups.querySelectorAll('[data-update-key]').forEach(ch=>ch.onchange=()=>{ch.checked?state.updateSelected.add(ch.dataset.updateKey):state.updateSelected.delete(ch.dataset.updateKey);el.updateApply.disabled=!state.updateSelected.size})}
 async function loadUpdateCategories(){state.updateCategories=[];state.updateSelected.clear();el.updateApply.disabled=true;el.updateGroups.innerHTML='';try{const candidate={...CONFIG,...parseLogin(el.updateM3u.value)};state.updateCandidate=candidate;el.updateStatus.textContent='Validando login e lendo categorias…';el.updateLoad.disabled=true;const account=await request({},candidate),active=account?.user_info&&(String(account.user_info.auth)==='1'||String(account.user_info.status||'').toLowerCase()==='active');if(!active)throw new Error('O novo login não retornou uma conta ativa.');const groups=await Promise.all(Object.entries(TYPE).map(async([type,meta])=>normalizeUpdateCategories(await request({action:meta.categories},candidate),type)));state.updateCategories=groups.flat();const old=new Set((CONFIG.targets||[]).map(t=>t.type+'::'+t.name));state.updateCategories.forEach(c=>{const k=c.type+'::'+c.name;if(old.has(k))state.updateSelected.add(k)});renderUpdateGroups();el.updateStatus.textContent=state.updateCategories.length+' categorias disponíveis.'}catch(e){el.updateStatus.textContent=e.message}finally{el.updateLoad.disabled=false}}
-async function applyUpdate(){if(!state.updateCandidate||!state.updateSelected.size)return;const targets=state.updateCategories.filter(c=>state.updateSelected.has(c.type+'::'+c.name)).map(c=>({type:c.type,id:c.id,name:c.name})),runtime={server:state.updateCandidate.server,username:state.updateCandidate.username,password:state.updateCandidate.password,liveExtension:state.updateCandidate.liveExtension,targets},providerChanged=!!standardProviderId(CONFIG)&&!!standardProviderId(runtime)&&standardProviderId(CONFIG)!==standardProviderId(runtime);try{if(providerChanged){for(const key of [`srhell:${STANDARD_APP_NS}:standard:favorites:v1`,`srhell:${STANDARD_APP_NS}:standard:continue:vod`,`srhell:${STANDARD_APP_NS}:standard:continue:series`,STANDARD_COMPLETED_KEY,STANDARD_LAST_WATCHED_PREFIX+'vod',STANDARD_LAST_WATCHED_PREFIX+'series'])await standardStateDelete(key)}const ok=await standardStateSet(storageKey(),runtime);if(!ok)throw new Error('IndexedDB');try{localStorage.removeItem(storageKey())}catch{}toast('Lista atualizada. Recarregando…');setTimeout(()=>location.reload(),350)}catch{toast('Não foi possível salvar a lista no IndexedDB.')}}
+async function applyUpdate(){if(!state.updateCandidate||!state.updateSelected.size)return;const targets=state.updateCategories.filter(c=>state.updateSelected.has(c.type+'::'+c.name)).map(c=>({type:c.type,id:c.id,name:c.name})),runtime={server:state.updateCandidate.server,username:state.updateCandidate.username,password:state.updateCandidate.password,liveExtension:state.updateCandidate.liveExtension,targets},providerChanged=!!standardProviderId(CONFIG)&&!!standardProviderId(runtime)&&standardProviderId(CONFIG)!==standardProviderId(runtime);try{if(providerChanged){for(const key of [`srhell:${STANDARD_APP_NS}:standard:favorites:v1`,`srhell:${STANDARD_APP_NS}:standard:continue:vod`,`srhell:${STANDARD_APP_NS}:standard:continue:series`,STANDARD_COMPLETED_KEY,STANDARD_LAST_WATCHED_PREFIX+'vod',STANDARD_LAST_WATCHED_PREFIX+'series','srhell:'+STANDARD_APP_NS+':standard:similar:'+standardProviderId(CONFIG)+':v1'])await standardStateDelete(key)}const ok=await standardStateSet(storageKey(),runtime);if(!ok)throw new Error('IndexedDB');try{localStorage.removeItem(storageKey())}catch{}toast('Lista atualizada. Recarregando…');setTimeout(()=>location.reload(),350)}catch{toast('Não foi possível salvar a lista no IndexedDB.')}}
 el.settingsButton.onclick=()=>{const opening=el.settingsPanel.classList.contains('is-hidden');el.settingsPanel.classList.toggle('is-hidden');if(opening)refreshAccount()};el.updateAccordionButton.onclick=()=>{const hidden=el.updateAccordionBody.classList.toggle('is-hidden');el.updateAccordionIcon.textContent=hidden?'⌄':'⌃'};el.updateLoad.onclick=loadUpdateCategories;el.updateApply.onclick=applyUpdate;
 document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement&&isMobile())screen.orientation?.lock?.('portrait')?.catch?.(()=>{})});
 function init(){installImageFallback();document.body.dataset.theme=CONFIG.theme||'graphene';document.title=CONFIG.appName;el.title.textContent=CONFIG.appName;const types=selectedTypes();if(!types.length){el.homeStatus.textContent='Nenhuma categoria configurada.';return}state.activeType=types[0];renderActiveType();refreshAccount()}
@@ -2009,43 +2009,73 @@ async function closeDetail(){
     const title=itemTitle(row.item),img=row.tmdb?.poster_path?recoApi()?.imageUrl?.(row.tmdb.poster_path,'w500'):imageFor(row.item,type);
     return '<button class="srh-similar-card" data-srh-reco-id="'+escapeHtml(String(itemId(row.item,type)||''))+'"><img src="'+escapeHtml(img||IMAGE_PLACEHOLDER)+'" alt=""><span>'+escapeHtml(title)+'</span></button>'
   }
-  async function toggleSimilar(type,item,button){
+  function renderSimilarRows(panel,rows,type){
+    const grid=panel?.querySelector('.srh-similar-grid');if(!grid)return;
+    grid.innerHTML=rows.map(x=>similarCard(x,type)).join('');
+    grid.querySelectorAll('[data-srh-reco-id]').forEach((card,i)=>card.onclick=e=>{e.stopPropagation();const row=rows[i];closeSimilar();if(row)openItem(row.item,type)})
+  }
+  function toggleSimilar(type,item,button){
     const existing=el.detailBody.querySelector('.srh-similar-panel');
     if(existing){closeSimilar();return}
+    const limit=matchMedia('(max-width: 680px)').matches?6:12,rows=(button._srhRows||[]).slice(0,limit);
+    if(rows.length<3)return;
     el.detailBody.querySelector('.season-menu')?.classList.add('is-hidden');
     button.classList.add('is-active');
     const panel=document.createElement('section');
     panel.className='srh-similar-panel';
-    panel.innerHTML='<div class="srh-similar-head"><strong>Parecidos</strong><button type="button" class="srh-similar-close" aria-label="Fechar">'+CLOSE+'</button></div><div class="srh-similar-grid"><span class="srh-similar-loading">Buscando títulos disponíveis…</span></div>';
+    panel.innerHTML='<div class="srh-similar-head"><strong>Parecidos</strong><button type="button" class="srh-similar-close" aria-label="Fechar">'+CLOSE+'</button></div><div class="srh-similar-grid"></div>';
     const anchor=type==='series'?el.detailBody.querySelector('.season-box'):el.detailBody.querySelector('.srh-lite-film-actions');
     (anchor||el.detailBody.querySelector('.synopsis')||el.detailBody).insertAdjacentElement?.('afterend',panel);
     panel.querySelector('.srh-similar-close').onclick=e=>{e.stopPropagation();closeSimilar()};
-    const limit=matchMedia('(max-width: 680px)').matches?6:12,rows=await getRecommendations(type,item,limit,{budgetMs:12500});
-    if(!panel.isConnected)return;
-    const grid=panel.querySelector('.srh-similar-grid');
-    if(!rows.length){grid.innerHTML='<span class="srh-similar-empty">Nenhum título parecido disponível nas categorias atuais.</span>';return}
-    grid.innerHTML=rows.map(x=>similarCard(x,type)).join('');
-    grid.querySelectorAll('[data-srh-reco-id]').forEach((card,i)=>card.onclick=e=>{e.stopPropagation();const row=rows[i];closeSimilar();if(row)openItem(row.item,type)})
+    renderSimilarRows(panel,rows,type)
   }
-  function installSimilarButton(type,item){
-    if(!['vod','series'].includes(type))return;
+  function installSimilarButton(type,item,rows){
+    if(!['vod','series'].includes(type)||!Array.isArray(rows)||rows.length<3)return null;
     const group=type==='series'?el.detailBody.querySelector('.srh-series-season-actions'):el.detailBody.querySelector('.srh-lite-film-actions .srh-lite-actions');
-    if(!group)return;
-    group.querySelector('.srh-lite-action--similar')?.remove();
-    const b=document.createElement('button');b.type='button';b.className='srh-lite-action srh-lite-action--similar';b.setAttribute('aria-label','Títulos parecidos');b.innerHTML=SIMILAR;
-    const fav=group.querySelector('.srh-lite-action--favorite'),trash=group.querySelector('.srh-lite-action--trash');
-    if(fav)group.insertBefore(b,fav);else group.appendChild(b);
-    if(type==='series'&&trash)group.appendChild(trash);
-    b.onclick=e=>{e.stopPropagation();toggleSimilar(type,item,b)};
-    fav?.addEventListener('click',closeSimilar,{capture:true});
-    trash?.addEventListener('click',closeSimilar,{capture:true});
-    el.detailBody.querySelector('#seasonTrigger')?.addEventListener('click',closeSimilar,{capture:true});
+    if(!group)return null;
+    let b=group.querySelector('.srh-lite-action--similar');
+    if(!b){
+      b=document.createElement('button');b.type='button';b.className='srh-lite-action srh-lite-action--similar';b.setAttribute('aria-label','Parecidos');b.innerHTML=SIMILAR+'<span>Parecidos</span>';
+      const fav=group.querySelector('.srh-lite-action--favorite'),trash=group.querySelector('.srh-lite-action--trash');
+      if(fav)group.insertBefore(b,fav);else group.appendChild(b);
+      if(type==='series'&&trash)group.appendChild(trash);
+      b.onclick=e=>{e.stopPropagation();toggleSimilar(type,item,b)};
+      fav?.addEventListener('click',closeSimilar,{capture:true});
+      trash?.addEventListener('click',closeSimilar,{capture:true});
+      el.detailBody.querySelector('#seasonTrigger')?.addEventListener('click',closeSimilar,{capture:true})
+    }
+    b._srhRows=rows.slice(0,12);
+    const panel=el.detailBody.querySelector('.srh-similar-panel');
+    if(panel&&b.classList.contains('is-active'))renderSimilarRows(panel,b._srhRows.slice(0,matchMedia('(max-width: 680px)').matches?6:12),type);
+    return b
+  }
+  async function prepareSimilar(type,item,token){
+    const source=sourceItem(type,item)||item,limit=matchMedia('(max-width: 680px)').matches?6:12;
+    let rows=[];
+    try{rows=await cachedRecommendations(type,source,limit)}catch{}
+    if(token===state.detailToken&&!el.detailLayer.classList.contains('is-hidden')&&rows.length>=3)installSimilarButton(type,item,rows);
+    if(rows.length>=limit)return rows;
+    let quick=[];
+    try{quick=await getRecommendations(type,source,3,{budgetMs:13500,preferCache:false})}catch{}
+    if(quick.length>=3){
+      rows=mergeRecoRows(quick,rows,type);
+      if(token===state.detailToken&&!el.detailLayer.classList.contains('is-hidden'))installSimilarButton(type,item,rows)
+    }
+    Promise.resolve().then(async()=>{
+      let full=[];try{full=await getRecommendations(type,source,limit,{budgetMs:30000,preferCache:false})}catch{}
+      if(full.length>=3){
+        const merged=mergeRecoRows(full,rows,type);
+        await saveRecommendationCluster(type,source,merged);
+        if(token===state.detailToken&&!el.detailLayer.classList.contains('is-hidden'))installSimilarButton(type,item,merged)
+      }
+    });
+    return rows
   }
 
   const recoOpenFilm=openFilm;
-  openFilm=async function(item){const r=await recoOpenFilm(item);if(!el.detailLayer.classList.contains('is-hidden')){state.currentDetail={...(state.currentDetail||{}),recommendationItem:item};installSimilarButton('vod',item)}return r};
+  openFilm=async function(item){const r=await recoOpenFilm(item);if(!el.detailLayer.classList.contains('is-hidden')){const token=state.detailToken;state.currentDetail={...(state.currentDetail||{}),recommendationItem:item};prepareSimilar('vod',item,token)}return r};
   const recoOpenSeries=openSeries;
-  openSeries=async function(item){const r=await recoOpenSeries(item);if(!el.detailLayer.classList.contains('is-hidden')){state.currentDetail={...(state.currentDetail||{}),recommendationItem:item};installSimilarButton('series',item)}return r};
+  openSeries=async function(item){const r=await recoOpenSeries(item);if(!el.detailLayer.classList.contains('is-hidden')){const token=state.detailToken;state.currentDetail={...(state.currentDetail||{}),recommendationItem:item};prepareSimilar('series',item,token)}return r};
 
   document.addEventListener('pointerdown',e=>{
     const panel=el.detailBody.querySelector('.srh-similar-panel');if(!panel)return;
