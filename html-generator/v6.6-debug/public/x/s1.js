@@ -1075,15 +1075,17 @@ async function closeDetail(){
     });
   }
   function railCardMetrics(type){
-    const live=type==='live';
-    const w=innerWidth<680?(live?116:108):(live?146:132);
-    return{w,h:Math.round(w*(live?1:1.5)),gap:9};
+    /* Must mirror RailVirtualizer.metrics() exactly. Any difference here
+       creates a vertical/horizontal layout shift when covers replace skeletons. */
+    const w=innerWidth<680?112:136,gap=8,h=Math.round(w*(16/9));
+    return{w,h,gap,slot:w+gap};
   }
   function railSkeletonMarkup(type){
     const m=railCardMetrics(type);
     const available=Math.max(260,document.documentElement.clientWidth-(innerWidth<680?24:40));
-    const count=Math.max(3,Math.min(12,Math.ceil((available+m.gap)/(m.w+m.gap))+1));
-    return '<div class="rail-skeleton-row" style="--sk-w:'+m.w+'px;--sk-h:'+m.h+'px">'+Array.from({length:count},()=>'<span class="rail-skeleton-card"></span>').join('')+'</div>';
+    const count=Math.max(3,Math.min(12,Math.ceil((available+m.gap)/m.slot)+1));
+    const card='<span class="rail-skeleton-card" style="display:block;flex:0 0 '+m.w+'px;width:'+m.w+'px;height:'+m.h+'px;min-width:'+m.w+'px;min-height:'+m.h+'px;max-width:'+m.w+'px;max-height:'+m.h+'px"></span>';
+    return '<div class="rail-skeleton-row" style="--sk-w:'+m.w+'px;--sk-h:'+m.h+'px;display:flex;gap:'+m.gap+'px;width:100%;height:'+m.h+'px;min-height:'+m.h+'px;max-height:'+m.h+'px;overflow:hidden;align-items:stretch">'+Array.from({length:count},()=>card).join('')+'</div>';
   }
   function railFetchJson(params,timeout=7200,opts=null){
     const target=apiUrl(params,CONFIG);
@@ -2006,7 +2008,11 @@ async function closeDetail(){
         movie.movie_image,movie.stream_icon,movie.cover,
         item?.cover_big,item?.movie_image,item?.cover,item?.stream_icon
       );
-      return{backdrop,cover}
+      const overview=String(info.plot||info.description||movie.plot||movie.description||root.plot||root.description||item?.plot||item?.description||'').trim();
+      const year=String(info.year||String(info.releasedate||info.release_date||movie.year||movie.releasedate||item?.year||'').match(/\b(19|20)\d{2}\b/)?.[0]||'').trim();
+      const rawVote=info.rating??info.vote_average??movie.rating??movie.vote_average??item?.rating??item?.vote_average;
+      const vote=Number.isFinite(Number(rawVote))?Number(rawVote):null;
+      return{backdrop,cover,overview,year,vote}
     })();
     providerHeroArtCache.set(key,job);
     return job
@@ -3004,14 +3010,25 @@ async function closeDetail(){
     }
   }
   async function heroProviderArt(item,type){
-    const local=heroCatalogProviderArt(item,type);
-    if(type==='live'||local.backdrop)return local;
+    const local={
+      ...heroCatalogProviderArt(item,type),
+      overview:String(item?.plot||item?.description||'').trim(),
+      year:String(item?.year||'').trim(),
+      vote:Number.isFinite(Number(item?.rating??item?.vote_average))?Number(item?.rating??item?.vote_average):null
+    };
+    if(type==='live')return local;
     try{
       const remote=await Promise.race([
         window.__srhProviderHeroArt?.(item,type),
         new Promise(resolve=>setTimeout(()=>resolve(null),5200))
       ]);
-      return{backdrop:String(remote?.backdrop||local.backdrop||'').trim(),cover:String(remote?.cover||local.cover||'').trim()}
+      return{
+        backdrop:String(remote?.backdrop||local.backdrop||'').trim(),
+        cover:String(remote?.cover||local.cover||'').trim(),
+        overview:String(remote?.overview||local.overview||'').trim(),
+        year:String(remote?.year||local.year||'').trim(),
+        vote:remote?.vote??local.vote??null
+      }
     }catch{return local}
   }
   function heroImage(item,type,meta,providerArt=null){
@@ -3248,14 +3265,16 @@ async function closeDetail(){
       await heroYield();
       if(local!==heroToken||heroViewToken!==state.renderToken)return;
       data=await heroTmdb(item,type);
-      if(!data?.backdrop)providerArt=await heroProviderArt(item,type);
+      if(!data?.backdrop||!data?.overview||!data?.year||!(Number(data?.vote)>0))providerArt=await heroProviderArt(item,type);
     }
     if(local!==heroToken||heroViewToken!==state.renderToken||state.activeType!==type)return;
 
     const title=type==='live'?compactChannelTitle(item.baseName||'Canal'):stripEmoji(data?.title||itemTitle(item),'Sem título');
+    const heroOverview=String(data?.overview||providerArt?.overview||item?.plot||item?.description||'').trim();
+    const heroData=type==='live'?data:{...(providerArt||{}),...(data||{}),overview:heroOverview,year:data?.year||providerArt?.year||'',vote:data?.vote??providerArt?.vote??null};
     const image=heroImage(item,type,data,providerArt);
     const heroArtSource=type==='live'?'live':data?.backdrop?'tmdb':providerArt?.backdrop?'provider-backdrop':providerArt?.cover?'provider-cover':'none';
-    let brandData=data;
+    let brandData=heroData;
     if(type!=='live'&&data?.logo){
       const logoReady=await preloadHeroImage(data.logo).catch(()=>false);
       if(!logoReady)brandData={...data,logo:''}
@@ -3275,15 +3294,16 @@ async function closeDetail(){
         providerCover:!!providerArt?.cover,
         artSource:heroArtSource,
         logo:!!data?.logo,
-        overviewChars:Array.from(String(data?.overview||'')).length,
-        year:String(data?.year||''),
-        vote:data?.vote??null
+        overviewChars:Array.from(heroOverview).length,
+        overviewSource:data?.overview?'tmdb':providerArt?.overview?'provider':'catalog',
+        year:String(heroData?.year||''),
+        vote:heroData?.vote??null
       });
     }
 
     setHeroBrand(node,title,brandData,local);
-    plot.textContent=type==='live'?'':heroSynopsis(data?.overview||'',200);
-    metaNode.textContent=heroMetaText(type,data);
+    plot.textContent=type==='live'?'':heroSynopsis(heroOverview,200);
+    metaNode.textContent=heroMetaText(type,heroData);
     skeleton?.classList.add('is-hidden');
 
     heroTimer=setTimeout(()=>{
