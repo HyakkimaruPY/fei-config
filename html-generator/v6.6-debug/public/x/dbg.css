@@ -675,3 +675,30 @@ body.srh-main-stream-style .continue{
 body.srh-main-stream-style .episode__thumb{
   content-visibility:auto;
 }
+
+
+/* SRHELL DEBUG STANDARD R56 — low-cost skeleton scrolling */
+body.srh-skeleton-scrolling .rail-skeleton-row,
+body.srh-skeleton-scrolling .rail-skeleton-card,
+body.srh-skeleton-scrolling .srh-shimmer-block,
+body.srh-skeleton-scrolling .srh-shimmer-line,
+body.srh-skeleton-scrolling .srh-shimmer-row,
+body.srh-skeleton-scrolling .srh-shimmer-button,
+body.srh-skeleton-scrolling .srh-skeleton-synopsis,
+body.srh-skeleton-scrolling .srh-skeleton-actions,
+body.srh-skeleton-scrolling .srh-skeleton-episodes,
+body.srh-skeleton-scrolling .stream-hero__skeleton,
+body.srh-skeleton-scrolling .skeleton,
+body.srh-skeleton-scrolling .skeleton::before,
+body.srh-skeleton-scrolling .skeleton::after{
+  animation-play-state:paused!important;
+  transition:none!important;
+  will-change:auto!important;
+}
+body.srh-main-stream-style .rail-skeleton-row{
+  contain:layout paint style!important;
+  isolation:isolate;
+}
+body.srh-main-stream-style .srh-modal-loading{
+  contain:layout paint style!important;
+}
