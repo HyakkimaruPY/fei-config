@@ -1393,8 +1393,9 @@ async function closeDetail(){
   async function readContinueFrame(entry){
     const key=entry?.frameKey||continueFrameKey(entry),payload=await standardStateGet(key);
     if(!payload||Number(payload.version||0)!==CONTINUE_FRAME_VERSION)return null;
-    const wanted=Number(entry?.position)||0,got=Number(payload.position)||0;
-    if(wanted>0&&Math.abs(wanted-got)>2.25)return null;
+    /* Presentation reuses the last persisted exact frame even if a periodic
+       progress tick advanced the history timestamp afterwards. Pause/close
+       captures replace it with the final stopped position. */
     return payload
   }
 
