@@ -162,7 +162,7 @@ function incidentSummary(){
   return{sessionId:SESSION_ID,active:rows.filter(x=>x.status==='active'),recovered:rows.filter(x=>x.status==='recovered'),slow:rows.filter(x=>x.type==='slow'),recent:rows,historyCount:history.length}
 }
 function issueExport(){
-  const rows=incidentHistory.slice(-80).filter(x=>x?.sessionId===SESSION_ID&&(x.type==='slow'||x.status==='active'||x.status==='recovered')&&x.status!=='stale'&&!/transport-won|route-lost|proxy-lost|superseded/i.test(String(x.message||''))&&!(x.status==='recovered'&&x.kind==='proxy'&&/rota alternativa concluiu a requisição/i.test(String(x.recoveryMessage||'')))&&!(x.type==='slow'&&x.kind==='network.other'&&x.layer==='resource'&&String(x.details?.initiatorType||'').toLowerCase()==='img')).map(x=>({
+  const rows=incidentHistory.slice(-80).filter(x=>x?.sessionId===SESSION_ID&&(x.type==='slow'||x.status==='active'||x.status==='recovered')&&x.status!=='stale'&&!/transport-won|route-lost|proxy-lost|superseded/i.test(String(x.message||''))&&!(x.status==='recovered'&&x.kind==='proxy'&&/rota alternativa concluiu a requisição/i.test(String(x.recoveryMessage||'')))&&!(x.type==='slow'&&x.kind==='network.other'&&x.layer==='resource'&&String(x.details?.initiatorType||'').toLowerCase()==='img')&&!(x.type==='slow'&&x.kind==='media.metadata'&&Number(x.ms||0)<6500&&/^(vod:|series:)/.test(String(x.mediaId||'')))).map(x=>({
     time:new Date(Number(x.lastAt||x.firstAt||Date.now())).toISOString(),
     kind:x.kind||'unknown',
     status:x.status||'unknown',
@@ -676,7 +676,7 @@ function installPerformanceTracing(){
     longObserver.observe({entryTypes:['longtask']})
   }catch{}
   try{
-    const resourceObserver=new PerformanceObserver(list=>{for(const e of list.getEntries()){if(e.duration<2500)continue;const meta=requestMeta(e.name),initiator=String(e.initiatorType||'').toLowerCase();if(meta.kind.startsWith('catalog.')||meta.kind==='xtream.api'||meta.kind==='proxy'||meta.kind==='media'||initiator==='video'||initiator==='audio'||initiator==='img')continue;state.performance.slowResources++;patch('performance',{slowResources:state.performance.slowResources});noteSlow({...meta,layer:'resource',ms:Math.round(e.duration),message:'Recurso demorou para carregar',details:{initiatorType:e.initiatorType,transferSize:e.transferSize||0}})}});
+    const resourceObserver=new PerformanceObserver(list=>{for(const e of list.getEntries()){if(e.duration<2500)continue;const meta=requestMeta(e.name),initiator=String(e.initiatorType||'').toLowerCase(),liveHls=[...document.querySelectorAll('video')].find(v=>v.dataset?.srhMediaType==='live'&&String(v.dataset?.srhSourceKind||'').startsWith('hls'));if(liveHls&&initiator==='xmlhttprequest'&&(meta.kind==='playlist'||meta.kind==='network.other'||meta.kind==='media')){log('info','media.live_hls_resource',{kind:meta.kind,origin:meta.origin,ms:Math.round(e.duration),transferSize:e.transferSize||0});continue}if(meta.kind.startsWith('catalog.')||meta.kind==='xtream.api'||meta.kind==='proxy'||meta.kind==='media'||initiator==='video'||initiator==='audio'||initiator==='img')continue;state.performance.slowResources++;patch('performance',{slowResources:state.performance.slowResources});noteSlow({...meta,layer:'resource',ms:Math.round(e.duration),message:'Recurso demorou para carregar',details:{initiatorType:e.initiatorType,transferSize:e.transferSize||0}})}});
     resourceObserver.observe({entryTypes:['resource']})
   }catch{}
 }
