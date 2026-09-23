@@ -2486,7 +2486,7 @@ async function closeDetail(){
     if(!node)return;
     clearHeroBackground(node,isLive);
     const logo=node.querySelector('.stream-hero__logo'),fallback=node.querySelector('.stream-hero__brand-fallback'),box=node.querySelector('.stream-hero__brand');
-    if(logo){logo.onload=null;logo.onerror=null;logo.classList.add('is-hidden');logo.removeAttribute('src');logo.removeAttribute('data-srh-normalized')}
+    if(logo){logo.onload=null;logo.onerror=null;hideHeroLogo(logo);logo.removeAttribute('src');logo.removeAttribute('data-srh-normalized')}
     fallback?.classList.add('is-hidden');if(fallback)fallback.textContent='';
     box?.classList.remove('srh-logo-flare-light','srh-logo-flare-dark','has-logo','has-fallback');
     const meta=node.querySelector('.stream-hero__meta'),plot=node.querySelector('.stream-hero__plot'),dots=node.querySelector('.stream-hero__dots');
@@ -2757,8 +2757,7 @@ async function closeDetail(){
   }
   let scrollTimer=0;
   const markSkeletonScroll=()=>{
-    if(!document.querySelector('.rail-skeleton-row,.srh-modal-loading,.skeleton'))return;
-    document.body.classList.add('srh-skeleton-scrolling');
+    if(!document.body.classList.contains('srh-skeleton-scrolling'))document.body.classList.add('srh-skeleton-scrolling');
     clearTimeout(scrollTimer);
     scrollTimer=setTimeout(()=>document.body.classList.remove('srh-skeleton-scrolling'),180)
   };
