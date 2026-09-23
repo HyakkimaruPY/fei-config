@@ -2478,7 +2478,7 @@ async function closeDetail(){
     const logo=node.querySelector('.stream-hero__logo');
     const fallback=node.querySelector('.stream-hero__brand-fallback');
     if(!box||!logo||!fallback)return;
-    box.classList.remove('srh-logo-flare-light','srh-logo-flare-dark','has-logo','has-fallback');
+    box.classList.remove('srh-logo-flare-light','srh-logo-flare-dark','has-logo','has-fallback','is-ready');
     logo.onload=null;logo.onerror=null;
     logo.classList.add('is-hidden');
     logo.removeAttribute('src');
