@@ -2,7 +2,7 @@
 'use strict';
 if(window.SRHDebug)return;
 
-const VERSION='debug-supervisor-4';
+const VERSION='debug-supervisor-5';
 const STORAGE_SCHEMA=3;
 const HISTORY_SCHEMA=3;
 const CACHE_SCHEMA=2;
@@ -38,7 +38,7 @@ const state={
   cache:{schema:CACHE_SCHEMA,hits:0,misses:0,stale:0},
   network:{active:0,total:0,failed:0,retries:0,aborted:0},
   incidents:{active:0,total:0,recovered:0,slow:0,last:null},
-  performance:{longTasks:0,longestMs:0,slowResources:0},
+  performance:{longTasks:0,longestMs:0,slowResources:0,scrollBursts:0,jankBursts:0,worstFrameMs:0,missedFrames:0,interactionCount:0,slowInteractions:0,worstInteractionMs:0,layoutShifts:0,cumulativeLayoutShift:0,longAnimationFrames:0,worstRenderFrameMs:0,horizontalOverflowPx:0},
   regression:{status:'idle',last:null},
   health:{},
   features:{safeMode}
@@ -178,8 +178,8 @@ function issueExport(){
     layer:x.layer||'',
     severity:x.status==='active'?'error':x.type==='slow'?'slow':'recovered',details:sanitize(x.details||{})
   }));
-  const recommendation=sanitize(get('recommendation')||{});
-  return{sessionId:SESSION_ID,build:clone(window.__SRH_DEBUG_BUILD__||{}),recommendation,count:rows.length,summary:{active:rows.filter(x=>x.severity==='error').length,slow:rows.filter(x=>x.severity==='slow').length,recovered:rows.filter(x=>x.severity==='recovered').length},issues:rows}
+  const recommendation=sanitize(get('recommendation')||{}),performanceSummary=sanitize(get('performance')||{});
+  return{sessionId:SESSION_ID,build:clone(window.__SRH_DEBUG_BUILD__||{}),recommendation,performance:performanceSummary,count:rows.length,summary:{active:rows.filter(x=>x.severity==='error').length,slow:rows.filter(x=>x.severity==='slow').length,recovered:rows.filter(x=>x.severity==='recovered').length},issues:rows}
 }
 function sanitize(v,depth=0){if(depth>5)return'[max-depth]';if(v==null||typeof v==='number'||typeof v==='boolean')return v;if(typeof v==='string')return safeText(v).slice(0,1800);if(Array.isArray(v))return v.slice(0,100).map(x=>sanitize(x,depth+1));if(typeof v==='object'){const out={};for(const [k,x] of Object.entries(v)){if(/pass|token|secret|cookie|authorization|credential/i.test(k))out[k]='[redacted]';else out[k]=sanitize(x,depth+1)}return out}return safeText(v)}
 function log(level,event,data={}){const row={time:now(),level,event:safeText(event),data:sanitize(data)};logs.push(row);if(logs.length>600)logs.splice(0,logs.length-600);bus.dispatchEvent(new CustomEvent('log',{detail:row}));return row}
@@ -669,10 +669,129 @@ function installConsoleCapture(){
     console[level]=function(){try{const message=[...arguments].map(x=>typeof x==='string'?x:JSON.stringify(sanitize(x))).join(' ').slice(0,1600);log(level==='error'?'error':'warn','console.'+level,{message});if(level==='error')noteFailure({kind:'console',layer:'console',origin:'page',message})}catch{}return original(...arguments)}
   }
 }
+function perfRegion(target){
+  const el=target?.nodeType===1?target:target?.parentElement;
+  if(!el)return'page';
+  const rules=[
+    ['.srh-similar-panel','similar'],['.detail-modal,.detail-layer,.detail-body','detail'],['video,.detail-inline-video,#seriesInlineVideo','player'],
+    ['.stream-hero','hero'],['.continue','continue'],['.rail-section,.rail-viewport,.rail-track','rail'],
+    ['.grid-scroller,.grid-content','grid'],['.topbar','header'],['.bottom-nav,.tab-bar,.tabs','navigation'],
+    ['.srh-debug-panel','debug']
+  ];
+  for(const [sel,name] of rules)try{if(el.closest?.(sel))return name}catch{}
+  return'page'
+}
+function perfViewportRegion(){
+  try{return perfRegion(document.elementFromPoint(Math.max(1,innerWidth/2),Math.max(1,innerHeight*.55)))}catch{return'page'}
+}
+function updatePerf(patchValue){patch('performance',patchValue)}
+function installInteractionPerformanceTracing(){
+  if(window.__SRH_DEBUG_INTERACTION_PERF_V1__)return;window.__SRH_DEBUG_INTERACTION_PERF_V1__=true;
+  const supported=Array.isArray(PerformanceObserver?.supportedEntryTypes)?PerformanceObserver.supportedEntryTypes:[];
+
+  // Event Timing gives browser-measured interaction-to-next-paint latency when available.
+  let hasEventTiming=false;
+  if(typeof PerformanceObserver==='function'&&supported.includes('event'))try{
+    hasEventTiming=true;
+    const seen=new Set();
+    const obs=new PerformanceObserver(list=>{for(const e of list.getEntries()){
+      if(!/^(click|keydown|pointerup)$/.test(String(e.name||'')))continue;
+      const iid=Number(e.interactionId||0);if(iid&&seen.has(iid))continue;if(iid){seen.add(iid);if(seen.size>80)seen.delete(seen.values().next().value)}
+      const ms=Math.round(e.duration||0),delay=Math.max(0,Math.round((e.processingStart||0)-(e.startTime||0))),processing=Math.max(0,Math.round((e.processingEnd||0)-(e.processingStart||0))),region=perfRegion(e.target);
+      state.performance.interactionCount++;state.performance.worstInteractionMs=Math.max(state.performance.worstInteractionMs,ms);
+      if(ms>=120)state.performance.slowInteractions++;
+      updatePerf({interactionCount:state.performance.interactionCount,slowInteractions:state.performance.slowInteractions,worstInteractionMs:state.performance.worstInteractionMs});
+      if(ms>=120)noteSlow({kind:'interaction.latency',layer:'interaction',origin:'page',ms,message:'Interação demorou para responder',details:{event:e.name,region,inputDelayMs:delay,processingMs:processing,interactionId:iid||0}});
+      else if(ms>=70)log('info','performance.interaction',{event:e.name,region,ms,inputDelayMs:delay,processingMs:processing})
+    }});
+    obs.observe({type:'event',buffered:true,durationThreshold:40})
+  }catch{hasEventTiming=false}
+
+  // Fallback: two-frame response timing for older WebViews without Event Timing.
+  if(!hasEventTiming){
+    const fallback=e=>{
+      if(e.isTrusted===false)return;
+      const start=performance.now(),event=e.type,region=perfRegion(e.target);
+      requestAnimationFrame(()=>requestAnimationFrame(()=>{
+        const ms=Math.round(performance.now()-start);
+        state.performance.interactionCount++;state.performance.worstInteractionMs=Math.max(state.performance.worstInteractionMs,ms);
+        if(ms>=120)state.performance.slowInteractions++;
+        updatePerf({interactionCount:state.performance.interactionCount,slowInteractions:state.performance.slowInteractions,worstInteractionMs:state.performance.worstInteractionMs});
+        if(ms>=120)noteSlow({kind:'interaction.latency',layer:'interaction',origin:'page',ms,message:'Interação demorou para pintar',details:{event,region,measurement:'two-raf'}})
+      }))
+    };
+    addEventListener('click',fallback,true);addEventListener('keydown',fallback,true)
+  }
+
+  // Scroll burst sampler: active only while scrolling.
+  let burst=null,raf=0;
+  const endBurst=()=>{
+    const b=burst;burst=null;raf=0;if(!b||b.frames<3)return;
+    const jankPct=Math.round((b.slowFrames/Math.max(1,b.frames))*100),duration=Math.round(performance.now()-b.start),distance=Math.round(Math.abs((scrollY||0)-b.startY));
+    state.performance.scrollBursts++;state.performance.worstFrameMs=Math.max(state.performance.worstFrameMs,Math.round(b.worst));state.performance.missedFrames+=b.missed;
+    const bad=b.worst>=50||b.missed>=4||jankPct>=20;
+    if(bad)state.performance.jankBursts++;
+    updatePerf({scrollBursts:state.performance.scrollBursts,jankBursts:state.performance.jankBursts,worstFrameMs:state.performance.worstFrameMs,missedFrames:state.performance.missedFrames});
+    const details={region:b.region,frames:b.frames,slowFrames:b.slowFrames,jankPct,missedFrames:b.missed,durationMs:duration,distancePx:distance,startY:Math.round(b.startY),endY:Math.round(scrollY||0)};
+    if(bad)noteSlow({kind:'scroll.jank',layer:'interaction',origin:'page',ms:Math.round(b.worst),message:'Scroll perdeu fluidez',details});
+    else log('info','performance.scroll',{...details,worstFrameMs:Math.round(b.worst)})
+  };
+  const frame=t=>{
+    if(!burst){raf=0;return}
+    if(burst.lastFrame){
+      const delta=t-burst.lastFrame;burst.frames++;burst.worst=Math.max(burst.worst,delta);
+      if(delta>24)burst.slowFrames++;
+      burst.missed+=Math.max(0,Math.round(delta/16.67)-1)
+    }
+    burst.lastFrame=t;
+    if(t-burst.lastEvent>150){endBurst();return}
+    raf=requestAnimationFrame(frame)
+  };
+  addEventListener('scroll',()=>{
+    const t=performance.now();
+    if(!burst){burst={start:t,lastEvent:t,lastFrame:0,startY:scrollY||0,frames:0,slowFrames:0,missed:0,worst:0,region:perfViewportRegion()};raf=requestAnimationFrame(frame)}
+    else burst.lastEvent=t
+  },{passive:true});
+
+  // Layout instability without recent user input.
+  if(typeof PerformanceObserver==='function'&&supported.includes('layout-shift'))try{
+    const shiftObs=new PerformanceObserver(list=>{for(const e of list.getEntries()){
+      const score=Number(e.value||0);state.performance.layoutShifts++;if(!e.hadRecentInput)state.performance.cumulativeLayoutShift+=score;
+      updatePerf({layoutShifts:state.performance.layoutShifts,cumulativeLayoutShift:Number(state.performance.cumulativeLayoutShift.toFixed(4))});
+      if(!e.hadRecentInput&&score>=.08){
+        const regions=(e.sources||[]).slice(0,4).map(x=>perfRegion(x.node));
+        noteSlow({kind:'layout.shift',layer:'render',origin:'page',ms:0,message:'Layout deslocou sem interação',details:{score:Number(score.toFixed(4)),cumulative:Number(state.performance.cumulativeLayoutShift.toFixed(4)),regions}})
+      }
+    }});
+    shiftObs.observe({type:'layout-shift',buffered:true})
+  }catch{}
+
+  // Long Animation Frame distinguishes rendering/style/layout stalls from generic long tasks.
+  if(typeof PerformanceObserver==='function'&&supported.includes('long-animation-frame'))try{
+    const loafObs=new PerformanceObserver(list=>{for(const e of list.getEntries()){
+      const ms=Math.round(e.duration||0);state.performance.longAnimationFrames++;state.performance.worstRenderFrameMs=Math.max(state.performance.worstRenderFrameMs,ms);
+      updatePerf({longAnimationFrames:state.performance.longAnimationFrames,worstRenderFrameMs:state.performance.worstRenderFrameMs});
+      const details={region:perfViewportRegion(),blockingDurationMs:Math.round(e.blockingDuration||0),renderStart:Math.round(e.renderStart||0),styleAndLayoutStart:Math.round(e.styleAndLayoutStart||0),scripts:Number(e.scripts?.length||0)};
+      if(ms>=140)noteSlow({kind:'render.frame',layer:'render',origin:'page',ms,message:'Frame de renderização demorou',details});
+      else if(ms>=80)log('info','performance.render_frame',{ms,...details})
+    }});
+    loafObs.observe({type:'long-animation-frame',buffered:true})
+  }catch{}
+
+  // Detect raw horizontal overflow only when idle/resize, never during active scrolling.
+  const scanOverflow=()=>{
+    const root=document.documentElement,body=document.body,viewport=Math.round(innerWidth||root.clientWidth||0),raw=Math.max(root.scrollWidth||0,body?.scrollWidth||0),overflow=Math.max(0,Math.round(raw-viewport));
+    state.performance.horizontalOverflowPx=overflow;updatePerf({horizontalOverflowPx:overflow});
+    if(overflow>2)log('info','layout.horizontal_overflow',{overflowPx:overflow,viewportPx:viewport,scrollWidth:raw,rootOverflowX:getComputedStyle(root).overflowX,bodyOverflowX:body?getComputedStyle(body).overflowX:''})
+  };
+  setTimeout(scanOverflow,900);
+  let resizeTimer=0;addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(scanOverflow,220)},{passive:true});
+}
+
 function installPerformanceTracing(){
   if(typeof PerformanceObserver!=='function'||window.__SRH_DEBUG_PERF_V2__)return;window.__SRH_DEBUG_PERF_V2__=true;
   try{
-    const recentLong=[];const longObserver=new PerformanceObserver(list=>{for(const e of list.getEntries()){const ms=Math.round(e.duration),t=performance.now();state.performance.longTasks++;state.performance.longestMs=Math.max(state.performance.longestMs,ms);patch('performance',{longTasks:state.performance.longTasks,longestMs:state.performance.longestMs,slowResources:state.performance.slowResources});if(ms>=120)log('info','performance.longtask',{ms,name:e.name,start:Math.round(e.startTime)});if(ms>=200){recentLong.push({t,ms});while(recentLong.length&&t-recentLong[0].t>6000)recentLong.shift()}if(ms>=400)noteSlow({kind:'main-thread',layer:'performance',origin:'page',ms,message:'Main thread bloqueada',details:{name:e.name,start:Math.round(e.startTime),burst:recentLong.length}});else if(recentLong.length>=3){const total=recentLong.reduce((a,x)=>a+x.ms,0);noteSlow({kind:'main-thread',layer:'performance',origin:'page',ms:Math.max(...recentLong.map(x=>x.ms)),message:'Rajada de bloqueios na main thread',details:{count:recentLong.length,totalMs:total,windowMs:6000}});recentLong.length=0}}});
+    const recentLong=[];const longObserver=new PerformanceObserver(list=>{for(const e of list.getEntries()){const ms=Math.round(e.duration),t=performance.now();state.performance.longTasks++;state.performance.longestMs=Math.max(state.performance.longestMs,ms);patch('performance',{longTasks:state.performance.longTasks,longestMs:state.performance.longestMs,slowResources:state.performance.slowResources});if(ms>=120)log('info','performance.longtask',{ms,name:e.name,start:Math.round(e.startTime)});if(ms>=200){recentLong.push({t,ms});while(recentLong.length&&t-recentLong[0].t>6000)recentLong.shift()}if(ms>=400)noteSlow({kind:'main-thread',layer:'performance',origin:'page',ms,message:'Main thread bloqueada',details:{name:e.name,start:Math.round(e.startTime),burst:recentLong.length,region:perfViewportRegion(),scrollY:Math.round(scrollY||0)}});else if(recentLong.length>=3){const total=recentLong.reduce((a,x)=>a+x.ms,0);noteSlow({kind:'main-thread',layer:'performance',origin:'page',ms:Math.max(...recentLong.map(x=>x.ms)),message:'Rajada de bloqueios na main thread',details:{count:recentLong.length,totalMs:total,windowMs:6000}});recentLong.length=0}}});
     longObserver.observe({entryTypes:['longtask']})
   }catch{}
   try{
@@ -706,10 +825,10 @@ function installGlobalErrors(){addEventListener('error',e=>{
 
 function init(){
   boot.begin(window.__SRH_DEBUG_BUILD__||{});
-  boot.phase('supervisor-v3');
+  boot.phase('supervisor-v5');
   patch('meta',{sessionId:SESSION_ID,hotUpdate:true});syncIncidentState();
   syncAppState();
-  installGlobalErrors();installConsoleCapture();installPerformanceTracing();
+  installGlobalErrors();installConsoleCapture();installPerformanceTracing();installInteractionPerformanceTracing();
   cache.prune();
   storage.migrate();
   navigation.begin('initial');
