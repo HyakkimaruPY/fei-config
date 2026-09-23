@@ -768,11 +768,12 @@ function finalizePerfInteraction(row,reason='settled'){
   if(!row||row.done)return;row.done=true;
   clearTimeout(row.settleTimer);clearTimeout(row.maxTimer);clearTimeout(row.noMutationTimer);
   if(shortsPerfRuntime.pending===row)shortsPerfRuntime.pending=null;
-  const t=perfClock();row.settleMs=Math.max(row.settleMs||0,Math.round((row.lastMutationAt||t)-row.start));
+  const t=perfClock(),hasMutation=(row.mutationCount||0)>0||row.lastMutationAt>0;
+  row.settleMs=hasMutation?Math.max(row.settleMs||0,Math.round(row.lastMutationAt-row.start)):0;
   row.paintMs=Math.round(row.paintMs||0);row.handlerMs=Math.round(row.handlerMs||0);row.firstMutationMs=Math.round(row.firstMutationMs||0);
   row.totalMs=Math.max(row.handlerMs,row.paintMs,row.settleMs,row.firstMutationMs,row.worstFrameMs||0);
   row.reason=reason;
-  row.slow=row.handlerMs>=120||row.paintMs>=140||row.settleMs>=320||(row.worstFrameMs||0)>=80||(row.missedFrames||0)>=4;
+  row.slow=row.handlerMs>=120||row.paintMs>=140||(hasMutation&&row.settleMs>=320)||(row.worstFrameMs||0)>=80||(row.missedFrames||0)>=4;
   const p=get('performance.shorts')||{},count=Number(p.interactionCount)||0,slowCount=(Number(p.slowInteractions)||0)+(row.slow?1:0),worst=Math.max(Number(p.worstInteractionMs)||0,row.totalMs);
   shortsPerfPatch({interactionCount:count,slowInteractions:slowCount,worstInteractionMs:worst});
   const sample={time:new Date().toISOString(),type:row.type,action:row.action,target:row.target,handlerMs:row.handlerMs,firstMutationMs:row.firstMutationMs,paintMs:row.paintMs,settleMs:row.settleMs,mutationCount:row.mutationCount||0,mutationBatches:row.mutationBatches||0,worstFrameMs:row.worstFrameMs||0,missedFrames:row.missedFrames||0,totalMs:row.totalMs,slow:row.slow,reason};
@@ -849,8 +850,9 @@ function installShortsPerformanceSupervisor(){
         const sources=Array.isArray(e.sources)?e.sources:[],allDebug=sources.length&&sources.every(x=>debugUiElement(x?.node));
         if(allDebug||overlapsDebugUiWork(e.startTime||0,0))continue;
         const score=Number(e.value)||0;if(score<=0)continue;
-        const p=get('performance.shorts')||{};shortsPerfPatch({layoutShifts:(Number(p.layoutShifts)||0)+1,maxLayoutShift:Math.max(Number(p.maxLayoutShift)||0,Number(score.toFixed(4)))});
-        if(score>=0.15)noteSlow({kind:'ui.layout',layer:'render',origin:'shorts',ms:0,message:'Mudança visual significativa durante renderização',details:{score:Number(score.toFixed(4)),hadRecentInput:!!e.hadRecentInput}})
+        const p=get('performance.shorts')||{},sample={time:new Date().toISOString(),score:Number(score.toFixed(4)),hadRecentInput:!!e.hadRecentInput,sources:sources.slice(0,4).map(x=>perfTarget(x?.node)).filter(Boolean)},recent=Array.isArray(p.recentLayoutShifts)?p.recentLayoutShifts.slice(-7):[];
+        recent.push(sample);shortsPerfPatch({layoutShifts:(Number(p.layoutShifts)||0)+1,maxLayoutShift:Math.max(Number(p.maxLayoutShift)||0,Number(score.toFixed(4))),recentLayoutShifts:recent});
+        if(score>=0.15)noteSlow({kind:'ui.layout',layer:'render',origin:'shorts',ms:0,message:'Mudança visual significativa durante renderização',details:sample})
       }});
       shifts.observe({entryTypes:['layout-shift']})
     }
