@@ -2464,6 +2464,15 @@ async function closeDetail(){
     return true;
   }
 
+  function holdHeroBrand(node,title=''){
+    const box=node.querySelector('.stream-hero__brand'),logo=node.querySelector('.stream-hero__logo'),fallback=node.querySelector('.stream-hero__brand-fallback');
+    if(!box||!logo||!fallback)return;
+    box.classList.remove('srh-logo-flare-light','srh-logo-flare-dark','has-logo','has-fallback','is-ready');
+    logo.onload=null;logo.onerror=null;logo.classList.add('is-hidden');logo.removeAttribute('src');logo.removeAttribute('data-srh-normalized');
+    fallback.classList.add('is-hidden');fallback.textContent='';
+    box.setAttribute('aria-label',String(title||'').trim())
+  }
+
   function setHeroBrand(node,title,data,local){
     const box=node.querySelector('.stream-hero__brand');
     const logo=node.querySelector('.stream-hero__logo');
@@ -2484,7 +2493,7 @@ async function closeDetail(){
       fallback.textContent=String(title||'').trim();
       fallback.classList.remove('is-hidden');
       box.classList.remove('has-logo');
-      box.classList.add('has-fallback');
+      box.classList.add('has-fallback','is-ready');
     };
 
     if(!data?.logo){showFallback();return}
@@ -2507,7 +2516,7 @@ async function closeDetail(){
       fallback.classList.add('is-hidden');
       logo.classList.remove('is-hidden');
       box.classList.remove('has-fallback');
-      box.classList.add('has-logo');
+      box.classList.add('has-logo','is-ready');
     };
     logo.onerror=showFallback;
     logo.src=data.logo;
@@ -2529,7 +2538,11 @@ async function closeDetail(){
       preloadHeroImage(heroImage(item,type,null)).catch(()=>{});
       return;
     }
-    heroTmdb(item,type).then(data=>preloadHeroImage(heroImage(item,type,data))).catch(()=>{});
+    heroTmdb(item,type).then(data=>{
+      const jobs=[preloadHeroImage(heroImage(item,type,data))];
+      if(data?.logo)jobs.push(preloadHeroImage(data.logo));
+      return Promise.allSettled(jobs)
+    }).catch(()=>{});
   }
 
   async function showHero(index,user=false){
@@ -2540,11 +2553,11 @@ async function closeDetail(){
     const plot=node.querySelector('.stream-hero__plot'),metaNode=node.querySelector('.stream-hero__meta'),skeleton=node.querySelector('.stream-hero__skeleton');
     if(node.dataset.srhPainted!=='1')skeleton?.classList.remove('is-hidden');
     node.querySelector('[data-stream-open]').onclick=()=>openItem(item,type);
-    const quickTitle=type==='live'?compactChannelTitle(item.baseName||'Canal'):itemTitle(item),quickImage=heroImage(item,type,null);
-    setHeroBrand(node,quickTitle,null,local);
+    const quickTitle=type==='live'?compactChannelTitle(item.baseName||'Canal'):'',quickImage=heroImage(item,type,null);
+    if(type==='live')setHeroBrand(node,quickTitle,null,local);else holdHeroBrand(node);
     plot.textContent=type==='live'?'':String(item?.plot||item?.description||'');
-    metaNode.textContent=type==='live'?'TV ao vivo':(type==='series'?'Série':'Filme');
-    const quickPaint=paintHeroBackground(node,quickImage,type==='live',local).then(ok=>{if(ok&&local===heroToken)skeleton?.classList.add('is-hidden')}).catch(()=>{});
+    metaNode.textContent=type==='live'?'TV ao vivo':'';
+    const quickPaint=paintHeroBackground(node,quickImage,type==='live',local).then(ok=>{if(ok&&local===heroToken&&type==='live')skeleton?.classList.add('is-hidden')}).catch(()=>{});
     const fav=node.querySelector('[data-stream-favorite]'),favApi=window.__srhStandardFavorites;
     if(fav){
       const syncFav=()=>{const on=!!favApi?.is?.(type,item);fav.classList.toggle('is-active',on);fav.setAttribute('aria-label',on?'Remover dos favoritos':'Adicionar aos favoritos');fav.querySelector('span').textContent=on?'Favorito':'Favoritar'};
@@ -2558,14 +2571,14 @@ async function closeDetail(){
 
     const title=type==='live'?compactChannelTitle(item.baseName||'Canal'):stripEmoji(data?.title||itemTitle(item),'Sem título');
     const image=heroImage(item,type,data);
-    setHeroBrand(node,title,data,local);
-    plot.textContent=type==='live'?'':(data?.overview||String(item?.plot||item?.description||''));
-    metaNode.textContent=heroMetaText(type,data);
-
+    if(type!=='live'&&data?.logo)await preloadHeroImage(data.logo).catch(()=>false);
     await quickPaint;
     if(local!==heroToken||heroViewToken!==state.renderToken||state.activeType!==type)return;
     if(image&&image!==quickImage)await paintHeroBackground(node,image,type==='live',local);
     if(local!==heroToken||heroViewToken!==state.renderToken||state.activeType!==type)return;
+    setHeroBrand(node,title,data,local);
+    plot.textContent=type==='live'?'':(data?.overview||String(item?.plot||item?.description||''));
+    metaNode.textContent=heroMetaText(type,data);
     skeleton?.classList.add('is-hidden');
     heroTimer=setTimeout(()=>{
       if(!heroIsVisible()){heroTimer=setTimeout(()=>showHero(heroIndex),1000);return}
