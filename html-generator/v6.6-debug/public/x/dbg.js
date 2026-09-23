@@ -2,7 +2,7 @@
 'use strict';
 if(window.SRHDebug)return;
 
-const VERSION='debug-supervisor-6';
+const VERSION='debug-supervisor-5';
 const STORAGE_SCHEMA=3;
 const HISTORY_SCHEMA=3;
 const CACHE_SCHEMA=2;
@@ -38,7 +38,7 @@ const state={
   cache:{schema:CACHE_SCHEMA,hits:0,misses:0,stale:0},
   network:{active:0,total:0,failed:0,retries:0,aborted:0},
   incidents:{active:0,total:0,recovered:0,slow:0,last:null},
-  performance:{longTasks:0,longestMs:0,slowResources:0,scrollBursts:0,jankBursts:0,worstFrameMs:0,missedFrames:0,interactionCount:0,slowInteractions:0,worstInteractionMs:0,layoutShifts:0,cumulativeLayoutShift:0,longAnimationFrames:0,worstRenderFrameMs:0,horizontalOverflowPx:0,horizontalOverflowSources:[],ignoredDebugEvents:0},
+  performance:{longTasks:0,longestMs:0,slowResources:0,shorts:{enabled:false,interactionCount:0,slowInteractions:0,worstInteractionMs:0,renderMutations:0,renderBatches:0,largestMutationBatch:0,scrollBursts:0,jankBursts:0,worstFrameMs:0,missedFrames:0,layoutShifts:0,maxLayoutShift:0}},
   regression:{status:'idle',last:null},
   health:{},
   features:{safeMode}
@@ -162,7 +162,7 @@ function incidentSummary(){
   return{sessionId:SESSION_ID,active:rows.filter(x=>x.status==='active'),recovered:rows.filter(x=>x.status==='recovered'),slow:rows.filter(x=>x.type==='slow'),recent:rows,historyCount:history.length}
 }
 function issueExport(){
-  const rows=incidentHistory.slice(-80).filter(x=>x?.sessionId===SESSION_ID&&(x.type==='slow'||x.status==='active'||x.status==='recovered')&&x.status!=='stale'&&!/transport-won|route-lost|proxy-lost|superseded/i.test(String(x.message||''))&&String(x.details?.region||'')!=='debug'&&!(Array.isArray(x.details?.regions)&&x.details.regions.length&&x.details.regions.every(r=>r==='debug'))&&!(x.status==='recovered'&&x.kind==='proxy'&&/rota alternativa concluiu a requisição/i.test(String(x.recoveryMessage||'')))&&!(x.type==='slow'&&x.kind==='network.other'&&x.layer==='resource'&&String(x.details?.initiatorType||'').toLowerCase()==='img')&&!(x.type==='slow'&&x.kind==='media.metadata'&&Number(x.ms||0)<6500&&/^(vod:|series:)/.test(String(x.mediaId||'')))).map(x=>({
+  const rows=incidentHistory.slice(-80).filter(x=>x?.sessionId===SESSION_ID&&(x.type==='slow'||x.status==='active'||x.status==='recovered')&&x.status!=='stale'&&!/transport-won|route-lost|proxy-lost|superseded/i.test(String(x.message||''))&&!(x.status==='recovered'&&x.kind==='proxy'&&/rota alternativa concluiu a requisição/i.test(String(x.recoveryMessage||'')))&&!(x.type==='slow'&&x.kind==='network.other'&&x.layer==='resource'&&String(x.details?.initiatorType||'').toLowerCase()==='img')).map(x=>({
     time:new Date(Number(x.lastAt||x.firstAt||Date.now())).toISOString(),
     kind:x.kind||'unknown',
     status:x.status||'unknown',
@@ -178,8 +178,8 @@ function issueExport(){
     layer:x.layer||'',
     severity:x.status==='active'?'error':x.type==='slow'?'slow':'recovered',details:sanitize(x.details||{})
   }));
-  const recommendation=sanitize(get('recommendation')||{}),performanceSummary=sanitize(get('performance')||{});
-  return{sessionId:SESSION_ID,build:clone(window.__SRH_DEBUG_BUILD__||{}),recommendation,performance:performanceSummary,count:rows.length,summary:{active:rows.filter(x=>x.severity==='error').length,slow:rows.filter(x=>x.severity==='slow').length,recovered:rows.filter(x=>x.severity==='recovered').length},issues:rows}
+  const recommendation=sanitize(get('recommendation')||{}),performance=shortsPerformanceExport();
+  return{sessionId:SESSION_ID,build:clone(window.__SRH_DEBUG_BUILD__||{}),recommendation,performance,count:rows.length,summary:{active:rows.filter(x=>x.severity==='error').length,slow:rows.filter(x=>x.severity==='slow').length,recovered:rows.filter(x=>x.severity==='recovered').length},issues:rows}
 }
 function sanitize(v,depth=0){if(depth>5)return'[max-depth]';if(v==null||typeof v==='number'||typeof v==='boolean')return v;if(typeof v==='string')return safeText(v).slice(0,1800);if(Array.isArray(v))return v.slice(0,100).map(x=>sanitize(x,depth+1));if(typeof v==='object'){const out={};for(const [k,x] of Object.entries(v)){if(/pass|token|secret|cookie|authorization|credential/i.test(k))out[k]='[redacted]';else out[k]=sanitize(x,depth+1)}return out}return safeText(v)}
 function log(level,event,data={}){const row={time:now(),level,event:safeText(event),data:sanitize(data)};logs.push(row);if(logs.length>600)logs.splice(0,logs.length-600);bus.dispatchEvent(new CustomEvent('log',{detail:row}));return row}
@@ -380,11 +380,11 @@ function canRetry(method,url){return method==='GET'&&!/\.(?:m3u8|ts|mp4|mkv|avi|
 const originalFetch=window.fetch?.bind(window);
 if(originalFetch){
   window.fetch=async function debugFetch(input,init={}){
-    const url=typeof input==='string'?input:input?.url||String(input),method=String(init.method||input?.method||'GET').toUpperCase(),probe=!!init?.srhProbe,meta=requestMeta(url),traceId=uid(),key=serviceKey(url),c=circuit(key),circuitEligible=!['playlist','media'].includes(meta.kind),policy=!safeMode&&method==='GET'?cachePolicy(url):null;
+    const url=typeof input==='string'?input:input?.url||String(input),method=String(init.method||input?.method||'GET').toUpperCase(),probe=!!init?.srhProbe,meta=requestMeta(url),traceId=uid(),key=serviceKey(url),c=circuit(key),policy=!safeMode&&method==='GET'?cachePolicy(url):null;
     const {srhProbe,...nativeInit}=init||{};
     const cached=policy?cache.get(policy.ns,url,{allowStale:true}):null;
     if(cached?.fresh){const hit=cache.response(cached);if(hit){log('info','cache.hit',{ns:policy.ns,traceId,...meta});return hit}}
-    if(!probe&&circuitEligible&&c.openUntil>Date.now()&&!init?.srhBypassCircuit){if(cached){const stale=cache.response(cached);if(stale){log('warn','network.circuit_cache',{key,traceId,...meta});return stale}}noteFailure({...meta,layer:'fetch',message:'Circuit breaker aberto'});log('warn','network.circuit_open',{key,traceId,...meta,until:c.openUntil});throw new Error('Serviço temporariamente em recuperação')}
+    if(!probe&&c.openUntil>Date.now()&&!init?.srhBypassCircuit){if(cached){const stale=cache.response(cached);if(stale){log('warn','network.circuit_cache',{key,traceId,...meta});return stale}}noteFailure({...meta,layer:'fetch',message:'Circuit breaker aberto'});log('warn','network.circuit_open',{key,traceId,...meta,until:c.openUntil});throw new Error('Serviço temporariamente em recuperação')}
     if(c.openUntil&&c.openUntil<=Date.now())c.halfOpen=true;
     const maxAttempts=probe?1:(!safeMode&&canRetry(method,url)?2:1);
     let lastError,lastResponse;
@@ -397,20 +397,20 @@ if(originalFetch){
         lastResponse=res;
         const retryable=shouldRetry(res,null);
         if(res.ok){
-          if(!probe&&circuitEligible)recordCircuit(key,true);
+          if(!probe)recordCircuit(key,true);
           if(!probe&&policy){try{const copy=res.clone(),body=await copy.text();cache.put(policy.ns,url,res,body,policy)}catch{}}
           const ms=Math.round(performance.now()-started);if(!probe)noteRecovery({...meta,layer:'fetch',ms,status:res.status});if(!probe&&!meta.kind.startsWith('catalog.')&&ms>2600)noteSlow({...meta,layer:'fetch',ms,message:'Resposta lenta'});log('info','network.response',{id,traceId,...meta,status:res.status,attempt,ms,probe});
           return res
         }
-        if(!retryable){const ms=Math.round(performance.now()-started);if(!probe){if(circuitEligible)recordCircuit(key,false,new Error('HTTP '+res.status));state.network.failed++;if(circuitEligible)noteFailure({...meta,layer:'fetch',message:'HTTP '+res.status,status:res.status,ms});else log('warn','network.media_transport_http',{traceId,...meta,status:res.status,ms})}log('warn','network.response',{id,traceId,...meta,status:res.status,attempt,ms,probe});return res}
+        if(!retryable){const ms=Math.round(performance.now()-started);if(!probe){recordCircuit(key,false,new Error('HTTP '+res.status));state.network.failed++;noteFailure({...meta,layer:'fetch',message:'HTTP '+res.status,status:res.status,ms})}log('warn','network.response',{id,traceId,...meta,status:res.status,attempt,ms,probe});return res}
         lastError=new Error('HTTP '+res.status);
-        if(!probe&&circuitEligible)recordCircuit(key,false,lastError);
+        if(!probe)recordCircuit(key,false,lastError);
       }catch(e){
         lastError=e;
         const ms=Math.round(performance.now()-started),reason=abortReason(signal,e),benignAbort=signal?.aborted&&isBenignTransportAbort(signal,e);
         if(benignAbort){state.network.aborted++;log('info','network.superseded',{id,traceId,...meta,attempt,ms,reason,probe});throw e}
-        if(e?.name==='AbortError'||signal?.aborted){state.network.aborted++;if(!probe&&meta.kind.startsWith('catalog.'))noteFailure({...meta,layer:'fetch',message:'Abortado/timeout: '+reason,ms});log('warn','network.aborted',{id,traceId,...meta,attempt,ms,reason,probe});throw e}
-        if(!probe){if(circuitEligible)recordCircuit(key,false,e);if(circuitEligible)noteFailure({...meta,layer:'fetch',message:e?.message||String(e),ms});else log('warn','network.media_transport_error',{traceId,...meta,ms,error:e?.message||String(e)})};
+        if(e?.name==='AbortError'||signal?.aborted){state.network.aborted++;if(!probe&&(meta.kind.startsWith('catalog.')||meta.kind==='playlist'))noteFailure({...meta,layer:'fetch',message:'Abortado/timeout: '+reason,ms});log('warn','network.aborted',{id,traceId,...meta,attempt,ms,reason,probe});throw e}
+        if(!probe){recordCircuit(key,false,e);noteFailure({...meta,layer:'fetch',message:e?.message||String(e),ms})};
       }finally{requests.delete(id);patch('network',{active:requests.size,total:state.network.total,failed:state.network.failed,retries:state.network.retries,aborted:state.network.aborted})}
       if(attempt+1<maxAttempts&&shouldRetry(lastResponse,lastError)){state.network.retries++;const ms=retryDelay(lastResponse,attempt);log('warn','network.retry',{traceId,...meta,attempt:attempt+1,delayMs:ms,error:lastError?.message||'',status:lastResponse?.status||0});await sleep(ms);continue}
       break
@@ -462,7 +462,7 @@ function observeVideos(){
   const trace=m=>{let x=traces.get(m);if(!x){x={loadAt:0,metadataMs:0,metadataReady:false,preMetadataWaitMs:0,firstPlaying:false,waitingAt:0,startupBufferMs:0,stallTimer:0,origin:'',mediaId:'',sourceKind:'',retrying:false};traces.set(m,x)}return x};
   const mediaOrigin=m=>{try{return new URL(m.currentSrc||m.src||'',location.href).origin}catch{return'media'}};
   const mediaSourceKind=m=>String(m?.dataset?.srhSourceKind||'');
-  document.addEventListener('loadstart',e=>{if(e.target instanceof HTMLMediaElement){const x=trace(e.target);clearTimeout(x.stallTimer);x.loadAt=performance.now();x.metadataMs=0;x.metadataReady=false;x.preMetadataWaitMs=0;x.firstPlaying=false;x.waitingAt=0;x.startupBufferMs=0;x.origin=mediaOrigin(e.target);x.mediaId=String(e.target.dataset?.srhMediaId||((window.SRH25?.state?.current?.item)?(window.SRH25.id?.(window.SRH25.state.current.item)||window.SRH25.state.current.item.stream_id||window.SRH25.state.current.item.id||''):'')||'');x.sourceKind=mediaSourceKind(e.target);log('info','media.loadstart',{origin:x.origin,mediaId:x.mediaId,sourceKind:x.sourceKind,preload:e.target.preload})}},true);
+  document.addEventListener('loadstart',e=>{if(e.target instanceof HTMLMediaElement){const x=trace(e.target);clearTimeout(x.stallTimer);x.loadAt=performance.now();x.metadataMs=0;x.metadataReady=false;x.preMetadataWaitMs=0;x.firstPlaying=false;x.waitingAt=0;x.startupBufferMs=0;x.origin=mediaOrigin(e.target);x.mediaId=String(window.SRH25?.state?.current?.item?(window.SRH25.id?.(window.SRH25.state.current.item)||window.SRH25.state.current.item.stream_id||window.SRH25.state.current.item.id||''):'');x.sourceKind=mediaSourceKind(e.target);log('info','media.loadstart',{origin:x.origin,mediaId:x.mediaId,sourceKind:x.sourceKind,preload:e.target.preload})}},true);
   document.addEventListener('play',e=>{if(e.target instanceof HTMLMediaElement){if(player.media&&player.media!==e.target)try{player.media.pause()}catch{}player.attach(e.target,{tag:e.target.id||e.target.className||'media'});patch('player',{status:'playing'})}},true);
   document.addEventListener('loadedmetadata',e=>{if(e.target instanceof HTMLMediaElement){const x=trace(e.target),t=performance.now();x.metadataMs=x.loadAt?Math.round(t-x.loadAt):0;x.metadataReady=true;x.sourceKind=mediaSourceKind(e.target)||x.sourceKind;if(x.waitingAt){x.preMetadataWaitMs+=Math.max(0,Math.round(t-x.waitingAt));x.waitingAt=t}player.attach(e.target);player.ready({duration:e.target.duration,src:safeText(e.target.currentSrc||'')});log('info','player.metadata',{origin:x.origin||mediaOrigin(e.target),mediaId:x.mediaId,sourceKind:x.sourceKind||mediaSourceKind(e.target),ms:x.metadataMs,preload:e.target.preload,readyState:e.target.readyState,networkState:e.target.networkState})}},true);
   document.addEventListener('playing',e=>{if(e.target instanceof HTMLMediaElement){const x=trace(e.target),t=performance.now();if(x.waitingAt){const wait=Math.round(t-x.waitingAt);clearTimeout(x.stallTimer);if(!x.firstPlaying){if(x.metadataReady)x.startupBufferMs+=wait;else x.preMetadataWaitMs+=wait}else{noteRecovery({kind:'player.stall',layer:'media',origin:x.origin||mediaOrigin(e.target),ms:wait,status:200});if(wait>1200)noteSlow({kind:'player.stall',layer:'media',origin:x.origin||mediaOrigin(e.target),ms:wait,message:'Buffering perceptível',details:{currentTime:Number(e.target.currentTime)||0}})}x.waitingAt=0}if(!x.firstPlaying){noteRecovery({kind:'player.autoplay',layer:'media',mediaId:x.mediaId||'',origin:x.origin||mediaOrigin(e.target),status:200,message:'Reprodução iniciou automaticamente'});noteRecovery({kind:'player.startup_timeout',layer:'media',mediaId:x.mediaId||'',origin:x.origin||mediaOrigin(e.target),status:200,message:'Mídia iniciou após watchdog'});x.firstPlaying=true;const ms=x.loadAt?Math.round(t-x.loadAt):0;if(ms>4000){const metadataSharePct=ms?Math.round(((x.metadataMs||0)/ms)*100):0,metadataDominant=metadataSharePct>=75;noteSlow({kind:metadataDominant?'media.metadata':'player.startup',layer:'media',mediaId:x.mediaId||'',origin:x.origin||mediaOrigin(e.target),ms,message:metadataDominant?'Servidor demorou para entregar metadados do vídeo':'Vídeo demorou para iniciar',details:{phase:'first-playing',totalStartupMs:ms,metadataMs:x.metadataMs||0,metadataSharePct,preMetadataWaitMs:x.preMetadataWaitMs||0,startupBufferMs:x.startupBufferMs||0,currentTime:Number(e.target.currentTime)||0,resumed:Number(e.target.currentTime||0)>1,sourceKind:x.sourceKind||mediaSourceKind(e.target),preload:e.target.preload,readyState:e.target.readyState,networkState:e.target.networkState,dominant:metadataDominant?'metadata':'buffer'}})}else log('info','player.startup_ok',{origin:x.origin||mediaOrigin(e.target),mediaId:x.mediaId,ms,metadataMs:x.metadataMs||0,preMetadataWaitMs:x.preMetadataWaitMs||0,startupBufferMs:x.startupBufferMs||0,sourceKind:x.sourceKind||mediaSourceKind(e.target),preload:e.target.preload})}patch('player',{status:'playing'})}},true);
@@ -470,7 +470,7 @@ function observeVideos(){
   document.addEventListener('waiting',onWaiting,true);document.addEventListener('stalled',onWaiting,true);
   document.addEventListener('timeupdate',e=>{if(e.target===player.media)patch('player',{currentTime:Number(e.target.currentTime)||0,duration:Number(e.target.duration)||0})},true);
   document.addEventListener('pause',e=>{if(e.target===player.media&&!e.target.ended)patch('player',{status:'paused'})},true);
-  document.addEventListener('error',e=>{if(e.target instanceof HTMLMediaElement){const x=trace(e.target),code=e.target.error?.code||0,codeName=code===1?'MEDIA_ERR_ABORTED':code===2?'MEDIA_ERR_NETWORK':code===3?'MEDIA_ERR_DECODE':code===4?'MEDIA_ERR_SRC_NOT_SUPPORTED':'MEDIA_ERR_UNKNOWN';clearTimeout(x.stallTimer);if(code===4&&e.target.id==='shortVideo'){log('warn','media.error.retryable',{code,codeName,origin:x.origin||mediaOrigin(e.target),readyState:e.target.readyState,networkState:e.target.networkState});return}x.sourceKind=mediaSourceKind(e.target)||x.sourceKind;x.mediaId=String(e.target.dataset?.srhMediaId||x.mediaId||'');noteFailure({kind:'player.error',layer:'media',mediaId:x.mediaId,origin:x.origin||mediaOrigin(e.target),message:'Erro de mídia',details:{code,codeName,currentTime:Number(e.target.currentTime)||0,readyState:e.target.readyState,networkState:e.target.networkState,sourceKind:x.sourceKind,containerExtension:String(e.target.dataset?.srhContainerExtension||'')}});player.error(new Error('media error'))}},true);
+  document.addEventListener('error',e=>{if(e.target instanceof HTMLMediaElement){const x=trace(e.target),code=e.target.error?.code||0,codeName=code===1?'MEDIA_ERR_ABORTED':code===2?'MEDIA_ERR_NETWORK':code===3?'MEDIA_ERR_DECODE':code===4?'MEDIA_ERR_SRC_NOT_SUPPORTED':'MEDIA_ERR_UNKNOWN';clearTimeout(x.stallTimer);if(code===4&&e.target.id==='shortVideo'){log('warn','media.error.retryable',{code,codeName,origin:x.origin||mediaOrigin(e.target),readyState:e.target.readyState,networkState:e.target.networkState});return}noteFailure({kind:'player.error',layer:'media',origin:x.origin||mediaOrigin(e.target),message:'Erro de mídia',details:{code,codeName,currentTime:Number(e.target.currentTime)||0,readyState:e.target.readyState,networkState:e.target.networkState}});player.error(new Error('media error'))}},true);
   document.addEventListener('ended',e=>{if(e.target===player.media){const x=trace(e.target);clearTimeout(x.stallTimer);player.end('ended')}},true);
   window.addEventListener('srh25:media-autoplay',e=>{const d=e.detail||{},phase=String(d.phase||''),mediaId=String(d.mediaId||''),origin=(()=>{try{return new URL(player.media?.currentSrc||player.media?.src||'',location.href).origin}catch{return'media'}})();log(phase==='rejected'?'warn':'info','media.autoplay',d);patch('player',{autoplay:{phase,stage:d.stage||'',mediaId,sourceKind:d.sourceKind||'',name:d.name||'',message:d.message||'',readyState:d.readyState||0,networkState:d.networkState||0}});if(phase==='rejected'&&String(d.name||'')==='NotAllowedError')noteFailure({kind:'player.autoplay',layer:'media',mediaId,origin,message:'Autoplay bloqueado pelo navegador',details:{stage:d.stage||'',name:d.name||'',message:d.message||'',readyState:d.readyState||0,networkState:d.networkState||0}})},{passive:true});
   window.addEventListener('srh25:recommendation-ready',e=>{const d=e.detail||{};log('info','recommendation.ready',d);patch('recommendation',{version:d.version||'',triggerSeconds:d.triggerSeconds||0,arcSeconds:d.arcSeconds||0,status:'ready'})},{passive:true});
@@ -577,17 +577,17 @@ function diagnostic(){return{build:clone(window.__SRH_DEBUG_BUILD__||{}),manifes
 
 function panel(){
   if(document.getElementById('srhDebugPanel'))return;
-  const root=document.createElement('div');root.id='srhDebugPanel';root.className='srh-debug-panel is-hidden';
+  const root=document.createElement('div');root.id='srhDebugPanel';root.className='srh-debug-panel is-hidden';root.dataset.srhDebugUi='1';
   root.innerHTML='<div class="srh-debug-head"><strong>Diagnóstico</strong><button data-x="close" aria-label="Fechar">×</button></div><div class="srh-debug-scroll"><div class="srh-debug-status" data-x="status"></div><div class="srh-debug-incidents" data-x="incidents"></div><div class="srh-debug-points" data-x="points"></div><div class="srh-debug-actions"><button data-x="issues">Copiar erros/lentidão</button><button data-x="incident">Copiar último incidente</button><button data-x="smoke">Rodar smoke test</button><button data-x="copy">Copiar diagnóstico</button><button data-x="export">Exportar configuração</button><button data-x="import">Importar configuração</button><button data-x="safe">Modo seguro</button><button data-x="migrate">Migrar dados</button><button data-x="cache">Limpar cache debug</button></div><pre class="srh-debug-output" data-x="out"></pre></div><input type="file" data-x="file" accept="application/json" hidden>';
   document.body.appendChild(root);
   const q=s=>root.querySelector(s),out=q('[data-x="out"]'),status=q('[data-x="status"]'),points=q('[data-x="points"]'),incidents=q('[data-x="incidents"]');
   const render=()=>{
-    const ps=Object.values(pointStatus()),inc=incidentSummary(),perf=sanitize(get('performance')||{}),health=get('health')||{},network=get('network')||{};
-    status.textContent=(health.router?'Router OK':'Router ?')+' · '+(health.storage?'Storage OK':'Storage bloqueado')+' · '+Number(network.active||0)+' req ativa(s) · '+inc.active.length+' incidente(s) ativo(s)';
-    const recent=inc.recent.filter(x=>String(x?.details?.region||'')!=='debug').slice(0,36);
-    incidents.innerHTML='<div class="srh-debug-incidents__title">Incidentes capturados · sessão '+SESSION_ID+'</div>'+(recent.length?recent.map(x=>'<div class="srh-debug-incident '+x.status+'"><b>'+String(x.kind||'erro')+'</b><span>'+String(x.message||'').replace(/[<>&]/g,m=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[m]))+'</span><em>'+Math.round(x.ms||x.recoveryMs||0)+' ms · '+x.status+'</em></div>').join(''):'<div class="srh-debug-incident empty">Nenhum incidente da aplicação nesta janela.</div>');
+    markDebugUiWork(220);
+    const d=diagnostic(),ps=Object.values(d.points);
+    status.textContent=(d.state.health?.router?'Router OK':'Router ?')+' · '+(d.state.health?.storage?'Storage OK':'Storage bloqueado')+' · '+d.state.network.active+' req ativa(s) · '+d.incidents.active.length+' incidente(s) ativo(s)';
+    const recent=d.incidents.recent;incidents.innerHTML='<div class="srh-debug-incidents__title">Incidentes capturados · sessão '+d.sessionId+'</div>'+(recent.length?recent.map(x=>'<div class="srh-debug-incident '+x.status+'"><b>'+String(x.kind||'erro')+'</b><span>'+String(x.message||'').replace(/[<>&]/g,m=>({'<':'&lt;','>':'&gt;','&':'&amp;'}[m]))+'</span><em>'+Math.round(x.ms||x.recoveryMs||0)+' ms · '+x.status+'</em></div>').join(''):'<div class="srh-debug-incident empty">Nenhum incidente registrado nesta janela.</div>');
     points.innerHTML=ps.map((p,i)=>'<div class="'+(p.ok?'ok':'bad')+'"><span>'+(i+1)+'</span><b>'+p.name+'</b><em>'+(p.ok?'OK':'PENDENTE')+'</em></div>').join('');
-    out.textContent=JSON.stringify({sessionId:SESSION_ID,build:window.__SRH_DEBUG_BUILD__||{},performance:perf,incidents:{active:inc.active.length,slow:inc.slow.length,recovered:inc.recovered.length}},null,2)
+    out.textContent=JSON.stringify(d,null,2)
   };
   root.render=render;
   q('[data-x="close"]').onclick=()=>root.classList.add('is-hidden');
@@ -601,20 +601,19 @@ function panel(){
   q('[data-x="safe"]').onclick=()=>{try{localStorage.setItem('srh:debug:safe',safeMode?'0':'1')}catch{}const u=new URL(location.href);if(safeMode)u.searchParams.delete('srhSafe');else u.searchParams.set('srhSafe','1');location.href=u.href};
   q('[data-x="migrate"]').onclick=()=>{const r=storage.migrate();status.textContent='Migração: '+r.changed+' alterado(s) em '+r.scanned+' base(s).';render()};
   q('[data-x="cache"]').onclick=()=>{const n=cache.invalidateAll();status.textContent='Cache debug limpo: '+n+' entrada(s).';render()};
-  let panelRenderTimer=0;
-  const schedulePanelRender=()=>{if(root.classList.contains('is-hidden')||panelRenderTimer)return;panelRenderTimer=setTimeout(()=>{panelRenderTimer=0;if(!root.classList.contains('is-hidden'))render()},700)};
-  bus.addEventListener('log',schedulePanelRender);bus.addEventListener('incident',schedulePanelRender);render()
+  bus.addEventListener('log',()=>{if(!root.classList.contains('is-hidden'))render()});render()
 }
 function attachButton(){
   panel();
   const settings=document.querySelector('#settingsPanel .settings-panel__inner')||document.querySelector('#settingsPanel');
   let b=document.getElementById('srhDebugButton');
-  if(!b){b=document.createElement('button');b.id='srhDebugButton';b.type='button';b.className='srh-debug-button';b.textContent='Diagnóstico';b.onclick=e=>{e.stopPropagation();const p=document.getElementById('srhDebugPanel');p.classList.toggle('is-hidden');p.render?.()}}
+  if(!b){b=document.createElement('button');b.id='srhDebugButton';b.type='button';b.className='srh-debug-button';b.dataset.srhDebugUi='1';b.textContent='Diagnóstico';b.onclick=e=>{markDebugUiWork(220);e.stopPropagation();const p=document.getElementById('srhDebugPanel');p.classList.toggle('is-hidden');p.render?.()}}
   if(settings){b.classList.remove('is-floating');settings.prepend(b)}else if(!b.isConnected){b.classList.add('is-floating');document.body.appendChild(b)}
 }
 
 
 function updateDebugBadge(){
+  markDebugUiWork(48);
   const b=document.getElementById('srhDebugButton');if(!b)return;
   const n=Number(state.incidents?.active||0),slow=Number(state.incidents?.slow||0);
   b.textContent=n?'Diagnóstico · '+n:(slow?'Diagnóstico · '+slow+' lento(s)':'Diagnóstico');
@@ -672,147 +671,201 @@ function installConsoleCapture(){
     console[level]=function(){try{const message=[...arguments].map(x=>typeof x==='string'?x:JSON.stringify(sanitize(x))).join(' ').slice(0,1600);log(level==='error'?'error':'warn','console.'+level,{message});if(level==='error')noteFailure({kind:'console',layer:'console',origin:'page',message})}catch{}return original(...arguments)}
   }
 }
-function debugUiActive(){const p=document.getElementById('srhDebugPanel');return !!p&&!p.classList.contains('is-hidden')}
-function ignoreDebugPerf(region=''){
-  if(region==='debug'||debugUiActive()){state.performance.ignoredDebugEvents=Number(state.performance.ignoredDebugEvents||0)+1;return true}
+
+const DEBUG_UI_SELECTOR='#srhDebugPanel,#srhDebugButton,.srh-debug-panel,.srh-debug-button,[data-srh-debug-ui="1"]';
+const debugUiWorkWindows=[];
+function perfClock(){try{return performance.now()}catch{return Date.now()}}
+function markDebugUiWork(ms=180){
+  const t=perfClock(),row={start:Math.max(0,t-4),end:t+Math.max(24,Number(ms)||0)};
+  debugUiWorkWindows.push(row);
+  if(debugUiWorkWindows.length>24)debugUiWorkWindows.splice(0,debugUiWorkWindows.length-24);
+  return row
+}
+function overlapsDebugUiWork(start,duration=0){
+  const a=Number(start)||0,b=a+Math.max(0,Number(duration)||0);
+  for(let i=debugUiWorkWindows.length-1;i>=0;i--){const w=debugUiWorkWindows[i];if(w.end<a-1200)break;if(a<=w.end&&b>=w.start)return true}
   return false
 }
-function perfRegion(target){
-  const el=target?.nodeType===1?target:target?.parentElement;
-  if(!el)return'page';
-  const rules=[
-    ['#srhDebugPanel,#srhDebugButton,.srh-debug-panel,.srh-debug-button','debug'],
-    ['.srh-similar-panel','similar'],['.detail-modal,.detail-layer,.detail-body','detail'],['video,.detail-inline-video,#seriesInlineVideo','player'],
-    ['.stream-hero','hero'],['.continue','continue'],['.rail-section,.rail-viewport,.rail-track','rail'],
-    ['.grid-scroller,.grid-content','grid'],['.topbar','header'],['.bottom-nav,.tab-bar,.tabs','navigation']
-  ];
-  for(const [sel,name] of rules)try{if(el.closest?.(sel))return name}catch{}
-  return'page'
+function debugUiElement(node){
+  try{
+    const el=node?.nodeType===1?node:node?.parentElement;
+    return !!el?.closest?.(DEBUG_UI_SELECTOR)
+  }catch{return false}
 }
-function perfViewportRegion(){
-  try{return perfRegion(document.elementFromPoint(Math.max(1,innerWidth/2),Math.max(1,innerHeight*.55)))}catch{return'page'}
+function shortsPerfMode(){
+  const cfg=readAppConfig(),mode=String(cfg?.appMode||window.__SRH_DEBUG_BUILD__?.mode||window.__srhA?.m||'').toLowerCase();
+  return mode==='shorts'||mode==='h'
 }
-function updatePerf(patchValue){patch('performance',patchValue)}
-function installInteractionPerformanceTracing(){
-  if(window.__SRH_DEBUG_INTERACTION_PERF_V1__)return;window.__SRH_DEBUG_INTERACTION_PERF_V1__=true;
-  const supported=typeof PerformanceObserver==='function'&&Array.isArray(PerformanceObserver.supportedEntryTypes)?PerformanceObserver.supportedEntryTypes:[];
+function perfTarget(node){
+  try{
+    const el=node?.nodeType===1?node:node?.parentElement;
+    if(!el)return'unknown';
+    const id=el.id?'#'+String(el.id).slice(0,48):'';
+    const cls=[...el.classList].filter(x=>!/^is-|^has-/.test(x)).slice(0,2).map(x=>'.'+x).join('');
+    return String(el.tagName||'node').toLowerCase()+id+cls
+  }catch{return'unknown'}
+}
+function perfAction(node,type='interaction'){
+  try{
+    const el=node?.nodeType===1?node:node?.parentElement;
+    if(!el)return type;
+    if(el.closest('#shortGrid [data-id],#libraryGrid [data-id]'))return'open-short';
+    if(el.closest('#shortPlayer,#playerStage'))return'player';
+    if(el.closest('#arcDrawer,#arcBackdrop'))return'episode-arcs';
+    if(el.closest('#searchButton,#searchWrap,#shortSearch'))return'search';
+    if(el.closest('#settingsButton,#settingsPanel'))return'settings';
+    if(el.closest('#historyButton,#favoritesButton,#libraryView'))return'library';
+    if(el.closest('#shortUpdate'))return'update-source';
+    if(el.closest('#miniResumeDock,[data-mini-resume]'))return'mini-resume';
+    return type
+  }catch{return type}
+}
+function relevantAppMutation(record){
+  if(!record||debugUiElement(record.target))return false;
+  const changed=[...(record.addedNodes||[]),...(record.removedNodes||[])];
+  if(changed.length&&changed.every(debugUiElement))return false;
+  return true
+}
 
-  // Event Timing gives browser-measured interaction-to-next-paint latency when available.
-  let hasEventTiming=false;const interactionIssueGate=new Map(),renderIssueGate=new Map(),scrollIssueGate=new Map();
-  if(typeof PerformanceObserver==='function'&&supported.includes('event'))try{
-    hasEventTiming=true;
-    const seen=new Set();
-    const obs=new PerformanceObserver(list=>{for(const e of list.getEntries()){
-      if(!/^(click|keydown|pointerup)$/.test(String(e.name||'')))continue;
-      const iid=Number(e.interactionId||0);if(iid&&seen.has(iid))continue;if(iid){seen.add(iid);if(seen.size>80)seen.delete(seen.values().next().value)}
-      const ms=Math.round(e.duration||0),delay=Math.max(0,Math.round((e.processingStart||0)-(e.startTime||0))),processing=Math.max(0,Math.round((e.processingEnd||0)-(e.processingStart||0))),region=perfRegion(e.target);
-      if(ignoreDebugPerf(region))continue;
-      state.performance.interactionCount++;state.performance.worstInteractionMs=Math.max(state.performance.worstInteractionMs,ms);
-      if(ms>=120)state.performance.slowInteractions++;
-      updatePerf({interactionCount:state.performance.interactionCount,slowInteractions:state.performance.slowInteractions,worstInteractionMs:state.performance.worstInteractionMs});
-      if(ms>=120){const gateKey=region+':'+e.name,last=interactionIssueGate.get(gateKey)||0;if(Date.now()-last>1800||ms>=300){interactionIssueGate.set(gateKey,Date.now());noteSlow({kind:'interaction.latency',layer:'interaction',origin:'page',ms,message:'Interação demorou para responder',details:{event:e.name,region,inputDelayMs:delay,processingMs:processing,interactionId:iid||0}})}}
-      else if(ms>=70)log('info','performance.interaction',{event:e.name,region,ms,inputDelayMs:delay,processingMs:processing})
-    }});
-    obs.observe({type:'event',buffered:true,durationThreshold:40})
-  }catch{hasEventTiming=false}
-
-  // Fallback: two-frame response timing for older WebViews without Event Timing.
-  if(!hasEventTiming){
-    const fallback=e=>{
-      if(e.isTrusted===false)return;
-      const start=performance.now(),event=e.type,region=perfRegion(e.target);if(ignoreDebugPerf(region))return;
-      requestAnimationFrame(()=>requestAnimationFrame(()=>{
-        const ms=Math.round(performance.now()-start);
-        state.performance.interactionCount++;state.performance.worstInteractionMs=Math.max(state.performance.worstInteractionMs,ms);
-        if(ms>=120)state.performance.slowInteractions++;
-        updatePerf({interactionCount:state.performance.interactionCount,slowInteractions:state.performance.slowInteractions,worstInteractionMs:state.performance.worstInteractionMs});
-        if(ms>=120)noteSlow({kind:'interaction.latency',layer:'interaction',origin:'page',ms,message:'Interação demorou para pintar',details:{event,region,measurement:'two-raf'}})
-      }))
-    };
-    addEventListener('click',fallback,true);addEventListener('keydown',fallback,true)
-  }
-
-  // Scroll burst sampler: active only while scrolling.
-  let burst=null,raf=0;
-  const endBurst=()=>{
-    const b=burst;burst=null;raf=0;if(!b||b.frames<3)return;
-    const jankPct=Math.round((b.slowFrames/Math.max(1,b.frames))*100),duration=Math.round(performance.now()-b.start),distance=Math.round(Math.abs((scrollY||0)-b.startY));
-    state.performance.scrollBursts++;state.performance.worstFrameMs=Math.max(state.performance.worstFrameMs,Math.round(b.worst));state.performance.missedFrames+=b.missed;
-    const bad=b.worst>=50||b.missed>=4||jankPct>=20;
-    if(bad)state.performance.jankBursts++;
-    updatePerf({scrollBursts:state.performance.scrollBursts,jankBursts:state.performance.jankBursts,worstFrameMs:state.performance.worstFrameMs,missedFrames:state.performance.missedFrames});
-    const details={region:b.region,frames:b.frames,slowFrames:b.slowFrames,jankPct,missedFrames:b.missed,durationMs:duration,distancePx:distance,startY:Math.round(b.startY),endY:Math.round(scrollY||0)};
-    if(bad){const last=scrollIssueGate.get(b.region)||0;if(Date.now()-last>1800||b.worst>=180){scrollIssueGate.set(b.region,Date.now());noteSlow({kind:'scroll.jank',layer:'interaction',origin:'page',ms:Math.round(b.worst),message:'Scroll perdeu fluidez',details})}}
-    else log('info','performance.scroll',{...details,worstFrameMs:Math.round(b.worst)})
-  };
-  const frame=t=>{
-    if(!burst){raf=0;return}
-    if(burst.lastFrame){
-      const delta=t-burst.lastFrame;burst.frames++;burst.worst=Math.max(burst.worst,delta);
-      if(delta>24)burst.slowFrames++;
-      burst.missed+=Math.max(0,Math.round(delta/16.67)-1)
-    }
-    burst.lastFrame=t;
-    if(t-burst.lastEvent>150){endBurst();return}
-    raf=requestAnimationFrame(frame)
-  };
-  addEventListener('scroll',()=>{
-    if(debugUiActive())return;
-    const t=performance.now(),region=perfViewportRegion();if(region==='debug')return;
-    if(!burst){burst={start:t,lastEvent:t,lastFrame:0,startY:scrollY||0,frames:0,slowFrames:0,missed:0,worst:0,region};raf=requestAnimationFrame(frame)}
-    else burst.lastEvent=t
-  },{passive:true});
-
-  // Layout instability without recent user input.
-  if(typeof PerformanceObserver==='function'&&supported.includes('layout-shift'))try{
-    const shiftObs=new PerformanceObserver(list=>{for(const e of list.getEntries()){
-      if(debugUiActive()){state.performance.ignoredDebugEvents++;continue}
-      const regions=(e.sources||[]).slice(0,4).map(x=>perfRegion(x.node));if(regions.length&&regions.every(x=>x==='debug')){state.performance.ignoredDebugEvents++;continue}
-      const score=Number(e.value||0);state.performance.layoutShifts++;if(!e.hadRecentInput)state.performance.cumulativeLayoutShift+=score;
-      updatePerf({layoutShifts:state.performance.layoutShifts,cumulativeLayoutShift:Number(state.performance.cumulativeLayoutShift.toFixed(4))});
-      if(!e.hadRecentInput&&score>=.08){
-        noteSlow({kind:'layout.shift',layer:'render',origin:'page',ms:0,message:'Layout deslocou sem interação',details:{score:Number(score.toFixed(4)),cumulative:Number(state.performance.cumulativeLayoutShift.toFixed(4)),regions}})
+const shortsPerfRuntime={
+  installed:false,pending:null,samples:[],scroll:null,scrollTimer:0,
+  frameRunning:false,frameLast:0,frameUntil:0,lastJankAt:0,
+  renderWindow:{start:0,records:0,batches:0,roots:new Set()}
+};
+function shortsPerfPatch(extra={}){
+  patch('performance.shorts',{...(get('performance.shorts')||{}),...extra})
+}
+function shortsPerformanceExport(){
+  const summary=sanitize(get('performance.shorts')||{});
+  return{...summary,recentInteractions:shortsPerfRuntime.samples.slice(-12).map(x=>sanitize(x))}
+}
+function frameProbe(ms=1200){
+  if(!shortsPerfMode()||typeof requestAnimationFrame!=='function')return;
+  const now=perfClock();shortsPerfRuntime.frameUntil=Math.max(shortsPerfRuntime.frameUntil,now+ms);
+  if(shortsPerfRuntime.frameRunning)return;
+  shortsPerfRuntime.frameRunning=true;shortsPerfRuntime.frameLast=0;
+  const tick=t=>{
+    if(!shortsPerfRuntime.frameRunning)return;
+    if(document.hidden||t>shortsPerfRuntime.frameUntil){shortsPerfRuntime.frameRunning=false;shortsPerfRuntime.frameLast=0;return}
+    const prev=shortsPerfRuntime.frameLast;shortsPerfRuntime.frameLast=t;
+    if(prev>0){
+      const delta=t-prev;
+      if(delta>34&&!overlapsDebugUiWork(prev,delta)){
+        const missed=Math.max(1,Math.round(delta/16.67)-1),p=get('performance.shorts')||{};
+        const worst=Math.max(Number(p.worstFrameMs)||0,Math.round(delta));
+        let bursts=Number(p.jankBursts)||0;
+        if(delta>=50&&t-shortsPerfRuntime.lastJankAt>220){bursts++;shortsPerfRuntime.lastJankAt=t}
+        shortsPerfPatch({worstFrameMs:worst,missedFrames:(Number(p.missedFrames)||0)+missed,jankBursts:bursts});
+        const row=shortsPerfRuntime.pending;if(row){row.worstFrameMs=Math.max(row.worstFrameMs||0,Math.round(delta));row.missedFrames=(row.missedFrames||0)+missed}
+        const sc=shortsPerfRuntime.scroll;if(sc){sc.worstFrameMs=Math.max(sc.worstFrameMs||0,Math.round(delta));sc.missedFrames=(sc.missedFrames||0)+missed}
       }
-    }});
-    shiftObs.observe({type:'layout-shift',buffered:true})
-  }catch{}
-
-  // Long Animation Frame distinguishes rendering/style/layout stalls from generic long tasks.
-  if(typeof PerformanceObserver==='function'&&supported.includes('long-animation-frame'))try{
-    const loafObs=new PerformanceObserver(list=>{for(const e of list.getEntries()){
-      const region=perfViewportRegion();if(ignoreDebugPerf(region))continue;
-      const ms=Math.round(e.duration||0);state.performance.longAnimationFrames++;state.performance.worstRenderFrameMs=Math.max(state.performance.worstRenderFrameMs,ms);
-      updatePerf({longAnimationFrames:state.performance.longAnimationFrames,worstRenderFrameMs:state.performance.worstRenderFrameMs});
-      const details={region,blockingDurationMs:Math.round(e.blockingDuration||0),renderStart:Math.round(e.renderStart||0),styleAndLayoutStart:Math.round(e.styleAndLayoutStart||0),scripts:Number(e.scripts?.length||0)};
-      if(ms>=140){const last=renderIssueGate.get(region)||0;if(Date.now()-last>2200||ms>=320){renderIssueGate.set(region,Date.now());noteSlow({kind:'render.frame',layer:'render',origin:'page',ms,message:'Frame de renderização demorou',details})}}
-      else if(ms>=80)log('info','performance.render_frame',{ms,...details})
-    }});
-    loafObs.observe({type:'long-animation-frame',buffered:true})
-  }catch{}
-
-  // Detect raw horizontal overflow only when idle/resize, never during active scrolling.
-  const scanOverflow=()=>{
-    const root=document.documentElement,body=document.body,viewport=Math.round(innerWidth||root.clientWidth||0),raw=Math.max(root.scrollWidth||0,body?.scrollWidth||0),overflow=Math.max(0,Math.round(raw-viewport)),sources=[];
-    if(overflow>2){
-      const nodes=document.querySelectorAll('.stream-hero,.app,main,.content,#content,.topbar,.rail-section,.continue,#srhDebugButton');
-      for(const node of nodes){if(node.closest?.('#srhDebugPanel'))continue;const r=node.getBoundingClientRect(),extra=Math.max(0,Math.ceil(r.right-viewport),Math.ceil(-r.left));if(extra>1)sources.push({region:perfRegion(node),tag:String(node.tagName||'').toLowerCase(),id:String(node.id||''),className:String(node.className||'').slice(0,120),left:Math.round(r.left),right:Math.round(r.right),width:Math.round(r.width),extraPx:extra})}
-      sources.sort((a,b)=>b.extraPx-a.extraPx)
     }
-    state.performance.horizontalOverflowPx=overflow;state.performance.horizontalOverflowSources=sources.slice(0,6);updatePerf({horizontalOverflowPx:overflow,horizontalOverflowSources:state.performance.horizontalOverflowSources});
-    if(overflow>2)log('info','layout.horizontal_overflow',{overflowPx:overflow,viewportPx:viewport,scrollWidth:raw,sources:sources.slice(0,6),rootOverflowX:getComputedStyle(root).overflowX,bodyOverflowX:body?getComputedStyle(body).overflowX:''})
+    requestAnimationFrame(tick)
   };
-  setTimeout(scanOverflow,900);
-  let resizeTimer=0;addEventListener('resize',()=>{clearTimeout(resizeTimer);resizeTimer=setTimeout(scanOverflow,220)},{passive:true});
+  requestAnimationFrame(tick)
+}
+function finalizePerfInteraction(row,reason='settled'){
+  if(!row||row.done)return;row.done=true;
+  clearTimeout(row.settleTimer);clearTimeout(row.maxTimer);clearTimeout(row.noMutationTimer);
+  if(shortsPerfRuntime.pending===row)shortsPerfRuntime.pending=null;
+  const t=perfClock();row.settleMs=Math.max(row.settleMs||0,Math.round((row.lastMutationAt||t)-row.start));
+  row.paintMs=Math.round(row.paintMs||0);row.handlerMs=Math.round(row.handlerMs||0);row.firstMutationMs=Math.round(row.firstMutationMs||0);
+  row.totalMs=Math.max(row.handlerMs,row.paintMs,row.settleMs,row.firstMutationMs,row.worstFrameMs||0);
+  row.reason=reason;
+  row.slow=row.handlerMs>=120||row.paintMs>=140||row.settleMs>=320||(row.worstFrameMs||0)>=80||(row.missedFrames||0)>=4;
+  const p=get('performance.shorts')||{},count=Number(p.interactionCount)||0,slowCount=(Number(p.slowInteractions)||0)+(row.slow?1:0),worst=Math.max(Number(p.worstInteractionMs)||0,row.totalMs);
+  shortsPerfPatch({interactionCount:count,slowInteractions:slowCount,worstInteractionMs:worst});
+  const sample={time:new Date().toISOString(),type:row.type,action:row.action,target:row.target,handlerMs:row.handlerMs,firstMutationMs:row.firstMutationMs,paintMs:row.paintMs,settleMs:row.settleMs,mutationCount:row.mutationCount||0,mutationBatches:row.mutationBatches||0,worstFrameMs:row.worstFrameMs||0,missedFrames:row.missedFrames||0,totalMs:row.totalMs,slow:row.slow,reason};
+  shortsPerfRuntime.samples.push(sample);if(shortsPerfRuntime.samples.length>24)shortsPerfRuntime.samples.splice(0,shortsPerfRuntime.samples.length-24);
+  if(row.slow)noteSlow({kind:'ui.interaction',layer:'render',origin:'shorts',action:row.action,ms:row.totalMs,message:'Interação demorou para responder',details:sample});
+  log(row.slow?'warn':'info','performance.interaction',sample)
+}
+function beginPerfInteraction(event,type){
+  if(!shortsPerfMode()||debugUiElement(event?.target))return;
+  const target=event?.target;if(!target)return;
+  const action=perfAction(target,type),t=perfClock();
+  if(shortsPerfRuntime.pending)finalizePerfInteraction(shortsPerfRuntime.pending,'superseded');
+  const p=get('performance.shorts')||{},row={id:uid(),type,action,target:perfTarget(target),start:t,handlerMs:0,firstMutationMs:0,paintMs:0,settleMs:0,mutationCount:0,mutationBatches:0,worstFrameMs:0,missedFrames:0,lastMutationAt:0,done:false};
+  shortsPerfRuntime.pending=row;shortsPerfPatch({enabled:true,interactionCount:(Number(p.interactionCount)||0)+1});
+  setTimeout(()=>{if(!row.done)row.handlerMs=Math.max(row.handlerMs,Math.round(perfClock()-t))},0);
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{if(!row.done)row.paintMs=Math.max(row.paintMs,Math.round(perfClock()-t))}));
+  row.noMutationTimer=setTimeout(()=>finalizePerfInteraction(row,'quiet-no-mutation'),360);
+  row.maxTimer=setTimeout(()=>finalizePerfInteraction(row,'max-window'),1800);
+  frameProbe(1800)
+}
+function finalizeScrollBurst(){
+  const row=shortsPerfRuntime.scroll;if(!row)return;shortsPerfRuntime.scroll=null;clearTimeout(shortsPerfRuntime.scrollTimer);
+  row.durationMs=Math.round(Math.max(0,row.last-row.start));row.slow=(row.worstFrameMs||0)>=80||(row.missedFrames||0)>=5;
+  const p=get('performance.shorts')||{};
+  shortsPerfPatch({scrollBursts:(Number(p.scrollBursts)||0)+1});
+  if(row.slow)noteSlow({kind:'ui.scroll',layer:'render',origin:'shorts',ms:Math.max(row.durationMs,row.worstFrameMs||0),message:'Rolagem apresentou frames perdidos',details:{target:row.target,events:row.events,durationMs:row.durationMs,worstFrameMs:row.worstFrameMs||0,missedFrames:row.missedFrames||0}});
+  log(row.slow?'warn':'info','performance.scroll',{target:row.target,events:row.events,durationMs:row.durationMs,worstFrameMs:row.worstFrameMs||0,missedFrames:row.missedFrames||0,slow:row.slow})
+}
+function installShortsPerformanceSupervisor(){
+  if(shortsPerfRuntime.installed||!shortsPerfMode())return;
+  shortsPerfRuntime.installed=true;shortsPerfPatch({enabled:true});
+  const onInteraction=(e,type)=>{
+    if(type==='keydown'&&!['Enter',' ','Escape','ArrowLeft','ArrowRight','ArrowUp','ArrowDown'].includes(String(e.key||'')))return;
+    if(type==='input'&&!e.target?.matches?.('#shortSearch,input,textarea'))return;
+    beginPerfInteraction(e,type)
+  };
+  document.addEventListener('click',e=>onInteraction(e,'click'),true);
+  document.addEventListener('keydown',e=>onInteraction(e,'keydown'),true);
+  document.addEventListener('input',e=>onInteraction(e,'input'),true);
+  document.addEventListener('scroll',e=>{
+    if(debugUiElement(e.target))return;
+    const t=perfClock(),target=perfTarget(e.target===document?document.scrollingElement||document.body:e.target);
+    let row=shortsPerfRuntime.scroll;
+    if(!row||row.target!==target){if(row)finalizeScrollBurst();row=shortsPerfRuntime.scroll={target,start:t,last:t,events:0,worstFrameMs:0,missedFrames:0}}
+    row.last=t;row.events++;clearTimeout(shortsPerfRuntime.scrollTimer);shortsPerfRuntime.scrollTimer=setTimeout(finalizeScrollBurst,160);frameProbe(650)
+  },true);
+  if(typeof MutationObserver==='function'){
+    const observer=new MutationObserver(records=>{
+      const useful=records.filter(relevantAppMutation);if(!useful.length)return;
+      const count=useful.length,t=perfClock(),p=get('performance.shorts')||{};
+      const largest=Math.max(Number(p.largestMutationBatch)||0,count);
+      shortsPerfPatch({renderMutations:(Number(p.renderMutations)||0)+count,renderBatches:(Number(p.renderBatches)||0)+1,largestMutationBatch:largest});
+      const row=shortsPerfRuntime.pending;
+      if(row){
+        row.mutationCount+=count;row.mutationBatches++;row.lastMutationAt=t;
+        if(!row.firstMutationMs)row.firstMutationMs=Math.round(t-row.start);
+        clearTimeout(row.noMutationTimer);clearTimeout(row.settleTimer);row.settleTimer=setTimeout(()=>finalizePerfInteraction(row,'mutation-settled'),120)
+      }
+      const w=shortsPerfRuntime.renderWindow;
+      if(!w.start||t-w.start>600){w.start=t;w.records=0;w.batches=0;w.roots.clear()}
+      w.records+=count;w.batches++;
+      for(const rec of useful){if(w.roots.size>=5)break;w.roots.add(perfTarget(rec.target))}
+      if(count>=180||w.records>=450){
+        noteSlow({kind:'ui.render',layer:'dom',origin:'shorts',ms:Math.round(t-w.start),message:'Renderização gerou muitas mutações DOM',details:{batchRecords:count,windowRecords:w.records,batches:w.batches,windowMs:Math.round(t-w.start),roots:[...w.roots]}});
+        log('warn','performance.render_churn',{batchRecords:count,windowRecords:w.records,batches:w.batches,roots:[...w.roots]});
+        w.start=t;w.records=0;w.batches=0;w.roots.clear()
+      }
+    });
+    observer.observe(document.body,{subtree:true,childList:true,attributes:true,attributeFilter:['class','style','hidden','src']})
+  }
+  try{
+    if(typeof PerformanceObserver==='function'){
+      const shifts=new PerformanceObserver(list=>{for(const e of list.getEntries()){
+        const sources=Array.isArray(e.sources)?e.sources:[],allDebug=sources.length&&sources.every(x=>debugUiElement(x?.node));
+        if(allDebug||overlapsDebugUiWork(e.startTime||0,0))continue;
+        const score=Number(e.value)||0;if(score<=0)continue;
+        const p=get('performance.shorts')||{};shortsPerfPatch({layoutShifts:(Number(p.layoutShifts)||0)+1,maxLayoutShift:Math.max(Number(p.maxLayoutShift)||0,Number(score.toFixed(4)))});
+        if(score>=0.15)noteSlow({kind:'ui.layout',layer:'render',origin:'shorts',ms:0,message:'Mudança visual significativa durante renderização',details:{score:Number(score.toFixed(4)),hadRecentInput:!!e.hadRecentInput}})
+      }});
+      shifts.observe({entryTypes:['layout-shift']})
+    }
+  }catch{}
+  log('info','performance.shorts_supervisor_ready',{debugUiExcluded:true,interactionWindowMs:1800,renderWindowMs:600})
 }
 
 function installPerformanceTracing(){
   if(typeof PerformanceObserver!=='function'||window.__SRH_DEBUG_PERF_V2__)return;window.__SRH_DEBUG_PERF_V2__=true;
   try{
-    const recentLong=[];const longObserver=new PerformanceObserver(list=>{for(const e of list.getEntries()){if(debugUiActive()){state.performance.ignoredDebugEvents++;continue}const region=perfViewportRegion();if(region==='debug'){state.performance.ignoredDebugEvents++;continue}const ms=Math.round(e.duration),t=performance.now();state.performance.longTasks++;state.performance.longestMs=Math.max(state.performance.longestMs,ms);patch('performance',{longTasks:state.performance.longTasks,longestMs:state.performance.longestMs,slowResources:state.performance.slowResources});if(ms>=120)log('info','performance.longtask',{ms,name:e.name,start:Math.round(e.startTime)});if(ms>=200){recentLong.push({t,ms});while(recentLong.length&&t-recentLong[0].t>6000)recentLong.shift()}if(ms>=400)noteSlow({kind:'main-thread',layer:'performance',origin:'page',ms,message:'Main thread bloqueada',details:{name:e.name,start:Math.round(e.startTime),burst:recentLong.length,region,scrollY:Math.round(scrollY||0)}});else if(recentLong.length>=3){const total=recentLong.reduce((a,x)=>a+x.ms,0);noteSlow({kind:'main-thread',layer:'performance',origin:'page',ms:Math.max(...recentLong.map(x=>x.ms)),message:'Rajada de bloqueios na main thread',details:{count:recentLong.length,totalMs:total,windowMs:6000,region,scrollY:Math.round(scrollY||0)}});recentLong.length=0}}});
+    const recentLong=[];const longObserver=new PerformanceObserver(list=>{for(const e of list.getEntries()){if(overlapsDebugUiWork(e.startTime,e.duration))continue;const ms=Math.round(e.duration),t=performance.now();state.performance.longTasks++;state.performance.longestMs=Math.max(state.performance.longestMs,ms);patch('performance',{longTasks:state.performance.longTasks,longestMs:state.performance.longestMs,slowResources:state.performance.slowResources});if(ms>=120)log('info','performance.longtask',{ms,name:e.name,start:Math.round(e.startTime)});if(ms>=200){recentLong.push({t,ms});while(recentLong.length&&t-recentLong[0].t>6000)recentLong.shift()}if(ms>=400)noteSlow({kind:'main-thread',layer:'performance',origin:'page',ms,message:'Main thread bloqueada',details:{name:e.name,start:Math.round(e.startTime),burst:recentLong.length}});else if(recentLong.length>=3){const total=recentLong.reduce((a,x)=>a+x.ms,0);noteSlow({kind:'main-thread',layer:'performance',origin:'page',ms:Math.max(...recentLong.map(x=>x.ms)),message:'Rajada de bloqueios na main thread',details:{count:recentLong.length,totalMs:total,windowMs:6000}});recentLong.length=0}}});
     longObserver.observe({entryTypes:['longtask']})
   }catch{}
   try{
-    const resourceObserver=new PerformanceObserver(list=>{for(const e of list.getEntries()){if(e.duration<2500)continue;const meta=requestMeta(e.name),initiator=String(e.initiatorType||'').toLowerCase(),liveHls=[...document.querySelectorAll('video')].find(v=>v.dataset?.srhMediaType==='live'&&String(v.dataset?.srhSourceKind||'').startsWith('hls'));if(liveHls&&initiator==='xmlhttprequest'&&(meta.kind==='playlist'||meta.kind==='network.other'||meta.kind==='media')){log('info','media.live_hls_resource',{kind:meta.kind,origin:meta.origin,ms:Math.round(e.duration),transferSize:e.transferSize||0});continue}if(meta.kind.startsWith('catalog.')||meta.kind==='xtream.api'||meta.kind==='proxy'||meta.kind==='media'||initiator==='video'||initiator==='audio'||initiator==='img')continue;state.performance.slowResources++;patch('performance',{slowResources:state.performance.slowResources});noteSlow({...meta,layer:'resource',ms:Math.round(e.duration),message:'Recurso demorou para carregar',details:{initiatorType:e.initiatorType,transferSize:e.transferSize||0}})}});
+    const resourceObserver=new PerformanceObserver(list=>{for(const e of list.getEntries()){if(e.duration<2500)continue;const meta=requestMeta(e.name),initiator=String(e.initiatorType||'').toLowerCase();if(meta.kind.startsWith('catalog.')||meta.kind==='xtream.api'||meta.kind==='proxy'||meta.kind==='media'||initiator==='video'||initiator==='audio'||initiator==='img')continue;state.performance.slowResources++;patch('performance',{slowResources:state.performance.slowResources});noteSlow({...meta,layer:'resource',ms:Math.round(e.duration),message:'Recurso demorou para carregar',details:{initiatorType:e.initiatorType,transferSize:e.transferSize||0}})}});
     resourceObserver.observe({entryTypes:['resource']})
   }catch{}
 }
@@ -842,10 +895,10 @@ function installGlobalErrors(){addEventListener('error',e=>{
 
 function init(){
   boot.begin(window.__SRH_DEBUG_BUILD__||{});
-  boot.phase('supervisor-v6');
+  boot.phase('supervisor-v3');
   patch('meta',{sessionId:SESSION_ID,hotUpdate:true});syncIncidentState();
   syncAppState();
-  installGlobalErrors();installConsoleCapture();installPerformanceTracing();installInteractionPerformanceTracing();
+  installGlobalErrors();installConsoleCapture();installPerformanceTracing();installShortsPerformanceSupervisor();
   cache.prune();
   storage.migrate();
   navigation.begin('initial');
