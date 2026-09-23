@@ -603,3 +603,39 @@ body.srh-main-stream-style .stream-hero__brand:not(.is-ready) .stream-hero__logo
 body.srh-main-stream-style .stream-hero__brand:not(.is-ready) .stream-hero__brand-fallback{
   visibility:hidden!important;
 }
+
+
+/* SRHELL DEBUG STANDARD R53 — viewport lock + performance tracing */
+/* Keep the document itself pinned to the viewport.
+   Horizontal rails keep their own overflow/gesture handling. */
+html{
+  width:100%!important;
+  max-width:100%!important;
+  overflow-x:hidden!important;
+  overscroll-behavior-x:none;
+}
+body.srh-main-stream-style{
+  width:100%!important;
+  max-width:100%!important;
+  min-width:0!important;
+  overflow-x:hidden!important;
+  overscroll-behavior-x:none;
+}
+body.srh-main-stream-style .app,
+body.srh-main-stream-style main,
+body.srh-main-stream-style .content,
+body.srh-main-stream-style #content{
+  width:100%!important;
+  max-width:100%!important;
+  min-width:0!important;
+  box-sizing:border-box!important;
+}
+body.srh-main-stream-style .stream-hero{
+  box-sizing:border-box!important;
+}
+@supports (overflow:clip){
+  html,
+  body.srh-main-stream-style{
+    overflow-x:clip!important;
+  }
+}
