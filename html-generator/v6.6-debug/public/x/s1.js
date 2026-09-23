@@ -657,6 +657,11 @@ async function closeDetail(){
     },true);
   }
   installPageZoomLock();
+  if(!document.getElementById('srhContinueFrameStyle')){
+    const s=document.createElement('style');s.id='srhContinueFrameStyle';
+    s.textContent='body.srh-main-stream-style .home-status{height:0!important;min-height:0!important;margin:0!important;padding:0!important;line-height:0!important;overflow:hidden!important;opacity:0!important}body.srh-main-stream-style .stream-hero{margin-top:-12px!important}.continue-card__media{position:relative;width:100%;overflow:hidden;background:#080a0c}.continue-card__media>img,.continue-card__frame-video{display:block;width:100%;height:100%;object-fit:cover;pointer-events:none}.continue-card__frame-video{background:#080a0c}';
+    document.head.appendChild(s)
+  }
   const STAR='<svg class="srh-lite-icon srh-lite-icon--star" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.8l2.52 5.1 5.63.82-4.08 3.97.96 5.61L12 16.65 6.97 19.3l.96-5.61L3.85 9.72l5.63-.82L12 3.8z"/></svg>';
   const TRASH='<svg class="srh-lite-icon srh-lite-icon--trash" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 8.2v9.1M12 8.2v9.1M16 8.2v9.1M5.5 6.1h13M9 4.3h6l.7 1.8H8.3L9 4.3zM6.7 6.1l.7 13.2h9.2l.7-13.2"/></svg>';
 
@@ -704,8 +709,28 @@ async function closeDetail(){
 
   const CONT_MEMORY_KEY='__srhContinue_'+APP_NS;
   const contMemory=window[CONT_MEMORY_KEY]||(window[CONT_MEMORY_KEY]={vod:[],series:[]});
+  const continueCardResources=new Set();
+  let continueFrameCardTail=Promise.resolve();
 
-  function writeHistoryBucket(type,list){const bucket=type==='series'?'series':'vod',compact=(Array.isArray(list)?list:[]).slice(0,60);contMemory[bucket]=compact;void standardStateSet(historyKey(bucket),compact);return true}
+  function releaseContinueCardResources(){
+    for(const r of continueCardResources){
+      try{r.hls?.destroy?.()}catch{}
+      try{r.video?.pause?.();r.video?.removeAttribute?.('src');r.video?.load?.()}catch{}
+      try{if(r.url)URL.revokeObjectURL(r.url)}catch{}
+    }
+    continueCardResources.clear()
+  }
+
+  function writeHistoryBucket(type,list){
+    const bucket=type==='series'?'series':'vod',prev=Array.isArray(contMemory[bucket])?contMemory[bucket]:[],compact=(Array.isArray(list)?list:[]).slice(0,60);
+    const keep=new Set(compact.map(x=>String(x?.key||'')));
+    for(const row of prev){
+      if(row?.key&&!keep.has(String(row.key)))void standardStateDelete(row.frameKey||continueFrameKey(row))
+    }
+    contMemory[bucket]=compact;
+    void standardStateSet(historyKey(bucket),compact);
+    return true
+  }
 
   const baseGetHistory=getHistory;
   getHistory=function(type){if(type==='live')return[];const bucket=type==='series'?'series':'vod';return Array.isArray(contMemory[bucket])?contMemory[bucket].slice():[]};
@@ -743,6 +768,7 @@ async function closeDetail(){
     }
     try{localStorage.removeItem(FAVORITES_KEY);sessionStorage.removeItem(FAVORITES_KEY)}catch{}
     pruneShortContinueEntries();
+    setTimeout(()=>migrateContinueFrames().catch(()=>{}),500);
     return true
   };
 
@@ -1246,6 +1272,7 @@ async function closeDetail(){
     state.srhResumePreview=null;
     try{p.hls?.destroy?.()}catch{}
     try{p.video?.pause?.();p.video?.removeAttribute?.('src');p.video?.load?.()}catch{}
+    try{if(p.url)URL.revokeObjectURL(p.url)}catch{}
     try{if(p.owned)p.video?.remove?.()}catch{}
   }
   const resumeBaseOpenDetail=openDetail;
@@ -1255,31 +1282,59 @@ async function closeDetail(){
     clearResumePreview();
     state.srhContinueOpening=false;
     state.srhOpeningContinue=false;
+    el.detailLayer.style.removeProperty('visibility');
+    el.detailLayer.style.removeProperty('pointer-events');
     return resumeBaseCloseDetail.apply(this,arguments)
   };
+
+  function holdContinueDetail(){
+    el.detailLayer.style.setProperty('visibility','hidden','important');
+    el.detailLayer.style.setProperty('pointer-events','none','important');
+    let done=false;
+    return()=>{
+      if(done)return;done=true;
+      requestAnimationFrame(()=>{
+        el.detailLayer.style.removeProperty('visibility');
+        el.detailLayer.style.removeProperty('pointer-events')
+      })
+    }
+  }
+
   function seekPreviewFrame(video,position,timeout=5200){
     return new Promise(resolve=>{
       let done=false,timer=0;
-      const finish=ok=>{if(done)return;done=true;clearTimeout(timer);video.removeEventListener('seeked',onSeek);video.removeEventListener('loadeddata',onData);resolve(!!ok)};
-      const onSeek=()=>{if(video.readyState>=2)finish(true)};
-      const onData=()=>{if(Math.abs((Number(video.currentTime)||0)-Math.max(0,Number(position)||0))<1.25)finish(true)};
-      const seek=()=>{try{const end=Number.isFinite(video.duration)&&video.duration>0?Math.max(0,video.duration-.35):Number(position)||0;video.currentTime=Math.min(Math.max(0,Number(position)||0),end)}catch{finish(false)}};
+      const target=Math.max(0,Number(position)||0);
+      const finish=ok=>{
+        if(done)return;done=true;clearTimeout(timer);
+        video.removeEventListener('seeked',onSeek);video.removeEventListener('loadeddata',onData);
+        try{video.pause()}catch{}
+        const final=()=>resolve(!!ok);
+        if(ok&&typeof video.requestVideoFrameCallback==='function'){
+          let fired=false;
+          try{video.requestVideoFrameCallback(()=>{if(!fired){fired=true;final()}});setTimeout(()=>{if(!fired){fired=true;final()}},180);return}catch{}
+        }
+        requestAnimationFrame(()=>requestAnimationFrame(final))
+      };
+      const onSeek=()=>{if(video.readyState>=2&&Math.abs((Number(video.currentTime)||0)-target)<1.35)finish(true)};
+      const onData=()=>{if(Math.abs((Number(video.currentTime)||0)-target)<1.35)finish(true)};
+      const seek=()=>{try{const end=Number.isFinite(video.duration)&&video.duration>0?Math.max(0,video.duration-.35):target;video.currentTime=Math.min(target,end)}catch{finish(false)}};
       video.addEventListener('seeked',onSeek);
       video.addEventListener('loadeddata',onData);
-      timer=setTimeout(()=>finish(video.readyState>=2),timeout);
+      timer=setTimeout(()=>finish(video.readyState>=2&&Math.abs((Number(video.currentTime)||0)-target)<1.8),timeout);
       if(video.readyState>=1)seek();else video.addEventListener('loadedmetadata',seek,{once:true});
     })
   }
-  async function loadResumePreview(video,sources,position){
-    const queue=mediaCandidates([...(state.currentMedia?.lastWorkingUrl?[state.currentMedia.lastWorkingUrl]:[]),...(Array.isArray(sources)?sources:[sources])]);
+
+  async function loadIsolatedFrame(video,sources,position,timeout=5200){
+    const queue=mediaCandidates(Array.isArray(sources)?sources:[sources]);
     video.autoplay=false;video.muted=true;video.controls=false;video.playsInline=true;video.preload='metadata';
     for(const src of queue){
       if(!src)continue;
       const kind=mediaKind(src);
       if(kind==='mpegts'||kind==='m2ts')continue;
+      let hls=null;
       try{
         video.pause();video.removeAttribute('src');video.load();
-        let hls=null;
         if(kind==='hls'){
           const native=!!(video.canPlayType?.('application/vnd.apple.mpegurl')||video.canPlayType?.('application/x-mpegURL'));
           if(native){video.src=src;video.load()}
@@ -1290,54 +1345,174 @@ async function closeDetail(){
             hls.loadSource(src);hls.attachMedia(video)
           }
         }else{video.src=src;video.load()}
-        const ok=await seekPreviewFrame(video,position);
-        if(ok){state.srhResumePreview={video,hls,owned:video.classList.contains('srh-resume-preview-video')};return true}
+        const ok=await seekPreviewFrame(video,position,timeout);
+        if(ok){try{hls?.stopLoad?.()}catch{}return{ok:true,hls,src}}
         try{hls?.destroy?.()}catch{}
-      }catch{}
+      }catch{try{hls?.destroy?.()}catch{}}
+    }
+    return{ok:false,hls:null,src:''}
+  }
+
+  async function loadResumePreview(video,sources,position){
+    const queue=uniqueMediaUrls([...(state.currentMedia?.lastWorkingUrl?[state.currentMedia.lastWorkingUrl]:[]),...(Array.isArray(sources)?sources:[sources])]);
+    const result=await loadIsolatedFrame(video,queue,position,6200);
+    if(result.ok){
+      state.srhResumePreview={video,hls:result.hls,owned:video.classList.contains('srh-resume-preview-video')};
+      return true
     }
     return false
+  }
+
+  async function readContinueFrame(entry){
+    const key=entry?.frameKey||continueFrameKey(entry),payload=await standardStateGet(key);
+    if(!payload||Number(payload.version||0)!==CONTINUE_FRAME_VERSION)return null;
+    const wanted=Number(entry?.position)||0,got=Number(payload.position)||0;
+    if(wanted>0&&Math.abs(wanted-got)>2.25)return null;
+    return payload
+  }
+
+  async function ensureContinueFrameRecord(entry,type){
+    if(!entry)return null;
+    const existing=await readContinueFrame(entry);
+    if(existing)return existing;
+    const normalized={...entry,type:type==='series'?'series':'vod'};
+    const sources=continueFrameSources(normalized);
+    if(!sources.length)return null;
+    const video=document.createElement('video');
+    video.style.cssText='position:fixed;left:-4px;top:-4px;width:2px;height:2px;opacity:.001;pointer-events:none;z-index:-1';
+    video.setAttribute('aria-hidden','true');
+    document.body.appendChild(video);
+    let result=null;
+    try{
+      result=await loadIsolatedFrame(video,sources,entry.position,6200);
+      if(!result.ok)return null;
+      const blob=await captureContinueFrameBlob(video);
+      const payload=blob
+        ?{version:CONTINUE_FRAME_VERSION,kind:'blob',blob,position:Number(entry.position)||Number(video.currentTime)||0,capturedAt:Date.now()}
+        :{version:CONTINUE_FRAME_VERSION,kind:'reference',position:Number(entry.position)||Number(video.currentTime)||0,source:result.src||sources[0]||'',sources,capturedAt:Date.now()};
+      await standardStateSet(entry.frameKey||continueFrameKey(entry),payload);
+      playbackDebug('continue-frame-migrate',{type,key:entry.key,kind:payload.kind,position:payload.position});
+      return payload
+    }finally{
+      try{result?.hls?.destroy?.()}catch{}
+      try{video.pause();video.removeAttribute('src');video.load();video.remove()}catch{}
+    }
+  }
+
+  async function migrateContinueFrames(){
+    const rows=[];
+    for(const type of ['vod','series'])for(const entry of getHistory(type).slice(0,12))rows.push({type,entry});
+    for(const row of rows){
+      if(state.playerActive||!el.detailLayer.classList.contains('is-hidden'))break;
+      if(!await readContinueFrame(row.entry))await ensureContinueFrameRecord(row.entry,row.type).catch(()=>null);
+      await new Promise(resolve=>setTimeout(resolve,90))
+    }
+    if(['vod','series'].includes(state.activeType))renderContinue()
+  }
+
+  function queueContinueCardFrame(task){
+    continueFrameCardTail=continueFrameCardTail.catch(()=>{}).then(task);
+    return continueFrameCardTail
+  }
+
+  async function hydrateContinueCard(card,entry,type){
+    if(!card?.isConnected)return;
+    let payload=await readContinueFrame(entry);
+    if(!payload)payload=await ensureContinueFrameRecord(entry,type).catch(()=>null);
+    if(!payload||!card.isConnected)return;
+    const host=card.querySelector('.continue-card__media'),img=host?.querySelector('img');
+    if(!host)return;
+    if(payload.kind==='blob'&&payload.blob instanceof Blob){
+      const url=URL.createObjectURL(payload.blob);
+      continueCardResources.add({url});
+      if(img)img.src=url;
+      return
+    }
+    if(payload.kind==='reference'){
+      await queueContinueCardFrame(async()=>{
+        if(!card.isConnected)return;
+        const video=document.createElement('video');
+        video.className='continue-card__frame-video';
+        video.muted=true;video.playsInline=true;video.preload='metadata';
+        const sources=uniqueMediaUrls([payload.source,...(payload.sources||[]),...continueFrameSources({...entry,type})]);
+        const result=await loadIsolatedFrame(video,sources,payload.position??entry.position,5200);
+        if(!card.isConnected){try{result.hls?.destroy?.()}catch{};return}
+        if(result.ok){
+          host.replaceChildren(video);
+          continueCardResources.add({video,hls:result.hls})
+        }else try{video.remove()}catch{}
+      })
+    }
+  }
+
+  function useStoredFrameImage(image,payload){
+    if(!image||payload?.kind!=='blob'||!(payload.blob instanceof Blob))return false;
+    const url=URL.createObjectURL(payload.blob);
+    image.src=url;image.classList.remove('is-hidden');
+    state.srhResumePreview={video:null,hls:null,owned:false,url};
+    return true
   }
 
   async function openContinueMovie(entry){
     const item=historyVodItem(entry);
     if(!item.stream_id)return;
     clearResumePreview();
+    const reveal=holdContinueDetail();
+    const framePromise=ensureContinueFrameRecord(entry,'vod').catch(()=>null);
     const loading=openFilm(item),token=state.detailToken;
-    await loading;
-    if(!isDetailCurrent(token))return;
-    const art=el.detailBody.querySelector('.detail-art'),image=art?.querySelector('img'),watch=el.detailBody.querySelector('#watchFilm'),sources=uniqueMediaUrls([entry?.lastWorkingUrl,...(entry?.sources||[]),...(state.currentDetail?.entry?.sources||[])]);
-    if(!art||!sources.length)return;
-    const preview=document.createElement('video');
-    preview.className='detail-inline-video srh-resume-preview-video is-hidden';
-    preview.setAttribute('aria-label','Frame salvo de '+(entry.title||'conteúdo'));
-    art.appendChild(preview);
-    const ok=await loadResumePreview(preview,sources,entry.position);
-    if(!isDetailCurrent(token)){clearResumePreview();return}
-    if(ok){if(image)image.classList.add('is-hidden');preview.classList.remove('is-hidden');art.classList.add('srh-resume-previewing')}
-    else{try{preview.remove()}catch{}}
-    if(watch)watch.addEventListener('click',()=>{clearResumePreview();art.classList.remove('srh-resume-previewing')},{once:true,capture:true});
+    try{
+      const [frame]=await Promise.all([framePromise,loading.then(()=>framePromise)]);
+      if(!isDetailCurrent(token))return;
+      const art=el.detailBody.querySelector('.detail-art'),image=art?.querySelector('img'),watch=el.detailBody.querySelector('#watchFilm'),sources=uniqueMediaUrls([entry?.lastWorkingUrl,...(entry?.sources||[]),...(state.currentDetail?.entry?.sources||[])]);
+      if(!art)return;
+      let exact=useStoredFrameImage(image,frame);
+      if(!exact&&sources.length){
+        const preview=document.createElement('video');
+        preview.className='detail-inline-video srh-resume-preview-video is-hidden';
+        preview.setAttribute('aria-label','Frame salvo de '+(entry.title||'conteúdo'));
+        art.appendChild(preview);
+        exact=await loadResumePreview(preview,sources,entry.position);
+        if(!isDetailCurrent(token)){clearResumePreview();return}
+        if(exact){if(image)image.classList.add('is-hidden');preview.classList.remove('is-hidden');art.classList.add('srh-resume-previewing')}
+        else try{preview.remove()}catch{}
+      }
+      playbackDebug('continue-frame-gate',{type:'vod',key:entry.key,exact});
+      if(watch)watch.addEventListener('click',()=>{clearResumePreview();art.classList.remove('srh-resume-previewing')},{once:true,capture:true})
+    }finally{if(isDetailCurrent(token))reveal()}
   }
 
   async function openContinueSeries(entry){
     const item=historySeriesItem(entry);
     if(!item.series_id)return;
     clearResumePreview();
+    const reveal=holdContinueDetail();
+    const framePromise=ensureContinueFrameRecord(entry,'series').catch(()=>null);
     const loading=openSeries(item),token=state.detailToken;
-    await loading;
-    if(!isDetailCurrent(token))return;
-    const season=String(entry.season??''),collections=state.currentSeries?.episodes||{},seasonKey=season&&collections[season]?season:Object.keys(collections).sort((a,b)=>Number(a)-Number(b))[0],eps=Array.isArray(collections[seasonKey])?collections[seasonKey]:[];
-    if(seasonKey){const option=[...el.detailBody.querySelectorAll('[data-season]')].find(b=>String(b.dataset.season)===String(seasonKey));option?.click()}
-    const episodeNo=String(entry.episodeNumber??'').trim(),ep=eps.find((x,i)=>String(x?.episode_num??x?.episode_number??i+1)===episodeNo)||eps[0];
-    const video=el.detailBody.querySelector('#seriesInlineVideo'),image=el.detailBody.querySelector('#seriesImage'),art=el.detailBody.querySelector('#seriesArt');
-    if(!ep||!video||!art)return;
-    const eid=ep?.id||ep?.stream_id,catalogExt=String(ep?.container_extension||entry?.containerExtension||'mp4').toLowerCase(),infoExt=String(ep?.info?.container_extension||'').toLowerCase(),nativeUrl=mediaUrlWithExtension('series',eid,catalogExt),direct=normalizeMediaUrl(ep?.direct_source||ep?.info?.direct_source||''),corrected=infoExt&&infoExt!==catalogExt?mediaUrlWithExtension('series',eid,infoExt):'',mkv=(catalogExt!=='mkv'&&infoExt!=='mkv')?mediaUrlWithExtension('series',eid,'mkv'):'',sources=uniqueMediaUrls([entry?.lastWorkingUrl,nativeUrl,direct,corrected,mkv,mediaUrlWithExtension('series',eid,'m3u8')]),episodeArt=ep.info?.movie_image||ep.info?.cover_big||ep.info?.cover||ep.stream_icon||entry.image||state.currentSeries?.backdrop||IMAGE_PLACEHOLDER;
-    if(image&&episodeArt)image.src=episodeArt;
-    video.autoplay=false;video.controls=false;video.classList.add('is-hidden');if(image)image.classList.remove('is-hidden');
-    const ok=await loadResumePreview(video,sources,entry.position);
-    if(!isDetailCurrent(token)){clearResumePreview();return}
-    if(ok){if(image)image.classList.add('is-hidden');video.classList.remove('is-hidden');art.classList.add('srh-resume-previewing')}
-    const resumeEpisodeStart=e=>{if(!e.target.closest?.('.episode'))return;el.detailBody.removeEventListener('click',resumeEpisodeStart,true);clearResumePreview();art.classList.remove('srh-resume-previewing');video.muted=false;video.controls=true;video.autoplay=true};
-    el.detailBody.addEventListener('click',resumeEpisodeStart,true);
+    try{
+      const [frame]=await Promise.all([framePromise,loading.then(()=>framePromise)]);
+      if(!isDetailCurrent(token))return;
+      const season=String(entry.season??''),collections=state.currentSeries?.episodes||{},seasonKey=season&&collections[season]?season:Object.keys(collections).sort((a,b)=>Number(a)-Number(b))[0],eps=Array.isArray(collections[seasonKey])?collections[seasonKey]:[];
+      if(seasonKey){const option=[...el.detailBody.querySelectorAll('[data-season]')].find(b=>String(b.dataset.season)===String(seasonKey));option?.click()}
+      const episodeNo=String(entry.episodeNumber??'').trim(),ep=eps.find((x,i)=>String(x?.episode_num??x?.episode_number??i+1)===episodeNo)||eps[0];
+      const video=el.detailBody.querySelector('#seriesInlineVideo'),image=el.detailBody.querySelector('#seriesImage'),art=el.detailBody.querySelector('#seriesArt');
+      if(!art||!image)return;
+      let exact=useStoredFrameImage(image,frame);
+      if(!exact&&ep&&video){
+        const eid=ep?.id||ep?.stream_id,catalogExt=String(ep?.container_extension||entry?.containerExtension||'mp4').toLowerCase(),infoExt=String(ep?.info?.container_extension||'').toLowerCase(),nativeUrl=mediaUrlWithExtension('series',eid,catalogExt),direct=normalizeMediaUrl(ep?.direct_source||ep?.info?.direct_source||''),corrected=infoExt&&infoExt!==catalogExt?mediaUrlWithExtension('series',eid,infoExt):'',mkv=(catalogExt!=='mkv'&&infoExt!=='mkv')?mediaUrlWithExtension('series',eid,'mkv'):'',sources=uniqueMediaUrls([entry?.lastWorkingUrl,...(entry?.sources||[]),nativeUrl,direct,corrected,mkv,mediaUrlWithExtension('series',eid,'m3u8')]);
+        video.autoplay=false;video.controls=false;video.classList.add('is-hidden');image.classList.remove('is-hidden');
+        exact=await loadResumePreview(video,sources,entry.position);
+        if(!isDetailCurrent(token)){clearResumePreview();return}
+        if(exact){image.classList.add('is-hidden');video.classList.remove('is-hidden');art.classList.add('srh-resume-previewing')}
+      }
+      playbackDebug('continue-frame-gate',{type:'series',key:entry.key,exact});
+      const resumeEpisodeStart=e=>{
+        if(!e.target.closest?.('.episode'))return;
+        el.detailBody.removeEventListener('click',resumeEpisodeStart,true);
+        clearResumePreview();art.classList.remove('srh-resume-previewing');
+        if(video){video.muted=false;video.controls=true;video.autoplay=true}
+      };
+      el.detailBody.addEventListener('click',resumeEpisodeStart,true)
+    }finally{if(isDetailCurrent(token))reveal()}
   }
 
   let continueOpenSeq=0;
@@ -1348,29 +1523,25 @@ async function closeDetail(){
     state.srhOpeningContinue=true;
     try{
       if(type==='series')await openContinueSeries(entry);
-      else await openContinueMovie(entry);
+      else await openContinueMovie(entry)
     }finally{
-      if(seq===continueOpenSeq){
-        state.srhContinueOpening=false;
-        state.srhOpeningContinue=false;
-      }
+      if(seq===continueOpenSeq){state.srhContinueOpening=false;state.srhOpeningContinue=false}
     }
   }
 
   renderContinue=function(){
+    releaseContinueCardResources();
     const type=state.activeType,list=getHistory(type).filter(x=>x.duration>0&&x.position>=MIN_CONTINUE_SECONDS&&x.position/x.duration<.97).slice(0,12);
     if(!list.length||type==='live'){
-      el.continueSection.classList.add('is-hidden');
-      el.continueRow.innerHTML='';
-      return;
+      el.continueSection.classList.add('is-hidden');el.continueRow.innerHTML='';return
     }
     el.continueSection.classList.remove('is-hidden');
-    el.continueRow.innerHTML=list.map((x,i)=>`<article class="continue-card" data-history="${i}"><img src="${escapeHtml(x.image||'')}" alt="" loading="lazy"><div class="progress"><div class="progress__bar" style="width:${Math.min(100,x.position/x.duration*100)}%"></div></div><div class="continue-card__body"><div class="continue-card__title">${escapeHtml(x.title)}</div><div class="continue-card__meta">${Math.round(x.position/x.duration*100)}%</div></div></article>`).join('');
-    el.continueRow.querySelectorAll('[data-history]').forEach(c=>c.onclick=()=>{
-      if(state.srhContinueOpening)return;
-      const x=list[Number(c.dataset.history)];
-      if(x)openContinueEntry(x,type);
-    });
+    el.continueRow.innerHTML=list.map((x,i)=>`<article class="continue-card" data-history="${i}"><div class="continue-card__media"><img src="${escapeHtml(x.image||'')}" alt="" loading="lazy"></div><div class="progress"><div class="progress__bar" style="width:${Math.min(100,x.position/x.duration*100)}%"></div></div><div class="continue-card__body"><div class="continue-card__title">${escapeHtml(x.title)}</div><div class="continue-card__meta">${Math.round(x.position/x.duration*100)}%</div></div></article>`).join('');
+    el.continueRow.querySelectorAll('[data-history]').forEach(card=>{
+      const x=list[Number(card.dataset.history)];
+      card.onclick=()=>{if(!state.srhContinueOpening&&x)openContinueEntry(x,type)};
+      if(x)void hydrateContinueCard(card,x,type)
+    })
   };
 
 })();
