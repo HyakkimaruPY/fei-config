@@ -657,3 +657,21 @@ body.srh-main-stream-style #content{
     overflow-x:clip!important;
   }
 }
+
+
+/* SRHELL DEBUG STANDARD R55 — scoped render containment */
+body.srh-main-stream-style .rail-body,
+body.srh-main-stream-style .rail-track,
+body.srh-main-stream-style .episode-container,
+body.srh-main-stream-style .episode-list{
+  contain:layout style!important;
+}
+body.srh-main-stream-style .rail-track{
+  contain:layout paint style!important;
+}
+body.srh-main-stream-style .continue{
+  contain:layout style!important;
+}
+body.srh-main-stream-style .episode__thumb{
+  content-visibility:auto;
+}
