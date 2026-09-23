@@ -687,7 +687,7 @@ function perfViewportRegion(){
 function updatePerf(patchValue){patch('performance',patchValue)}
 function installInteractionPerformanceTracing(){
   if(window.__SRH_DEBUG_INTERACTION_PERF_V1__)return;window.__SRH_DEBUG_INTERACTION_PERF_V1__=true;
-  const supported=Array.isArray(PerformanceObserver?.supportedEntryTypes)?PerformanceObserver.supportedEntryTypes:[];
+  const supported=typeof PerformanceObserver==='function'&&Array.isArray(PerformanceObserver.supportedEntryTypes)?PerformanceObserver.supportedEntryTypes:[];
 
   // Event Timing gives browser-measured interaction-to-next-paint latency when available.
   let hasEventTiming=false;
