@@ -1152,35 +1152,23 @@ async function closeDetail(){
     });
   }
   function railCardMetrics(type){
-    /* One geometry source for BOTH the final card and its loading shell.
-       Main Stream final dimensions:
-       - VOD/series: 2:3 poster
-       - live: 1:1 logo tile */
+    /* Loading geometry mirrors the FINAL Main Stream cards only.
+       Do not override RailVirtualizer here: the stable render path below
+       computes its own height from the final metrics override. */
     const live=type==='live',mobile=innerWidth<680;
     const w=mobile?(live?124:116):(live?178:168);
-    const gap=mobile?8:10,ratio=live?1:1.5,h=Math.round(w*ratio);
-    return{w,h,gap,slot:w+gap,ratio,live};
+    const gap=mobile?8:10,h=Math.round(w*(live?1:1.5));
+    return{w,h,gap,slot:w+gap,live};
   }
-  RailVirtualizer.prototype.metrics=function(){
-    const m=railCardMetrics(this.type);
-    return{...m,visible:Math.max(1,Math.ceil(this.viewport.clientWidth/m.slot))}
-  };
-  RailVirtualizer.prototype.render=function(force=false){
-    const m=this.metrics(),start=Math.max(0,Math.floor(this.viewport.scrollLeft/m.slot)-1),end=Math.min(this.items.length,start+m.visible*2+1),sig=[start,end,m.w,m.h,this.items.length,this.type].join(':');
-    if(!force&&sig===this.sig)return;
-    this.sig=sig;
-    this.track.style.width=Math.max(this.viewport.clientWidth,this.items.length*m.slot-m.gap)+'px';
-    this.track.style.height=m.h+'px';
-    this.track.innerHTML=this.items.slice(start,end).map((item,off)=>cardHtml(item,this.type,'poster-card',start+off,(start+off)*m.slot,m.w).replace(/height:[^;"]+px/,'height:'+m.h+'px')).join('');
-    this.track.querySelectorAll('[data-index]').forEach(card=>card.onclick=()=>this.onOpen(this.items[Number(card.dataset.index)],this.type))
-  };
   function railSkeletonMarkup(type){
     const m=railCardMetrics(type);
     const available=Math.max(260,document.documentElement.clientWidth-(innerWidth<680?24:40));
     const count=Math.max(3,Math.min(12,Math.ceil((available+m.gap)/m.slot)+1));
-    const classes='poster-card'+(m.live?' poster-card--live':'')+' rail-skeleton-card';
-    const card='<article class="'+classes+'" aria-hidden="true" style="position:relative;top:auto;left:auto;display:block;box-sizing:border-box;flex:0 0 '+m.w+'px;width:'+m.w+'px;height:'+m.h+'px;min-width:'+m.w+'px;min-height:'+m.h+'px;max-width:'+m.w+'px;max-height:'+m.h+'px;margin:0;pointer-events:none;transform:none!important;transition:none!important;background:linear-gradient(105deg,transparent 26%,rgba(235,241,248,.16) 45%,transparent 64%),linear-gradient(145deg,var(--surface-2),var(--surface))!important"></article>';
-    return '<div class="rail-skeleton-row rail-skeleton-row--'+(m.live?'live':'poster')+'" style="--sk-w:'+m.w+'px;--sk-h:'+m.h+'px;display:flex;gap:'+m.gap+'px;width:100%;height:'+m.h+'px;min-height:'+m.h+'px;max-height:'+m.h+'px;overflow:hidden;align-items:stretch">'+Array.from({length:count},()=>card).join('')+'</div>';
+    /* Restore the proven skeleton mechanism: rail-skeleton-card is ONLY a
+       loading placeholder. CSS owns the shimmer animation; it is never
+       treated as a poster-card and never participates in the virtualizer. */
+    const card='<span class="rail-skeleton-card" aria-hidden="true"></span>';
+    return '<div class="rail-skeleton-row rail-skeleton-row--'+(m.live?'live':'poster')+'" style="--sk-w:'+m.w+'px;--sk-h:'+m.h+'px;gap:'+m.gap+'px;height:'+m.h+'px;min-height:'+m.h+'px;max-height:'+m.h+'px">'+Array.from({length:count},()=>card).join('')+'</div>';
   }
   function railFetchJson(params,timeout=7200,opts=null){
     const target=apiUrl(params,CONFIG);
