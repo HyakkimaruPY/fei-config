@@ -1167,7 +1167,7 @@ async function closeDetail(){
     /* Restore the proven skeleton mechanism: rail-skeleton-card is ONLY a
        loading placeholder. CSS owns the shimmer animation; it is never
        treated as a poster-card and never participates in the virtualizer. */
-    const card='<span class="rail-skeleton-card" aria-hidden="true"></span>';
+    const card='<span class="rail-skeleton-card" aria-hidden="true" style="box-sizing:border-box;border:0;border-radius:7px;overflow:hidden"></span>';
     return '<div class="rail-skeleton-row rail-skeleton-row--'+(m.live?'live':'poster')+'" style="--sk-w:'+m.w+'px;--sk-h:'+m.h+'px;gap:'+m.gap+'px;height:'+m.h+'px;min-height:'+m.h+'px;max-height:'+m.h+'px">'+Array.from({length:count},()=>card).join('')+'</div>';
   }
   function railFetchJson(params,timeout=7200,opts=null){
