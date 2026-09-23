@@ -725,9 +725,10 @@ async function closeDetail(){
   /* Stable rail loading: one category-map request per type, fixed-size shimmer
      placeholders, abortable content requests and one controlled retry. */
   const srhRailCategoryInflight=new Map();
-  const srhRailScheduler={active:0,max:2,queue:[]};
+  const srhRailScheduler={active:0,max:2,queue:[],seq:0};
   function pumpRailQueue(){
     while(srhRailScheduler.active<srhRailScheduler.max&&srhRailScheduler.queue.length){
+      srhRailScheduler.queue.sort((a,b)=>(b.priority||0)-(a.priority||0)||(a.seq||0)-(b.seq||0));
       const job=srhRailScheduler.queue.shift();
       if(job.token!==state.renderToken){job.resolve([]);continue}
       srhRailScheduler.active++;
@@ -737,9 +738,9 @@ async function closeDetail(){
       });
     }
   }
-  function scheduleRailTask(task,token){
+  function scheduleRailTask(task,token,priority=0){
     return new Promise((resolve,reject)=>{
-      srhRailScheduler.queue.push({task,token,resolve,reject});
+      srhRailScheduler.queue.push({task,token,resolve,reject,priority:Number(priority)||0,seq:++srhRailScheduler.seq});
       pumpRailQueue();
     });
   }
@@ -796,7 +797,7 @@ async function closeDetail(){
       catalogCache.delete(first);
     }
   }
-  loadTargetItems=async function(target,token=state.renderToken){
+  loadTargetItems=async function(target,token=state.renderToken,opts=null){
     if(token!==state.renderToken)return[];
     let id=String(target.id??'').trim();
     if(!id){const map=await stableRailCategoryMap(target.type);id=map.get(target.name)}
@@ -816,7 +817,7 @@ async function closeDetail(){
       if(!Array.isArray(raw))throw new Error('A categoria retornou dados inválidos.');
       if(token===state.renderToken)rememberCatalog(key,raw);
       return raw;
-    },token).finally(()=>catalogInflight.delete(flightKey));
+    },token,Number(opts?.priority)||0).finally(()=>catalogInflight.delete(flightKey));
     catalogInflight.set(flightKey,pending);
     return pending;
   };
@@ -2247,6 +2248,24 @@ async function closeDetail(){
     return out;
   }
 
+  function heroYield(){
+    return new Promise(resolve=>{
+      if(typeof requestIdleCallback==='function')requestIdleCallback(()=>resolve(),{timeout:90});
+      else setTimeout(resolve,0)
+    })
+  }
+  function heroSample(raw,type,bucket,limit=64){
+    const list=Array.isArray(raw)?raw:[];if(!list.length)return[];
+    const take=Math.min(list.length,type==='live'?180:96),sample=[];
+    let seed=(Number(bucket)||0)^list.length^String(type).length;
+    const start=Math.abs(seed*1103515245+12345)%list.length,step=Math.max(1,Math.floor(list.length/take));
+    for(let i=0,pos=start;i<take;i++,pos=(pos+step)%list.length)sample.push(list[pos]);
+    if(type==='live')return groupChannels(sample).slice(0,limit);
+    const out=[],seen=new Set();
+    for(const item of sample){const id=String(itemId(item,type)||itemTitle(item));if(!id||seen.has(id))continue;seen.add(id);out.push(item);if(out.length>=limit)break}
+    return out
+  }
+
   function heroImage(item,type,meta){
     if(meta?.backdrop)return meta.backdrop;
     if(type==='live')return item?.image||item?.variants?.[0]?.stream_icon||'';
@@ -2417,6 +2436,11 @@ async function closeDetail(){
     const plot=node.querySelector('.stream-hero__plot'),metaNode=node.querySelector('.stream-hero__meta'),skeleton=node.querySelector('.stream-hero__skeleton');
     if(node.dataset.srhPainted!=='1')skeleton?.classList.remove('is-hidden');
     node.querySelector('[data-stream-open]').onclick=()=>openItem(item,type);
+    const quickTitle=type==='live'?compactChannelTitle(item.baseName||'Canal'):itemTitle(item),quickImage=heroImage(item,type,null);
+    setHeroBrand(node,quickTitle,null,local);
+    plot.textContent=type==='live'?'':String(item?.plot||item?.description||'');
+    metaNode.textContent=type==='live'?'TV ao vivo':(type==='series'?'Série':'Filme');
+    const quickPaint=paintHeroBackground(node,quickImage,type==='live',local).then(ok=>{if(ok&&local===heroToken)skeleton?.classList.add('is-hidden')}).catch(()=>{});
     const fav=node.querySelector('[data-stream-favorite]'),favApi=window.__srhStandardFavorites;
     if(fav){
       const syncFav=()=>{const on=!!favApi?.is?.(type,item);fav.classList.toggle('is-active',on);fav.setAttribute('aria-label',on?'Remover dos favoritos':'Adicionar aos favoritos');fav.querySelector('span').textContent=on?'Favorito':'Favoritar'};
@@ -2425,7 +2449,7 @@ async function closeDetail(){
     dots();
 
     let data=null;
-    if(type!=='live')data=await heroTmdb(item,type);
+    if(type!=='live'){await heroYield();if(local!==heroToken||heroViewToken!==state.renderToken)return;data=await heroTmdb(item,type)}
     if(local!==heroToken||heroViewToken!==state.renderToken||state.activeType!==type)return;
 
     const title=type==='live'?compactChannelTitle(item.baseName||'Canal'):stripEmoji(data?.title||itemTitle(item),'Sem título');
@@ -2434,7 +2458,9 @@ async function closeDetail(){
     plot.textContent=type==='live'?'':(data?.overview||String(item?.plot||item?.description||''));
     metaNode.textContent=heroMetaText(type,data);
 
-    await paintHeroBackground(node,image,type==='live',local);
+    await quickPaint;
+    if(local!==heroToken||heroViewToken!==state.renderToken||state.activeType!==type)return;
+    if(image&&image!==quickImage)await paintHeroBackground(node,image,type==='live',local);
     if(local!==heroToken||heroViewToken!==state.renderToken||state.activeType!==type)return;
     skeleton?.classList.add('is-hidden');
     heroTimer=setTimeout(()=>{
@@ -2447,48 +2473,38 @@ async function closeDetail(){
   }
 
   async function buildHero(token){
-    const node=heroHost(),type=state.activeType,bucket=Math.floor(Date.now()/HERO_SET_MS);
+    const node=heroHost(),type=state.activeType,bucket=Math.floor(Date.now()/HERO_SET_MS),targets=targetsFor(type).slice(0,Math.min(5,targetsFor(type).length));
     if(node.dataset.srhPainted!=='1')node.querySelector('.stream-hero__skeleton')?.classList.remove('is-hidden');
     heroSetBucket=bucket;heroSetExpiresAt=(bucket+1)*HERO_SET_MS;
+    const firstTarget=targets[0],firstRawPromise=firstTarget?loadTargetItems(firstTarget,token,{priority:100}).catch(()=>[]):Promise.resolve([]);
     const last=type==='live'?null:(getStandardLastWatched(type)||getHistory(type)[0]||null),mode=await heroCycleMode(type,bucket,!!last);
     if(token!==state.renderToken)return;
     heroSetMode=mode;
-    let recommended=[];
-    if(mode==='recommended'&&last&&window.__srhStandardRecommendations?.get){
-      try{recommended=await window.__srhStandardRecommendations.get(type,last,10,{budgetMs:9000})}catch{}
+    const lists=[],firstRaw=await firstRawPromise;
+    if(token!==state.renderToken)return;
+    if(firstRaw.length)lists.push(heroSample(firstRaw,type,bucket,72));
+    for(let i=1;i<targets.length&&lists.flat().length<32;i++){
       if(token!==state.renderToken)return;
+      try{const raw=await loadTargetItems(targets[i],token,{priority:80-i});if(token!==state.renderToken)return;lists.push(heroSample(raw,type,bucket+i,48))}catch{}
     }
-    if(recommended.length>=10){
-      heroItems=recommended.slice(0,10).map(x=>x.item);
-    }else{
-      heroSetMode='auto';
-      const targets=targetsFor(type).slice(0,Math.min(5,targetsFor(type).length)),lists=[];
-      for(const target of targets){
-        if(token!==state.renderToken)return;
-        try{
-          const raw=await loadTargetItems(target,token);
-          if(token!==state.renderToken)return;
-          lists.push(type==='live'?groupChannels(raw):uniqueById(raw,type));
-        }catch{}
-        if(lists.flat().length>=28)break;
-      }
-      if(token!==state.renderToken)return;
-      let items=lists.flat();
-      if(type!=='live')items=uniqueById(items,type);
-      const seen=new Set();
-      items=items.filter(item=>{
-        const key=type==='live'?(item.baseName||itemTitle(item)):String(itemId(item,type)||itemTitle(item));
-        if(!key||seen.has(key))return false;
-        seen.add(key);
-        return true;
-      });
-      heroItems=stableShuffle(items,type,bucket).slice(0,10);
-    }
+    let items=lists.flat(),seen=new Set();
+    items=items.filter(item=>{const key=type==='live'?(item.baseName||itemTitle(item)):String(itemId(item,type)||itemTitle(item));if(!key||seen.has(key))return false;seen.add(key);return true});
+    heroItems=stableShuffle(items,type,bucket).slice(0,10);
     heroIndex=0;
     if(!heroItems.length){node.classList.add('is-hidden');return}
     node.classList.remove('is-hidden');
-    playbackDebug('hero-set',{type,mode:heroSetMode,bucket,count:heroItems.length,expiresAt:heroSetExpiresAt});
+    playbackDebug('hero-set',{type,mode:'auto-fast',requestedMode:mode,bucket,count:heroItems.length,expiresAt:heroSetExpiresAt});
     showHero(0);
+    if(mode==='recommended'&&last&&window.__srhStandardRecommendations?.get){
+      setTimeout(async()=>{
+        if(token!==state.renderToken||state.activeType!==type)return;
+        let recommended=[];try{recommended=await window.__srhStandardRecommendations.get(type,last,10,{budgetMs:12000})}catch{}
+        if(token!==state.renderToken||state.activeType!==type||recommended.length<10)return;
+        heroSetMode='recommended';heroItems=recommended.slice(0,10).map(x=>x.item);heroIndex=0;
+        playbackDebug('hero-set-upgrade',{type,mode:'recommended',bucket,count:heroItems.length});
+        showHero(0)
+      },650)
+    }else heroSetMode='auto'
   }
 
   const baseRenderActiveType=renderActiveType;
@@ -2498,8 +2514,16 @@ async function closeDetail(){
     clearHeroVisual(heroHost(),state.activeType==='live');
     const out=baseRenderActiveType();
     heroViewToken=state.renderToken;
-    const token=state.renderToken;
+    const token=state.renderToken,targets=targetsFor(state.activeType);
     buildHero(token);
+    requestAnimationFrame(()=>{
+      if(token!==state.renderToken)return;
+      const first=el.content.querySelector('.rail-section[data-target="0"]'),target=targets[0];
+      if(first&&target&&!first.dataset.loaded){
+        first.dataset.loaded='1';state.categoryObserver?.unobserve(first);
+        renderRail(first,target,token)
+      }
+    });
     return out;
   };
 
