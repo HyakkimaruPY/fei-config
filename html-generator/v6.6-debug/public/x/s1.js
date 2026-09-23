@@ -1770,6 +1770,7 @@ async function closeDetail(){
 
   window.__srhTmdbRecommendations={
     resolve:resolveTmdb,
+    explicitId:explicitTmdbId,
     cleanTitle,
     imageUrl,
     async list(type,id,page=1){
@@ -1785,8 +1786,70 @@ async function closeDetail(){
 (function installStandardRecommendations(){
   const SIMILAR='<svg class="srh-lite-icon srh-lite-icon--similar" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7.5h6v-3h-6zM13.5 7.5h6v-3h-6zM4.5 19.5h6v-8h-6zM13.5 19.5h6v-8h-6z"/></svg>';
   const CLOSE='<svg class="ui-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>';
-  const recCache=new Map(),probeCache=new Map();
-  let recSeq=0,endRecoSeq=0;
+  const recCache=new Map(),probeCache=new Map(),configuredIndexCache=new Map();
+  const SIMILAR_STORE_KEY='srhell:'+STANDARD_APP_NS+':standard:similar:'+standardProviderId()+':v1';
+  let recSeq=0,endRecoSeq=0,similarStorePromise=null,similarWriteTail=Promise.resolve();
+
+  function similarLocalKey(type,item){return type+':'+String(itemId(item,type)||'')}
+  function compactRecoItem(type,item){
+    if(type==='series')return{series_id:item?.series_id??item?.id,name:itemTitle(item),cover:imageFor(item,'series')||item?.cover||'',tmdb_id:item?.tmdb_id??item?.tmdb??item?.tmdbId??''};
+    return{stream_id:item?.stream_id??item?.id,name:itemTitle(item),stream_icon:imageFor(item,'vod')||item?.stream_icon||'',container_extension:item?.container_extension||'mp4',tmdb_id:item?.tmdb_id??item?.tmdb??item?.tmdbId??''}
+  }
+  function compactTmdbRow(row,type){
+    if(!row)return null;
+    return{id:row.id||'',title:row.title||'',name:row.name||'',original_title:row.original_title||'',original_name:row.original_name||'',poster_path:row.poster_path||'',release_date:row.release_date||'',first_air_date:row.first_air_date||''}
+  }
+  async function readSimilarStore(){
+    if(similarStorePromise)return similarStorePromise;
+    similarStorePromise=standardStateGet(SIMILAR_STORE_KEY).then(v=>v&&typeof v==='object'?v:{entries:{}}).catch(()=>({entries:{}}));
+    return similarStorePromise
+  }
+  function queueSimilarStoreWrite(store){
+    const entries=store.entries||{},keys=Object.keys(entries).sort((a,b)=>Number(entries[b]?.at||0)-Number(entries[a]?.at||0));
+    for(const k of keys.slice(120))delete entries[k];
+    similarWriteTail=similarWriteTail.catch(()=>{}).then(()=>standardStateSet(SIMILAR_STORE_KEY,{version:1,provider:standardProviderId(),updatedAt:Date.now(),entries}));
+    return similarWriteTail
+  }
+  function mergeRecoRows(a=[],b=[],type){
+    const out=[],seen=new Set();
+    for(const row of [...a,...b]){
+      const item=row?.item||row,id=String(itemId(item,type)||'');if(!id||seen.has(id))continue;
+      seen.add(id);out.push({item:compactRecoItem(type,item),type,tmdb:compactTmdbRow(row?.tmdb,type)})
+    }
+    return out.slice(0,12)
+  }
+  async function saveRecommendationCluster(type,source,rows){
+    if(!source||rows.length<3)return;
+    const store=await readSimilarStore(),entries=store.entries||(store.entries={}),sourceItemLocal=compactRecoItem(type,source),sourceKey=similarLocalKey(type,sourceItemLocal),participants=[{item:sourceItemLocal,type,tmdb:null},...rows.map(r=>({item:compactRecoItem(type,r.item),type,tmdb:compactTmdbRow(r.tmdb,type)}))];
+    const now=Date.now();
+    for(const part of participants){
+      const key=similarLocalKey(type,part.item);if(!key||/:$/.test(key))continue;
+      const related=participants.filter(x=>similarLocalKey(type,x.item)!==key),prev=entries[key]?.rows||[];
+      entries[key]={at:now,verifiedAt:now,sourceKey,rows:mergeRecoRows(related,prev,type)}
+    }
+    queueSimilarStoreWrite(store)
+  }
+  async function configuredItemIndex(type){
+    const token=state.renderToken,key=type+':'+token,cached=configuredIndexCache.get(key);if(cached)return cached;
+    const p=(async()=>{const map=new Map();for(const target of targetsFor(type)){if(token!==state.renderToken)break;let raw=[];try{raw=await loadTargetItems(target,token)}catch{continue}for(const item of uniqueById(raw,type)){const id=String(itemId(item,type)||'');if(id&&!map.has(id))map.set(id,item)}}return map})();
+    configuredIndexCache.clear();configuredIndexCache.set(key,p);return p
+  }
+  async function revalidateCachedRows(type,rows,limit=12){
+    const index=await configuredItemIndex(type),present=[];
+    for(const saved of rows||[]){const id=String(itemId(saved?.item||saved,type)||''),actual=index.get(id);if(actual)present.push({item:actual,type,tmdb:saved?.tmdb||null})}
+    const out=[];
+    for(let i=0;i<present.length&&out.length<limit;i+=3){
+      const batch=present.slice(i,i+3),oks=await Promise.all(batch.map(x=>probeItem(x.item,type).catch(()=>false)));
+      batch.forEach((x,j)=>{if(oks[j]&&out.length<limit)out.push(x)})
+      if(out.length>=limit)break
+    }
+    return out
+  }
+  async function cachedRecommendations(type,item,limit=12){
+    const store=await readSimilarStore(),entry=store.entries?.[similarLocalKey(type,item)];
+    if(!entry?.rows?.length)return[];
+    return revalidateCachedRows(type,entry.rows,limit)
+  }
 
   function recoApi(){return window.__srhTmdbRecommendations}
   function recoTitle(result,type){return String(type==='series'?(result?.name||result?.original_name):(result?.title||result?.original_title)||'').trim()}
@@ -1883,36 +1946,59 @@ async function closeDetail(){
     recCache.set(cacheKey,{at:Date.now(),results});
     return results
   }
+  function recommendationAliases(row,type){
+    const vals=type==='series'?[row?.name,row?.original_name]:[row?.title,row?.original_title];
+    return [...new Set(vals.map(recoKey).filter(Boolean))]
+  }
+  function tokenScore(a,b){
+    if(!a||!b)return 0;if(a===b)return 1;
+    const A=new Set(a.split(' ').filter(Boolean)),B=new Set(b.split(' ').filter(Boolean));if(!A.size||!B.size)return 0;
+    let hit=0;for(const x of A)if(B.has(x))hit++;
+    const j=hit/(A.size+B.size-hit),cover=hit/Math.min(A.size,B.size);
+    return Math.max(j,cover*.92)
+  }
   async function matchConfigured(type,recommended,limit,budgetMs=11000){
-    const order=new Map(),wanted=new Set();
-    recommended.forEach((r,i)=>{const k=recoKey(recoTitle(r,type));if(k&&!order.has(k)){order.set(k,{i,row:r});wanted.add(k)}});
-    if(!wanted.size)return[];
-    const matched=[],matchedIds=new Set(),token=state.renderToken,targets=targetsFor(type),deadline=Date.now()+budgetMs;
-    for(const target of targets){
+    const recs=recommended.map((row,i)=>({row,i,aliases:recommendationAliases(row,type),id:String(row?.id||'')})).filter(x=>x.aliases.length||x.id);
+    if(!recs.length)return[];
+    const direct=[],fuzzy=[],seenLocal=new Set(),token=state.renderToken,deadline=Date.now()+budgetMs,api=recoApi(),kind=type==='series'?'tv':'movie';
+    for(const target of targetsFor(type)){
       if(Date.now()>deadline||token!==state.renderToken)break;
       let raw=[];try{raw=await loadTargetItems(target,token)}catch{continue}
-      const items=uniqueById(raw,type);
-      for(const item of items){
-        const k=recoKey(itemTitle(item));if(!wanted.has(k))continue;
-        const id=String(itemId(item,type)||k);if(matchedIds.has(id))continue;
-        matchedIds.add(id);matched.push({item,type,tmdb:order.get(k)?.row,rank:order.get(k)?.i??9999});
+      for(const item of uniqueById(raw,type)){
+        const localId=String(itemId(item,type)||'');if(!localId||seenLocal.has(localId))continue;
+        const localKey=recoKey(itemTitle(item)),explicit=String(api?.explicitId?.(item)||'');
+        let best=null,bestScore=0;
+        for(const rec of recs){
+          if(explicit&&rec.id&&explicit===rec.id){best=rec;bestScore=1;break}
+          for(const alias of rec.aliases){const score=tokenScore(localKey,alias);if(score>bestScore){bestScore=score;best=rec}}
+        }
+        if(!best)continue;
+        if(bestScore>=.995){seenLocal.add(localId);direct.push({item,type,tmdb:best.row,rank:best.i});continue}
+        if(bestScore>=.67){seenLocal.add(localId);fuzzy.push({item,type,tmdb:best.row,rank:best.i,score:bestScore})}
       }
     }
-    matched.sort((a,b)=>a.rank-b.rank);
-    const out=[];
-    for(const row of matched){
-      if(Date.now()>deadline)break;
-      if(await probeItem(row.item,type)){out.push(row);if(out.length>=limit)break}
+    const verified=[];
+    fuzzy.sort((a,b)=>b.score-a.score||a.rank-b.rank);
+    for(let i=0;i<fuzzy.length&&i<24&&Date.now()<deadline;i+=2){
+      const batch=fuzzy.slice(i,i+2);
+      const metas=await Promise.all(batch.map(x=>api?.resolve?.(kind,x.item,null).catch?.(()=>null)??Promise.resolve(null)));
+      batch.forEach((x,j)=>{if(String(metas[j]?.id||'')===String(x.tmdb?.id||''))verified.push(x)})
+    }
+    const merged=[...direct,...verified].sort((a,b)=>a.rank-b.rank),out=[],seen=new Set();
+    for(const row of merged){
+      const id=String(itemId(row.item,type)||'');if(!id||seen.has(id)||Date.now()>deadline)continue;
+      seen.add(id);if(await probeItem(row.item,type)){out.push(row);if(out.length>=limit)break}
     }
     return out
   }
-  async function getRecommendations(type,current,limit=6,{budgetMs=12000}={}){
+  async function getRecommendations(type,current,limit=6,{budgetMs=12000,preferCache=true}={}){
     if(!['vod','series'].includes(type)||!current)return[];
-    const seq=++recSeq,raw=await candidateResults(type,current,3);
-    if(seq<0)return[];
-    return matchConfigured(type,raw,limit,budgetMs)
+    if(preferCache){const cached=await cachedRecommendations(type,sourceItem(type,current)||current,limit);if(cached.length>=Math.min(3,limit))return cached.slice(0,limit)}
+    ++recSeq;const raw=await candidateResults(type,current,4),rows=await matchConfigured(type,raw,limit,budgetMs);
+    if(rows.length>=3)await saveRecommendationCluster(type,sourceItem(type,current)||current,rows);
+    return rows
   }
-  window.__srhStandardRecommendations={get:getRecommendations,probe:probeItem};
+  window.__srhStandardRecommendations={get:getRecommendations,probe:probeItem,cached:cachedRecommendations};
 
   function closeSimilar(){
     const panel=el.detailBody.querySelector('.srh-similar-panel');
