@@ -1686,7 +1686,7 @@ async function closeDetail(){
     if(!item.stream_id)return;
     clearResumePreview();
     purgeContinueFrameWorkers();
-    const framePromise=continueFrameForModal(entry,'vod');
+    const framePromise=continueFrameForModal(entry,'vod').catch(()=>null);
     state.srhContinueFramePromise=framePromise;
     const loading=openFilm(item),token=state.detailToken;
     try{
@@ -1708,7 +1708,7 @@ async function closeDetail(){
     if(!item.series_id)return;
     clearResumePreview();
     purgeContinueFrameWorkers();
-    const framePromise=continueFrameForModal(entry,'series');
+    const framePromise=continueFrameForModal(entry,'series').catch(()=>null);
     state.srhContinueFramePromise=framePromise;
     const loading=openSeries(item),token=state.detailToken;
     try{
