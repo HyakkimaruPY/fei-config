@@ -331,8 +331,8 @@ body.srh-main-stream-style.srh-topbar-hidden .topbar{
 
 /* Recover 6px from the hero without changing its composition. */
 body.srh-main-stream-style .stream-hero{
-  height:calc(var(--stream-hero-h) - 6px)!important;
-  min-height:354px!important;
+  height:calc(var(--stream-hero-h) - 12px)!important;
+  min-height:348px!important;
 }
 
 /* Explicit Similar button text. */
@@ -471,8 +471,8 @@ body.srh-main-stream-style .srh-playback-feedback__error small{
 
 @media(max-width:680px){
   body.srh-main-stream-style .stream-hero{
-    height:calc(var(--stream-hero-h) - 6px)!important;
-    min-height:384px!important;
+    height:calc(var(--stream-hero-h) - 12px)!important;
+    min-height:378px!important;
   }
   body.srh-main-stream-style .srh-lite-action--similar{
     min-width:76px!important;
