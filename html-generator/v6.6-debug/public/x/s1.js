@@ -172,7 +172,7 @@ function attachVideo(video,url,onReady,onError){
    const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),2600);
    try{const r=await fetch(src,{cache:'no-store',headers:{Range:'bytes=0-1'},signal:ctrl.signal,srhProbe:true});return Number(r.status)||0}catch{return 0}finally{clearTimeout(timer)}
  };
- const exhausted=async()=>{const err=last||{message:'mídia indisponível'};if(!isLive()&&!err.status&&lastUrl){const status=await finalProviderStatus(lastUrl);if(status)err.status=status}onError?.(err)};
+ const exhausted=async()=>{const err=last||{message:'mídia indisponível'};if(!isLive()&&!err.status&&lastUrl){const status=await finalProviderStatus(lastUrl);if(status>=400)err.status=status}onError?.(err)};
  const next=()=>{if(index>=queue.length){exhausted();return}start(queue[index++],0)};
  const start=async(current,attempt)=>{
   destroyHls();const token=state.mediaEpoch,kind=mediaKind(current);let sourceFailed=false,retryTimer=0,watchdog=0,metadataTimer=0,liveStartupTimer=0,lastAdvanceAt=Date.now(),lastTime=0,hlsNetworkRecoveries=0,hlsMediaRecoveries=0;
@@ -1828,8 +1828,8 @@ async function closeDetail(){
   const SIMILAR='<svg class="srh-lite-icon srh-lite-icon--similar" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7.5h6v-3h-6zM13.5 7.5h6v-3h-6zM4.5 19.5h6v-8h-6zM13.5 19.5h6v-8h-6z"/></svg>';
   const CLOSE='<svg class="ui-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>';
   const recCache=new Map(),probeCache=new Map(),configuredIndexCache=new Map();
-  const SIMILAR_STORE_KEY='srhell:'+STANDARD_APP_NS+':standard:similar:'+standardProviderId()+':v1';
-  let recSeq=0,endRecoSeq=0,similarStorePromise=null,similarWriteTail=Promise.resolve();
+  const similarStoreKey=()=> 'srhell:'+STANDARD_APP_NS+':standard:similar:'+standardProviderId()+':v1';
+  let recSeq=0,endRecoSeq=0,similarStorePromise=null,similarStoreBoundKey='',similarWriteTail=Promise.resolve();
 
   function similarLocalKey(type,item){return type+':'+String(itemId(item,type)||'')}
   function compactRecoItem(type,item){
@@ -1841,14 +1841,16 @@ async function closeDetail(){
     return{id:row.id||'',title:row.title||'',name:row.name||'',original_title:row.original_title||'',original_name:row.original_name||'',poster_path:row.poster_path||'',release_date:row.release_date||'',first_air_date:row.first_air_date||''}
   }
   async function readSimilarStore(){
-    if(similarStorePromise)return similarStorePromise;
-    similarStorePromise=standardStateGet(SIMILAR_STORE_KEY).then(v=>v&&typeof v==='object'?v:{entries:{}}).catch(()=>({entries:{}}));
+    const key=similarStoreKey();
+    if(similarStorePromise&&similarStoreBoundKey===key)return similarStorePromise;
+    similarStoreBoundKey=key;
+    similarStorePromise=standardStateGet(key).then(v=>v&&typeof v==='object'?v:{entries:{}}).catch(()=>({entries:{}}));
     return similarStorePromise
   }
   function queueSimilarStoreWrite(store){
     const entries=store.entries||{},keys=Object.keys(entries).sort((a,b)=>Number(entries[b]?.at||0)-Number(entries[a]?.at||0));
     for(const k of keys.slice(120))delete entries[k];
-    similarWriteTail=similarWriteTail.catch(()=>{}).then(()=>standardStateSet(SIMILAR_STORE_KEY,{version:1,provider:standardProviderId(),updatedAt:Date.now(),entries}));
+    const key=similarStoreKey();similarWriteTail=similarWriteTail.catch(()=>{}).then(()=>standardStateSet(key,{version:1,provider:standardProviderId(),updatedAt:Date.now(),entries}));
     return similarWriteTail
   }
   function mergeRecoRows(a=[],b=[],type){
