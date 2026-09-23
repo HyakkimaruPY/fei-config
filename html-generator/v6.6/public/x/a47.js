@@ -4,10 +4,17 @@ const $=s=>document.querySelector(s);
 const clean=s=>String(s??'').trim();
 const APP_NS=String(BASE_CONFIG.appId||BASE_CONFIG.appName||'app').replace(/[^a-z0-9_-]/gi,'_');
 const runtimeKey='srh25:'+APP_NS+':runtime:v1';
-function readRuntime(){try{const x=JSON.parse(localStorage.getItem(runtimeKey)||'null');return x&&typeof x==='object'?x:null}catch{return null}}
-const cfg={...BASE_CONFIG,...(readRuntime()||{})};
+function readRuntimeLegacy(){try{const x=JSON.parse(localStorage.getItem(runtimeKey)||'null');return x&&typeof x==='object'?x:null}catch{return null}}
+const cfg={...BASE_CONFIG,...(readRuntimeLegacy()||{})};
 const S={cfg,baseConfig:BASE_CONFIG,runtimeKey,state:{items:[],filtered:[],history:[],favorites:new Set(),pool:null,poolPromise:null,proxy:null,proxyChoice:null,hls:null,current:null,requests:new Map()},$};
 window.SRH25=S;
+const RUNTIME_DB='srh25-runtime-v2',RUNTIME_STORE='state';let runtimeDbPromise=null,runtimeWriteTail=Promise.resolve(),runtimeQueued=0,runtimeDone=0;
+function runtimeDbOpen(){if(runtimeDbPromise)return runtimeDbPromise;runtimeDbPromise=new Promise((resolve,reject)=>{if(!window.indexedDB){reject(new Error('IndexedDB indisponível'));return}let q;try{q=indexedDB.open(RUNTIME_DB,1)}catch(e){runtimeDbPromise=null;reject(e);return}q.onupgradeneeded=()=>{try{if(!q.result.objectStoreNames.contains(RUNTIME_STORE))q.result.createObjectStore(RUNTIME_STORE)}catch{}};q.onsuccess=()=>{const db=q.result;db.onversionchange=()=>{try{db.close()}catch{}runtimeDbPromise=null};resolve(db)};q.onerror=()=>{runtimeDbPromise=null;reject(q.error||new Error('IndexedDB falhou'))};q.onblocked=()=>{}});return runtimeDbPromise}
+async function runtimeDbGet(key){const db=await runtimeDbOpen();return await new Promise((resolve,reject)=>{let tx,r;try{tx=db.transaction(RUNTIME_STORE,'readonly');r=tx.objectStore(RUNTIME_STORE).get(key)}catch(e){reject(e);return}r.onsuccess=()=>resolve(r.result==null?null:r.result);r.onerror=()=>reject(r.error||new Error('IndexedDB leitura falhou'))})}
+async function runtimeDbWriteRaw(key,value,remove=false){const db=await runtimeDbOpen();return await new Promise((resolve,reject)=>{let tx;try{tx=db.transaction(RUNTIME_STORE,'readwrite');const os=tx.objectStore(RUNTIME_STORE);remove?os.delete(key):os.put(value,key)}catch(e){reject(e);return}tx.oncomplete=()=>resolve(true);tx.onerror=()=>reject(tx.error||new Error('IndexedDB escrita falhou'));tx.onabort=()=>reject(tx.error||new Error('IndexedDB escrita abortada'))})}
+function runtimeWriteLock(task){runtimeQueued++;const run=async()=>{try{if(navigator.locks?.request)return await navigator.locks.request('srh25-runtime:'+APP_NS,{mode:'exclusive'},task);return await task()}finally{runtimeDone++}};const next=runtimeWriteTail.catch(()=>{}).then(run);runtimeWriteTail=next.catch(()=>{});return next}
+S.storage={backend:'indexeddb',db:RUNTIME_DB,get:key=>runtimeDbGet(key),set:(key,value)=>runtimeWriteLock(()=>runtimeDbWriteRaw(key,value,false)),delete:key=>runtimeWriteLock(()=>runtimeDbWriteRaw(key,null,true)),open:runtimeDbOpen,stats:()=>({backend:'indexeddb',db:RUNTIME_DB,connection:runtimeDbPromise?'open/pending':'closed',queuedWrites:Math.max(0,runtimeQueued-runtimeDone),writesQueued:runtimeQueued,writesDone:runtimeDone,webLocks:!!navigator.locks?.request})};
+S.hydrateRuntime=async()=>{const legacy=readRuntimeLegacy();let stored=null;try{stored=await S.storage.get(runtimeKey)}catch{}if(!stored&&legacy){try{await S.storage.set(runtimeKey,legacy);stored=legacy;try{localStorage.removeItem(runtimeKey)}catch{}}catch{stored=legacy}}if(stored&&typeof stored==='object')Object.assign(cfg,stored);return stored};
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 const server=(source=cfg)=>clean(source?.server).replace(/\/+$/,'');
 const enc=encodeURIComponent;
@@ -27,9 +34,11 @@ S.image=highQualityImage;
 S.stream=item=>`${server()}/movie/${enc(cfg.username)}/${enc(cfg.password)}/${S.id(item)}.${clean(item?.container_extension)||'mp4'}`;
 S.toast=msg=>{const n=$('#toast');if(!n)return;n.textContent=msg;n.classList.add('is-on');clearTimeout(S.toast.t);S.toast.t=setTimeout(()=>n.classList.remove('is-on'),1800)};
 S.parseLogin=raw=>{let text=clean(raw);if(!text)throw new Error('Informe o novo M3U / login Xtream.');if(!/^https?:\/\//i.test(text))text='http://'+text;let u;try{u=new URL(text)}catch{throw new Error('URL inválida.')}let username=u.searchParams.get('username')||u.searchParams.get('user'),password=u.searchParams.get('password')||u.searchParams.get('pass');const parts=u.pathname.split('/').filter(Boolean);if((!username||!password)&&parts.length>=2&&!/\.php$/i.test(parts.at(-1)||'')){username=username||decodeURIComponent(parts[0]);password=password||decodeURIComponent(parts[1])}if(!username||!password)throw new Error('Não encontrei username e password.');return{server:u.origin.replace(/\/+$/,''),username,password,liveExtension:(u.searchParams.get('output')||cfg.liveExtension||'m3u8').toLowerCase()==='ts'?'ts':'m3u8'}};
-S.saveRuntime=runtime=>{try{localStorage.setItem(runtimeKey,JSON.stringify(runtime));return true}catch{return false}};
+S.saveRuntime=async runtime=>{if(!runtime||typeof runtime!=='object')throw new Error('Runtime inválido');await S.storage.set(runtimeKey,runtime);Object.assign(cfg,runtime);try{localStorage.removeItem(runtimeKey)}catch{}return true};
 function parseJson(t){let s=String(t??'').replace(/^\uFEFF/,'').trim();try{return JSON.parse(s)}catch{}const a=s.indexOf('{'),b=s.indexOf('['),i=a<0?b:b<0?a:Math.min(a,b);if(i>=0){const j=s.lastIndexOf(s[i]==='{'?'}':']');if(j>i)return JSON.parse(s.slice(i,j+1))}throw new Error('Resposta inválida')}
-async function fetchText(url,timeout=5000){const c=new AbortController(),t=setTimeout(()=>c.abort(),timeout);try{const r=await fetch(url,{cache:'no-cache',redirect:'follow',credentials:'omit',signal:c.signal});if(!r.ok)throw new Error('HTTP '+r.status);return await r.text()}finally{clearTimeout(t)}}
+async function fetchText(url,timeout=5000,options={}){const c=new AbortController(),relay=()=>{try{c.abort(options.signal?.reason||'superseded')}catch{c.abort()}},t=setTimeout(()=>{try{c.abort('timeout')}catch{c.abort()}},timeout);if(options.signal){if(options.signal.aborted)relay();else options.signal.addEventListener('abort',relay,{once:true})}try{const r=await fetch(url,{cache:'no-cache',redirect:'follow',credentials:'omit',signal:c.signal,srhProbe:options.probe===true});if(!r.ok)throw new Error('HTTP '+r.status);return await r.text()}finally{clearTimeout(t);try{options.signal?.removeEventListener('abort',relay)}catch{}}}
+function transportDelay(ms,signal){return new Promise((resolve,reject)=>{if(signal?.aborted){reject(signal.reason||new DOMException('Aborted','AbortError'));return}const t=setTimeout(done,ms);function done(){cleanup();resolve()}function abort(){cleanup();reject(signal.reason||new DOMException('Aborted','AbortError'))}function cleanup(){clearTimeout(t);try{signal?.removeEventListener('abort',abort)}catch{}}try{signal?.addEventListener('abort',abort,{once:true})}catch{}})}
+async function firstJsonResponse(urls,timeout,options={}){const list=[...new Set((urls||[]).filter(Boolean))],ctrls=list.map(()=>new AbortController()),relay=()=>{for(const c of ctrls)if(!c.signal.aborted)try{c.abort(options.signal?.reason||'route-lost')}catch{c.abort()}};if(options.signal){if(options.signal.aborted)relay();else options.signal.addEventListener('abort',relay,{once:true})}try{return await Promise.any(list.map((u,i)=>fetchText(u,timeout,{probe:true,signal:ctrls[i].signal}).then(parseJson)))}finally{try{options.signal?.removeEventListener('abort',relay)}catch{}relay()}}
 function httpsTwin(url){try{const u=new URL(url);if(u.protocol!=='http:')return'';u.protocol='https:';return u.href}catch{return''}}
 function proxyUrl(template,target){const b=clean(template),raw=clean(target),e=enc(raw);if(!b)return'';if(b.includes('{rawUrl}'))return b.replaceAll('{rawUrl}',raw);if(b.includes('{raw}'))return b.replaceAll('{raw}',raw);if(b.includes('{url}'))return b.replaceAll('{url}',e);if(b.endsWith('=')||b.endsWith('?'))return b+e;try{const u=new URL(b),k=['url','target','uri','q'].find(x=>u.searchParams.has(x))||'url';u.searchParams.set(k,raw);return u.toString()}catch{return''}}
 function apiUrl(params={},source=cfg){const u=new URL(server(source)+'/player_api.php');u.searchParams.set('username',source.username);u.searchParams.set('password',source.password);for(const [k,v] of Object.entries(params))if(v!==undefined&&v!==null&&v!=='')u.searchParams.set(k,v);return u.toString()}
@@ -40,48 +49,52 @@ async function loadPool(){
   try{return await S.state.poolPromise}finally{S.state.poolPromise=null}
 }
 function proxyKey(source=cfg){let h='host';try{h=new URL(server(source)).host}catch{}return 'srh25:proxy:'+(source.appId||BASE_CONFIG.appId||source.appName||BASE_CONFIG.appName||'app')+':'+h}
-function readProxy(source=cfg){try{return JSON.parse(localStorage.getItem(proxyKey(source))||'null')}catch{return null}}
-function saveProxy(x,source=cfg){try{localStorage.setItem(proxyKey(source),JSON.stringify(x))}catch{}}
-function clearProxy(source=cfg){try{localStorage.removeItem(proxyKey(source))}catch{}}
-async function chooseProxy(target,source=cfg){
-  if(S.state.proxyChoice)return S.state.proxyChoice;
-  const job=(async()=>{
-    const pool=(await loadPool()).slice(0,4);
-    const tests=await Promise.all(pool.map(async p=>{const u=proxyUrl(p.template,target),t=performance.now();try{parseJson(await fetchText(u,2600));return{p,ms:performance.now()-t}}catch{return null}}));
-    const ok=tests.filter(Boolean).sort((a,b)=>a.ms-b.ms)[0];
-    if(!ok)throw new Error('Nenhum proxy CORS respondeu');
-    saveProxy({template:ok.p.template,id:ok.p.id||'',uses:1,at:Date.now()},source);return ok.p.template
-  })();
-  S.state.proxyChoice=job;
-  job.then(()=>{S.state.proxyChoice=null},()=>{S.state.proxyChoice=null});
-  return job
+const proxyMemory=new Map();function proxyLegacyRead(source=cfg){try{return JSON.parse(localStorage.getItem(proxyKey(source))||'null')}catch{return null}}
+function readProxy(source=cfg){const k=proxyKey(source);return proxyMemory.get(k)||proxyLegacyRead(source)}
+function saveProxy(x,source=cfg){const k=proxyKey(source),value={...x,at:Date.now()};proxyMemory.set(k,value);void S.storage?.set(k,value).catch(()=>{});return value}
+function clearProxy(source=cfg){const k=proxyKey(source);proxyMemory.delete(k);void S.storage?.delete(k).catch(()=>{});try{localStorage.removeItem(k)}catch{}}
+S.hydrateProxy=async(source=cfg)=>{const k=proxyKey(source),legacy=proxyLegacyRead(source);let saved=null;try{saved=await S.storage?.get(k)}catch{}if(!saved&&legacy){saved=legacy;try{await S.storage?.set(k,legacy);localStorage.removeItem(k)}catch{}}if(saved)proxyMemory.set(k,saved);return saved};
+async function chooseProxy(target,source=cfg,options={}){
+  const pool=(await loadPool()).slice(0,4),saved=readProxy(source),rows=[],seen=new Set();
+  const add=(template,id,label)=>{template=clean(template);if(!template||seen.has(template))return;seen.add(template);rows.push({template,id:id||'',label})};
+  add(source.corsProxy,'configured','configured-proxy');
+  if(saved?.template)add(saved.template,saved.id||'saved','saved-proxy');
+  for(const p of pool)add(p.template,p.id||'', 'pool-proxy');
+  if(!rows.length)throw new Error('Nenhum proxy CORS disponível');
+  const ctrls=rows.map(()=>new AbortController()),outer=options.signal,relay=()=>{for(const c of ctrls)if(!c.signal.aborted)try{c.abort(outer?.reason||'proxy-lost')}catch{c.abort()}};
+  if(outer){if(outer.aborted)relay();else outer.addEventListener('abort',relay,{once:true})}
+  const started=performance.now(),timeout=Number(options.timeout)||18000;
+  try{
+    const winner=await Promise.any(rows.map(async(row,i)=>{
+      if(i)await transportDelay(Math.min(900,i*250),ctrls[i].signal);
+      const data=parseJson(await fetchText(proxyUrl(row.template,target),timeout,{signal:ctrls[i].signal}));
+      return{data,route:row.label,template:row.template,id:row.id,ms:Math.round(performance.now()-started)}
+    }));
+    saveProxy({template:winner.template,id:winner.id,uses:Number(saved?.uses||0)+1,lastMs:winner.ms,lastRoute:winner.route},source);
+    return winner
+  }catch{throw new Error('Nenhum proxy CORS respondeu')}
+  finally{try{outer?.removeEventListener('abort',relay)}catch{}relay()}
 }
 function requestFor(params={},source=cfg){
-  const target=apiUrl(params,source),key=target;
+  const target=apiUrl(params,source),key=target,action=String(params?.action||''),categoryId=String(params?.category_id||''),directTimeout=action==='get_vod_streams'?9000:4200,proxyTimeout=action==='get_vod_streams'?18000:14000;
   if(S.state.requests.has(key))return S.state.requests.get(key);
   const job=(async()=>{
-    const candidates=[target,httpsTwin(target)].filter(Boolean);
-    let last;
-    if(candidates.length){
-      try{return await Promise.any(candidates.map(async u=>parseJson(await fetchText(u,1900))))}catch(e){last=e}
+    const started=performance.now(),directCtrl=new AbortController(),proxyCtrl=new AbortController(),candidates=[target,httpsTwin(target)].filter(Boolean),useProxy=!!source.corsProxy||source.autoCorsProxy!==false;
+    const tasks=[];
+    if(candidates.length)tasks.push(firstJsonResponse(candidates,directTimeout,{signal:directCtrl.signal}).then(data=>({data,route:'direct'})));
+    if(useProxy)tasks.push((async()=>{if(location.protocol!=='file:')await transportDelay(700,proxyCtrl.signal);return await chooseProxy(target,source,{timeout:proxyTimeout,signal:proxyCtrl.signal})})());
+    try{
+      const winner=await Promise.any(tasks);
+      if(!directCtrl.signal.aborted)try{directCtrl.abort('transport-won')}catch{}
+      if(!proxyCtrl.signal.aborted)try{proxyCtrl.abort('transport-won')}catch{}
+      const detail={route:winner.route||'unknown',action,categoryId,ms:Math.round(performance.now()-started)};
+      S.state.lastTransport=detail;window.dispatchEvent(new CustomEvent('srh25:transport',{detail}));
+      return winner.data
+    }catch(e){
+      if(!directCtrl.signal.aborted)try{directCtrl.abort('transport-failed')}catch{}
+      if(!proxyCtrl.signal.aborted)try{proxyCtrl.abort('transport-failed')}catch{}
+      throw e?.errors?.at?.(-1)||e||new Error('Falha de conexão')
     }
-    if(source.corsProxy){
-      try{return parseJson(await fetchText(proxyUrl(source.corsProxy,target),3600))}catch(e){last=e}
-    }
-    if(source.autoCorsProxy!==false){
-      const saved=readProxy(source);
-      if(saved?.template){
-        try{
-          saved.uses=Number(saved.uses||0)+1;saveProxy(saved,source);
-          return parseJson(await fetchText(proxyUrl(saved.template,target),3600));
-        }catch(e){last=e;clearProxy(source)}
-      }
-      try{
-        const p=await chooseProxy(target,source);
-        return parseJson(await fetchText(proxyUrl(p,target),4200));
-      }catch(e){last=e}
-    }
-    throw last||new Error('Falha de conexão')
   })();
   S.state.requests.set(key,job);
   job.then(()=>S.state.requests.delete(key),()=>S.state.requests.delete(key));
@@ -89,6 +102,7 @@ function requestFor(params={},source=cfg){
 }
 S.request=params=>requestFor(params,cfg);
 S.requestWithConfig=(params,source)=>requestFor(params,{...cfg,...source});
+S.coverProxyCandidates=url=>{const out=[url];try{if(cfg.corsProxy)out.push(proxyUrl(cfg.corsProxy,url));const saved=readProxy(cfg);if(saved?.template)out.push(proxyUrl(saved.template,url))}catch{}return[...new Set(out.filter(Boolean))]};
 const ns=APP_NS;
 const favKey='srh25:'+ns+':favorites',histKey='srh25:'+ns+':history',continueHiddenKey='srh25:'+ns+':continue-hidden:v1';
 let continueHiddenMemory={};
@@ -142,19 +156,18 @@ function mergeContinueHidden(a,b){
   }
   return normalizeContinueHidden(out)
 }
-S.readContinueHidden=()=>mergeContinueHidden(continueHiddenMemory,continueHiddenLocalRead());
+S.readContinueHidden=()=>normalizeContinueHidden(continueHiddenMemory);
 S.writeContinueHidden=map=>{
   const value=normalizeContinueHidden(map);
   continueHiddenMemory=value;
-  continueHiddenLocalWrite(value);
   void continueHiddenDbWrite(value);
   return true
 };
 S.hydrateContinueHidden=async()=>{
   const local=continueHiddenLocalRead(),db=await continueHiddenDbRead();
   continueHiddenMemory=mergeContinueHidden(local,db);
-  continueHiddenLocalWrite(continueHiddenMemory);
   void continueHiddenDbWrite(continueHiddenMemory);
+  try{localStorage.removeItem(continueHiddenKey)}catch{}
   return continueHiddenMemory
 };
 S.continueHiddenReason=item=>S.readContinueHidden()[S.id(item)]?.reason||'';
@@ -195,8 +208,10 @@ S.reconcileContinueHidden=()=>{
   if(changed)S.writeContinueHidden(map);
   return changed
 };
-S.readFavorites=()=>{try{return new Set(JSON.parse(localStorage.getItem(favKey)||'[]').map(String))}catch{return new Set()}};
-S.writeFavorites=set=>{try{localStorage.setItem(favKey,JSON.stringify([...set]));return true}catch{return false}};
+let favoritesMemory=new Set();function favoritesLegacyRead(){try{return JSON.parse(localStorage.getItem(favKey)||'[]').map(String)}catch{return[]}}
+S.readFavorites=()=>new Set(favoritesMemory);
+S.writeFavorites=set=>{favoritesMemory=new Set([...set].map(String));void S.storage?.set(favKey,[...favoritesMemory]).catch(()=>{});return true};
+S.hydrateFavorites=async()=>{const legacy=favoritesLegacyRead();let db=null;try{db=await S.storage?.get(favKey)}catch{}const rows=Array.isArray(db)?db:legacy;favoritesMemory=new Set(rows.map(String));if(!db&&legacy.length)try{await S.storage?.set(favKey,legacy);localStorage.removeItem(favKey)}catch{}return new Set(favoritesMemory)};
 
 let historyMemory=[];
 const HISTORY_DB='srh25-history-v1',HISTORY_STORE='state';
@@ -278,18 +293,22 @@ S.reconcileHistoryWithCatalog=items=>{
 
   S.state.history=historyNormalize(repaired);
   historyMemory=S.state.history.slice();
-  historyLocalWrite(S.state.history);
   void historyDbWrite(S.state.history);
   return true
 };
-function historyDbOpen(){
-  return new Promise((resolve,reject)=>{
+let historyDbPromise=null;function historyDbOpen(){
+  if(historyDbPromise)return historyDbPromise;
+  historyDbPromise=new Promise((resolve,reject)=>{
     if(!window.indexedDB){reject(new Error('IndexedDB indisponível'));return}
-    let q;try{q=indexedDB.open(HISTORY_DB,1)}catch(e){reject(e);return}
+    let q;try{q=indexedDB.open(HISTORY_DB,1)}catch(e){historyDbPromise=null;reject(e);return}
     q.onupgradeneeded=()=>{try{if(!q.result.objectStoreNames.contains(HISTORY_STORE))q.result.createObjectStore(HISTORY_STORE)}catch{}};
-    q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error||new Error('IndexedDB falhou'))
-  })
+    q.onsuccess=()=>{const db=q.result;db.onversionchange=()=>{try{db.close()}catch{}historyDbPromise=null};resolve(db)};q.onerror=()=>{historyDbPromise=null;reject(q.error||new Error('IndexedDB falhou'))}
+  });return historyDbPromise
 }
+S.historyDbOpen=historyDbOpen;
+function providerIdentity(value){let raw=String(value||'').trim();if(!raw)return'';if(!/^https?:\/\//i.test(raw))raw='http://'+raw;try{return String(new URL(raw).hostname||'').toLowerCase().replace(/\.$/,'')}catch{return String(value||'').trim().toLowerCase().replace(/^https?:\/\//,'').split('/')[0].split(':')[0].replace(/\.$/,'')}}
+S.providerIdentity=providerIdentity;
+S.clearProviderState=async(oldSource,newSource)=>{const from=providerIdentity(oldSource?.server),to=providerIdentity(newSource?.server),changed=!!from&&!!to&&from!==to;if(!changed)return{changed:false,from,to,cleared:0};const miniBase='srh25:'+APP_NS,historyKeys=[histKey,continueHiddenKey,miniBase+':mini-resume:v1',miniBase+':mini-resume-dismissed:v1',miniBase+':mini-resume-position:v2',miniBase+':mini-resume-position:v1'];let cleared=0;try{await S.storage?.delete(favKey);cleared++}catch{}try{clearProxy(oldSource||cfg);cleared++}catch{}try{const db=await historyDbOpen();await new Promise(resolve=>{let tx;try{tx=db.transaction(HISTORY_STORE,'readwrite');const os=tx.objectStore(HISTORY_STORE);for(const key of historyKeys)os.delete(key)}catch{resolve();return}tx.oncomplete=()=>resolve();tx.onerror=()=>resolve();tx.onabort=()=>resolve()});cleared+=historyKeys.length}catch{}for(const key of [favKey,...historyKeys])try{localStorage.removeItem(key)}catch{}favoritesMemory=new Set();historyMemory=[];continueHiddenMemory={};S.state.favorites=new Set();S.state.history=[];const detail={changed:true,from,to,cleared};try{window.dispatchEvent(new CustomEvent('srh25:provider-switch',{detail}))}catch{}return detail};
 async function historyDbRead(){
   try{
     const db=await historyDbOpen();
@@ -319,19 +338,18 @@ function historyLocalRead(){
 function historyLocalWrite(rows){
   try{localStorage.setItem(histKey,JSON.stringify(rows));return true}catch{return false}
 }
-S.readHistory=()=>historyMerge(historyMemory,historyLocalRead());
+S.readHistory=()=>historyMemory.slice();
 S.writeHistory=list=>{
   const rows=historyNormalize(list);
   historyMemory=rows;
-  historyLocalWrite(rows);
   void historyDbWrite(rows);
   return true
 };
 S.hydrateHistory=async()=>{
   const local=historyLocalRead(),db=await historyDbRead();
   historyMemory=historyMerge(local,db);
-  historyLocalWrite(historyMemory);
   void historyDbWrite(historyMemory);
+  try{localStorage.removeItem(histKey)}catch{}
   return historyMemory.slice()
 };
 S.toggleFavorite=item=>{
@@ -374,7 +392,7 @@ S.lockZoom=()=>{
   window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&['+','-','=','0'].includes(e.key))e.preventDefault()});
 };
 S.account=async()=>{try{const a=await S.request({}),raw=a?.user_info?.exp_date,n=Number(raw);if(n>0){const d=new Date(n*1000),days=Math.ceil((d-Date.now())/86400000);$('#expiryDate').textContent=d.toLocaleDateString('pt-BR');$('#expiryDays').textContent=days+' dias';$('#appMeta').textContent=(a?.user_info?.status||'Active')+' · '+days+' dias restantes'}else $('#appMeta').textContent=a?.user_info?.status||'Active'}catch{$('#appMeta').textContent='Conta conectada'}};
-S.boot=async()=>{document.body.dataset.theme=cfg.theme||'graphene';$('#appTitle').textContent=cfg.appName||'Meu App';S.lockZoom();S.state.favorites=S.readFavorites();S.state.history=await S.hydrateHistory();await S.hydrateContinueHidden?.();if(S.hydrateMiniUiState)await S.hydrateMiniUiState();S.reconcileContinueHidden?.();S.bindShell?.();await S.loadCatalog?.();window.dispatchEvent(new Event('srh25:ready'));setTimeout(()=>S.account(),0)};
+S.boot=async()=>{await S.hydrateRuntime?.();await S.hydrateProxy?.();document.body.dataset.theme=cfg.theme||'graphene';$('#appTitle').textContent=cfg.appName||'Meu App';S.lockZoom();S.state.favorites=await S.hydrateFavorites?.()||S.readFavorites();S.state.history=await S.hydrateHistory();await S.hydrateContinueHidden?.();if(S.hydrateMiniUiState)await S.hydrateMiniUiState();S.reconcileContinueHidden?.();S.bindShell?.();await S.loadCatalog?.();window.dispatchEvent(new Event('srh25:ready'));setTimeout(()=>S.account(),0)};
 })();
 (()=>{'use strict';const S=window.SRH25,$=S.$;
 const BATCH=30,CACHE_MAX_AGE=6*60*60*1000;let shown=0,observer=null,imgObserver=null,activeLibrary=null,updateCandidate=null,updateCategories=[],updateSelected=new Set();
@@ -385,10 +403,8 @@ function interleaveGroups(groups){const rows=(groups||[]).map(x=>Array.isArray(x
 const CATEGORY_MERGE_VERSION='balanced-v1';
 const cacheTargetKey=(S.cfg.targets||[]).filter(t=>t.type==='vod').map(t=>String(t.id??t.category_id??t.name??'')).join(',');
 const cacheKey='catalog:v2mix:'+(S.cfg.appId||S.cfg.appName||'app')+':'+cacheTargetKey;
-function openCache(){return new Promise((resolve,reject)=>{try{const q=indexedDB.open('srh-shorts-cache',1);q.onupgradeneeded=()=>{if(!q.result.objectStoreNames.contains('catalogs'))q.result.createObjectStore('catalogs')};q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error)}catch(e){reject(e)}})}
-async function cacheRead(){try{const db=await openCache();return await new Promise(resolve=>{const tx=db.transaction('catalogs','readonly'),r=tx.objectStore('catalogs').get(cacheKey);r.onsuccess=()=>resolve(r.result||null);r.onerror=()=>resolve(null)})}catch{return null}}
-async function cacheWrite(items){if(!items?.length)return;try{const db=await openCache();await new Promise(resolve=>{const tx=db.transaction('catalogs','readwrite');tx.objectStore('catalogs').put({time:Date.now(),items},cacheKey);tx.oncomplete=()=>resolve();tx.onerror=()=>resolve()})}catch{}}
-S.clearCatalogCache=async()=>{try{const db=await openCache();await new Promise(resolve=>{const tx=db.transaction('catalogs','readwrite');tx.objectStore('catalogs').delete(cacheKey);tx.oncomplete=()=>resolve();tx.onerror=()=>resolve()})}catch{}};
+const CATALOG_DB_VERSION=2,CATALOG_CHUNK=100;let catalogDbPromise=null,catalogWriteTail=Promise.resolve(),progressiveCacheTimer=0,progressiveCachePending=null;function openCache(){if(catalogDbPromise)return catalogDbPromise;catalogDbPromise=new Promise((resolve,reject)=>{let q;try{q=indexedDB.open('srh-shorts-cache',CATALOG_DB_VERSION)}catch(e){catalogDbPromise=null;reject(e);return}q.onupgradeneeded=()=>{const db=q.result;if(!db.objectStoreNames.contains('catalogs'))db.createObjectStore('catalogs');if(!db.objectStoreNames.contains('catalogMeta'))db.createObjectStore('catalogMeta');if(!db.objectStoreNames.contains('catalogChunks'))db.createObjectStore('catalogChunks')};q.onsuccess=()=>{const db=q.result;db.onversionchange=()=>{try{db.close()}catch{}catalogDbPromise=null};resolve(db)};q.onerror=()=>{catalogDbPromise=null;reject(q.error||new Error('IndexedDB falhou'))};q.onblocked=()=>{catalogDbPromise=null;reject(new Error('IndexedDB bloqueado por outra aba'))}});return catalogDbPromise}function cacheLock(task){const run=catalogWriteTail.then(task,task);catalogWriteTail=run.catch(()=>{});return run}function reqValue(r){return new Promise(resolve=>{r.onsuccess=()=>resolve(r.result??null);r.onerror=()=>resolve(null)})}async function cacheRead(){try{const db=await openCache();if(db.objectStoreNames.contains('catalogMeta')&&db.objectStoreNames.contains('catalogChunks')){const tx=db.transaction(['catalogMeta','catalogChunks'],'readonly'),meta=await reqValue(tx.objectStore('catalogMeta').get(cacheKey));if(meta?.chunks>0){const store=tx.objectStore('catalogChunks'),parts=await Promise.all(Array.from({length:meta.chunks},(_,i)=>reqValue(store.get(cacheKey+':'+i))));const items=parts.flatMap(x=>Array.isArray(x?.items)?x.items:[]);if(items.length)return{time:Number(meta.time||meta.updatedAt||Date.now()),items,complete:meta.complete!==false,chunked:true}}}const tx=db.transaction('catalogs','readonly'),legacy=await reqValue(tx.objectStore('catalogs').get(cacheKey));return legacy||null}catch{return null}}async function cacheWriteSnapshot(items,complete=true){if(!items?.length)return false;const snapshot=items.slice(),chunks=[];for(let i=0;i<snapshot.length;i+=CATALOG_CHUNK)chunks.push(snapshot.slice(i,i+CATALOG_CHUNK));return cacheLock(async()=>{const db=await openCache();return await new Promise((resolve,reject)=>{let tx;try{tx=db.transaction(['catalogMeta','catalogChunks'],'readwrite')}catch(e){reject(e);return}const metaStore=tx.objectStore('catalogMeta'),chunkStore=tx.objectStore('catalogChunks'),old=metaStore.get(cacheKey);old.onsuccess=()=>{const oldCount=Number(old.result?.chunks||0);for(let i=0;i<chunks.length;i++)chunkStore.put({items:chunks[i],index:i,updatedAt:Date.now()},cacheKey+':'+i);for(let i=chunks.length;i<oldCount;i++)chunkStore.delete(cacheKey+':'+i);metaStore.put({time:Date.now(),updatedAt:Date.now(),count:snapshot.length,chunks:chunks.length,chunkSize:CATALOG_CHUNK,complete:!!complete},cacheKey)};old.onerror=()=>{for(let i=0;i<chunks.length;i++)chunkStore.put({items:chunks[i],index:i,updatedAt:Date.now()},cacheKey+':'+i);metaStore.put({time:Date.now(),updatedAt:Date.now(),count:snapshot.length,chunks:chunks.length,chunkSize:CATALOG_CHUNK,complete:!!complete},cacheKey)};tx.oncomplete=()=>resolve(true);tx.onerror=()=>reject(tx.error||new Error('Falha ao gravar catálogo'));tx.onabort=()=>reject(tx.error||new Error('Gravação do catálogo abortada'))})})}async function cacheWrite(items){try{return await cacheWriteSnapshot(items,true)}catch{return false}}function cacheWriteProgress(items){if(!items?.length)return;progressiveCachePending=items.slice();if(progressiveCacheTimer)return;progressiveCacheTimer=setTimeout(()=>{progressiveCacheTimer=0;const next=progressiveCachePending;progressiveCachePending=null;if(next?.length)void cacheWriteSnapshot(next,false)},550)}S.clearCatalogCache=async()=>cacheLock(async()=>{try{const db=await openCache();await new Promise(resolve=>{const names=['catalogs','catalogMeta','catalogChunks'].filter(n=>db.objectStoreNames.contains(n)),tx=db.transaction(names,'readwrite');if(names.includes('catalogs'))tx.objectStore('catalogs').delete(cacheKey);if(names.includes('catalogMeta')){const meta=tx.objectStore('catalogMeta').get(cacheKey);meta.onsuccess=()=>{const oldCount=Number(meta.result?.chunks||0);if(names.includes('catalogChunks'))for(let i=0;i<oldCount;i++)tx.objectStore('catalogChunks').delete(cacheKey+':'+i);tx.objectStore('catalogMeta').delete(cacheKey)}}tx.oncomplete=()=>resolve();tx.onerror=()=>resolve();tx.onabort=()=>resolve()})}catch{}});
+S.clearAllCatalogCache=async()=>cacheLock(async()=>{try{const db=await openCache(),prefix='catalog:v2mix:'+(S.cfg.appId||S.cfg.appName||'app')+':',names=['catalogs','catalogMeta','catalogChunks'].filter(n=>db.objectStoreNames.contains(n));if(!names.length)return 0;return await new Promise(resolve=>{let removed=0,tx;try{tx=db.transaction(names,'readwrite')}catch{resolve(0);return}for(const name of names){const os=tx.objectStore(name),q=os.openCursor();q.onsuccess=()=>{const cur=q.result;if(!cur)return;const key=String(cur.key||'');if(key.startsWith(prefix)){cur.delete();removed++}cur.continue()}}tx.oncomplete=()=>resolve(removed);tx.onerror=()=>resolve(removed);tx.onabort=()=>resolve(removed)})}catch{return 0}});
 async function resolveTargets(){
   const targets=(S.cfg.targets||[]).filter(t=>t.type==='vod');
   if(targets.every(t=>String(t.id??t.category_id??'').trim()))return targets.map(t=>({...t,_id:String(t.id??t.category_id)}));
@@ -397,23 +413,35 @@ async function resolveTargets(){
   const normalized=new Map(rows.map(c=>[normName(c.category_name??c.name),String(c.category_id??c.id??'')]));
   return targets.map(t=>({...t,_id:String(t.id??t.category_id??exact.get(cleanName(t.name))??normalized.get(normName(t.name))??'')}));
 }
+const CATEGORY_BATCH=100;
+const catalogYield=()=>new Promise(resolve=>{'requestIdleCallback'in window?requestIdleCallback(()=>resolve(),{timeout:90}):setTimeout(resolve,0)});
 async function fetchItems(onGroup){
-  const targets=(await resolveTargets()).filter(t=>t._id),groups=new Array(targets.length);let failed=0,completed=0,nextIndex=0;
-  const firstPaintAt=Math.min(2,targets.length);
+  const targets=(await resolveTargets()).filter(t=>t._id),groups=new Array(targets.length).fill(null).map(()=>[]);let failed=0,completed=0,nextIndex=0,loadedItems=0;
   const loadOne=async index=>{
-    const t=targets[index];let items=null;
+    const t=targets[index];let items=null,lastError=null;
     for(let attempt=0;attempt<2;attempt++){
       try{const r=await S.request({action:'get_vod_streams',category_id:t._id});items=Array.isArray(r)?r:[];break}
-      catch(e){if(attempt===0)await new Promise(resolve=>setTimeout(resolve,220))}
+      catch(e){lastError=e;if(attempt===0)await new Promise(resolve=>setTimeout(resolve,450))}
     }
-    if(items===null){failed++;groups[index]=[]}else groups[index]=items;
+    if(items===null){
+      failed++;completed++;
+      onGroup?.([],t,{index:completed,total:targets.length,categoryIndex:index,merged:interleaveGroups(groups),failed,categoryLoaded:0,categoryTotal:0,error:lastError?.message||String(lastError||'Falha')});
+      return
+    }
+    for(let offset=0;offset<items.length;offset+=CATEGORY_BATCH){
+      const batch=items.slice(offset,offset+CATEGORY_BATCH);
+      groups[index].push(...batch);loadedItems+=batch.length;
+      const merged=interleaveGroups(groups);
+      S.state.categoryMerge={version:CATEGORY_MERGE_VERSION,batch:CATEGORY_BATCH,total:targets.length,completed,failed,loadedItems,counts:groups.map(x=>x.length),merged:merged.length};
+      onGroup?.(batch,t,{index:completed+1,total:targets.length,categoryIndex:index,merged:merged.slice(),failed,categoryLoaded:Math.min(offset+CATEGORY_BATCH,items.length),categoryTotal:items.length,loadedItems});
+      await catalogYield()
+    }
     completed++;
     const merged=interleaveGroups(groups);
-    S.state.categoryMerge={version:CATEGORY_MERGE_VERSION,total:targets.length,completed,failed,counts:groups.map(x=>Array.isArray(x)?x.length:0),merged:merged.length};
-    if(completed>=firstPaintAt||completed===targets.length)onGroup?.(items||[],t,{index:completed,total:targets.length,categoryIndex:index,merged:merged.slice(),failed})
+    S.state.categoryMerge={version:CATEGORY_MERGE_VERSION,batch:CATEGORY_BATCH,total:targets.length,completed,failed,loadedItems,counts:groups.map(x=>x.length),merged:merged.length}
   };
   const worker=async()=>{for(;;){const index=nextIndex++;if(index>=targets.length)return;await loadOne(index)}};
-  await Promise.all(Array.from({length:Math.min(3,targets.length)},()=>worker()));
+  await Promise.all(Array.from({length:Math.min(2,targets.length)},()=>worker()));
   const merged=interleaveGroups(groups);
   if(!merged.length&&failed)throw new Error('As categorias selecionadas não responderam.');
   if(failed)S.toast(failed+' categoria(s) não responderam; exibindo as demais.');
@@ -457,7 +485,9 @@ function appendBatch(){
   $('#feedStatus').textContent=list.length?shown+' de '+list.length+' Shorts':'Nenhum Short encontrado'
 }
 function reset(){shown=0;$('#shortGrid').replaceChildren();ensureImageObserver();appendBatch()}
-function renderItems(items){S.state.items=items;S.state.filtered=items.slice();S.reconcileHistoryWithCatalog?.(items);reset();S.refreshLibraryView?.();$('#appMeta').textContent=items.length+' Shorts · '+((S.cfg.targets||[]).filter(t=>t.type==='vod').length)+' categoria(s)'}
+function reconcileFeed(items){const grid=$('#shortGrid');if(!grid)return;ensureImageObserver();const keep=Math.max(Math.min(shown,items.length),Math.min(BATCH,items.length)),wanted=items.slice(0,keep),existing=new Map([...grid.children].map(n=>[String(n?.dataset?.id||''),n]).filter(x=>x[0]));for(let i=0;i<wanted.length;i++){const item=wanted[i],id=S.id(item);let node=existing.get(id);if(!node)node=card(item);const at=grid.children[i];if(at!==node)grid.insertBefore(node,at||null);existing.delete(id)}for(const node of existing.values())node.remove();shown=keep}
+function renderItems(items){S.state.items=items;S.state.filtered=items.slice();S.reconcileHistoryWithCatalog?.(items);reconcileFeed(S.state.filtered);S.refreshLibraryView?.();$('#appMeta').textContent=items.length+' Shorts · '+((S.cfg.targets||[]).filter(t=>t.type==='vod').length)+' categoria(s)';if(!S.__variantApplying)window.dispatchEvent(new CustomEvent('srh25:catalog-render',{detail:{items:items.slice(),incremental:true}}))}
+S.renderCatalogItems=renderItems;
 function filter(){const q=$('#shortSearch').value.trim().toLocaleLowerCase('pt-BR');S.state.filtered=q?S.state.items.filter(x=>S.title(x).toLocaleLowerCase('pt-BR').includes(q)):S.state.items.slice();reset()}
 function libraryItems(kind){if(kind==='favorites')return S.state.items.filter(x=>S.state.favorites.has(S.id(x)));const byId=new Map(S.state.items.map(x=>[S.id(x),x]));return S.state.history.map(h=>byId.get(h.id)||h.item).filter(Boolean).filter(x=>S.isContinueVisible(x))}
 function renderLibrary(kind){const grid=$('#libraryGrid'),title=$('#libraryTitle'),items=libraryItems(kind);title.textContent=kind==='favorites'?'Favoritos':'Continuar assistindo';grid.replaceChildren();if(!items.length){const e=document.createElement('div');e.className='srh25-empty';e.textContent='Nada aqui por enquanto.';grid.appendChild(e)}else items.forEach(x=>grid.appendChild(card(x,{continue:kind!=='favorites'})))}
@@ -503,9 +533,11 @@ async function applyUpdate(){
   const status=$('#shortUpdateStatus');if(!updateCandidate||!updateSelected.size)return;
   const targets=updateCategories.filter(c=>updateSelected.has(c.id)).map(c=>({type:'vod',id:c.id,name:c.name}));
   const runtime={server:updateCandidate.server,username:updateCandidate.username,password:updateCandidate.password,liveExtension:updateCandidate.liveExtension,targets};
-  if(!S.saveRuntime(runtime)){S.toast('O navegador bloqueou o armazenamento local.');return}
-  if(status)status.textContent='Atualização salva. Recarregando…';
-  await S.clearCatalogCache?.();S.toast('Lista atualizada. Recarregando…');setTimeout(()=>location.reload(),350)
+  const oldSource={server:S.cfg.server,username:S.cfg.username,password:S.cfg.password,targets:Array.isArray(S.cfg.targets)?S.cfg.targets.slice():[]},from=S.providerIdentity?.(oldSource.server)||'',to=S.providerIdentity?.(runtime.server)||'',providerChanged=!!from&&!!to&&from!==to;
+  try{await S.saveRuntime(runtime)}catch(e){if(status)status.textContent='Falha ao salvar no IndexedDB: '+(e?.message||e);S.toast('Não foi possível salvar a atualização.');return}
+  if(providerChanged){if(status)status.textContent='Nova DNS detectada. Limpando dados da lista anterior…';await S.clearProviderState?.(oldSource,runtime);await S.clearAllCatalogCache?.()}
+  if(status)status.textContent=providerChanged?'Novo provedor salvo. Reconstruindo catálogo…':'Mesma DNS: histórico e catálogo preservados. Recarregando…';
+  S.toast(providerChanged?'Novo provedor: dados antigos removidos.':'Lista atualizada; dados preservados.');setTimeout(()=>location.reload(),350)
 }
 S.bindShell=()=>{
   ensureImageObserver();ensureUpdateUi();
@@ -524,10 +556,10 @@ S.loadCatalog=async()=>{
   const refresh=(async()=>{
     try{
       const items=await fetchItems((group,target,progress)=>{
-        partial=progress?.merged?.length?progress.merged.slice():mergeUnique(partial,group);
+        partial=progress?.merged?.length?progress.merged.slice():mergeUnique(partial,group);if(partial.length)cacheWriteProgress(partial);
         if(partial.length){
           renderItems(partial);
-          $('#feedStatus').textContent='Mesclando categorias · '+progress.index+' de '+progress.total;
+          $('#feedStatus').textContent='Carregando catálogo · '+partial.length+' itens'+(progress.categoryTotal?(' · '+progress.categoryLoaded+' / '+progress.categoryTotal):'');
           if(!painted){painted=true;firstResolve?.();firstResolve=null}
         }
       });
@@ -558,16 +590,7 @@ let miniDock=null,miniOpen=null,miniImage=null,miniTitle=null,miniEpisode=null,m
 let miniCompactTimer=0,miniExpiryTimer=0,miniSuppressOpen=false,miniSuppressTimer=0,miniDrag=null,miniLastLayoutWidth=Math.max(1,Number(window.innerWidth)||1);
 
 function miniClamp(v,min,max){return Math.max(min,Math.min(max,v))}
-function miniUiDbOpen(){
-  return new Promise((resolve,reject)=>{
-    if(!window.indexedDB){reject(new Error('IndexedDB indisponível'));return}
-    let q;
-    try{q=indexedDB.open('srh25-history-v1',1)}catch(e){reject(e);return}
-    q.onupgradeneeded=()=>{try{if(!q.result.objectStoreNames.contains('state'))q.result.createObjectStore('state')}catch{}};
-    q.onsuccess=()=>resolve(q.result);
-    q.onerror=()=>reject(q.error||new Error('IndexedDB falhou'))
-  })
-}
+function miniUiDbOpen(){return S.historyDbOpen?S.historyDbOpen():Promise.reject(new Error('IndexedDB indisponível'))}
 async function miniUiDbRead(key){
   try{
     const db=await miniUiDbOpen();
@@ -638,27 +661,23 @@ function dismissMiniResume(){
   const record=readMiniResume();
   if(!record)return;
   miniDismissedId=String(record.id||'');
-  miniWrite(MINI_DISMISS_KEY,miniDismissedId);
   void miniUiDbWrite(MINI_DISMISS_KEY,miniDismissedId);
   hideMiniResume()
 }
 S.hydrateMiniUiState=async()=>{
-  miniPositionMemory=null;
-  miniRemove(MINI_POS_KEY);
-  miniRemove(MINI_POS_LEGACY_KEY);
-  await miniUiDbDelete(MINI_POS_KEY);
-  await miniUiDbDelete(MINI_POS_LEGACY_KEY);
-  const dbDismiss=await miniUiDbRead(MINI_DISMISS_KEY);
-  miniDismissedId=String(dbDismiss||miniRead(MINI_DISMISS_KEY,'')||'');
-  return true
+  miniPositionMemory=null;miniRemove(MINI_POS_KEY);miniRemove(MINI_POS_LEGACY_KEY);await miniUiDbDelete(MINI_POS_KEY);await miniUiDbDelete(MINI_POS_LEGACY_KEY);
+  const [dbDismiss,dbResume]=await Promise.all([miniUiDbRead(MINI_DISMISS_KEY),miniUiDbRead(MINI_KEY)]);
+  const legacyDismiss=miniRead(MINI_DISMISS_KEY,''),legacyResume=miniRead(MINI_KEY,null);
+  miniDismissedId=String(dbDismiss||legacyDismiss||'');miniMemoryRecord=miniFresh(dbResume)?dbResume:(miniFresh(legacyResume)?legacyResume:null);
+  if(!dbDismiss&&legacyDismiss)void miniUiDbWrite(MINI_DISMISS_KEY,legacyDismiss);if(!dbResume&&miniMemoryRecord)void miniUiDbWrite(MINI_KEY,miniMemoryRecord);
+  miniRemove(MINI_DISMISS_KEY);miniRemove(MINI_KEY);return true
 };
 function miniRead(key,fallback=null){try{const raw=localStorage.getItem(key);return raw==null?fallback:JSON.parse(raw)}catch{return fallback}}
 function miniWrite(key,value){try{localStorage.setItem(key,JSON.stringify(value));return true}catch{return false}}
 function miniRemove(key){try{localStorage.removeItem(key)}catch{}}
 function miniFresh(record){const updated=Number(record?.updatedAt||0);return !!record?.item&&updated>0&&Date.now()-updated<MINI_TTL}
 function readMiniResume(){
-  const stored=miniRead(MINI_KEY,null);
-  const record=miniFresh(stored)?stored:(miniFresh(miniMemoryRecord)?miniMemoryRecord:null);
+  const record=miniFresh(miniMemoryRecord)?miniMemoryRecord:null;
   if(record){
     miniMemoryRecord=record;
     return record
@@ -674,7 +693,7 @@ function clearMiniResume(item){
   const record=readMiniResume();
   if(item&&record?.id&&String(record.id)!==String(S.id(item)))return;
   miniMemoryRecord=null;
-  miniRemove(MINI_KEY);
+  miniRemove(MINI_KEY);void miniUiDbDelete(MINI_KEY);
   clearMiniDismissal();
   clearTimeout(miniCompactTimer);clearTimeout(miniExpiryTimer);
   if(miniDock)hideMiniResume()
@@ -685,7 +704,7 @@ function saveMiniResume(item,position,duration){
   if(Number.isFinite(dur)&&dur>0&&dur-pos<=30){clearMiniResume(item);return null}
   const record={id:S.id(item),title:S.title(item),image:S.image(item),position:pos,duration:Number.isFinite(dur)&&dur>0?dur:0,updatedAt:Date.now(),item:miniItemSnapshot(item)};
   miniMemoryRecord=record;
-  miniWrite(MINI_KEY,record);
+  void miniUiDbWrite(MINI_KEY,record);
   clearMiniDismissal();
   return record
 }
@@ -1192,13 +1211,48 @@ function arcIndex(){const d=video.duration;if(!Number.isFinite(d)||d<=0)return 0
 function syncArcSelection(scroll=false){if(arcDrawer.classList.contains('is-hidden'))return;const index=arcIndex();if(index===activeArc&&!scroll)return;activeArc=index;let active=null;arcGrid.querySelectorAll('[data-arc-index]').forEach(b=>{const on=Number(b.dataset.arcIndex)===index;b.classList.toggle('active',on);b.setAttribute('aria-current',on?'true':'false');if(on)active=b});if(scroll&&active)requestAnimationFrame(()=>active.scrollIntoView({block:'center',inline:'nearest',behavior:'auto'}))}
 function drawArcs(){const d=video.duration;if(!Number.isFinite(d)||d<=0){arcGrid.innerHTML='<div class="srh25-empty">Aguardando duração…</div>';return}const n=Math.max(1,Math.ceil(d/120));arcGrid.replaceChildren();for(let i=0;i<n;i++){const start=i*120,b=document.createElement('button');b.className='srh25-arc';b.dataset.arcIndex=String(i);b.innerHTML='<strong>Arco '+(i+1)+'</strong>';b.onclick=()=>{video.currentTime=Math.min(Math.max(0,d-.1),start);activeArc=i;closeArcs();video.play().catch(()=>{})};arcGrid.appendChild(b)}syncArcSelection(true)}
 function openArcs(){ensureArcSheetChrome();drawArcs();arcBackdrop.classList.remove('is-hidden');arcDrawer.classList.remove('is-hidden');activeArc=-1;syncArcSelection(true)}
+let mediaLoadToken=0;const mediaRetryExhausted=new Set();S.mediaUnavailableIds=S.mediaUnavailableIds||new Set();
+function warmMediaOrigin(url){try{const u=new URL(url,location.href),origin=u.origin;if(!origin||origin==='null')return;const key='srh-media-'+btoa(unescape(encodeURIComponent(origin))).replace(/=+$/,'');if(document.querySelector('link[data-srh-media="'+key+'"]'))return;const dns=document.createElement('link');dns.rel='dns-prefetch';dns.href=origin;dns.dataset.srhMedia=key;document.head.appendChild(dns);const pre=document.createElement('link');pre.rel='preconnect';pre.href=origin;pre.dataset.srhMedia=key;document.head.appendChild(pre)}catch{}}
+function mediaText(v){return String(v??'').trim()}
+function mediaServer(){return mediaText(S.cfg?.server).replace(/[/]+$/,'')}
+function mediaMovieUrl(mediaKey,ext){return mediaServer()+'/movie/'+encodeURIComponent(mediaText(S.cfg?.username))+'/'+encodeURIComponent(mediaText(S.cfg?.password))+'/'+encodeURIComponent(String(mediaKey||''))+'.'+mediaText(ext||'mp4')}
+function mediaPlay(stage,token,mediaKey,sourceKind){
+  if(token!==mediaLoadToken)return Promise.resolve(false);
+  video.autoplay=true;video.playsInline=true;
+  let p;try{p=video.play()}catch{return Promise.resolve(false)}
+  if(!p||typeof p.then!=='function')return Promise.resolve(true);
+  return p.then(()=>true).catch(()=>false)
+}
+async function resolveVodAlternative(item,mediaKey,currentUrl,catalogExtension){
+  let info=null;try{info=await S.request({action:'get_vod_info',vod_id:mediaKey})}catch{return null}
+  const movie=info?.movie_data||{},meta=info?.info||{},direct=mediaText(movie?.direct_source||meta?.direct_source||info?.direct_source||''),vodInfoExtension=mediaText(movie?.container_extension||info?.container_extension||'').toLowerCase();
+  let url='',sourceKind='';
+  if(direct&&direct!==currentUrl){url=direct;sourceKind='direct_source'}
+  else if(vodInfoExtension&&vodInfoExtension!==String(catalogExtension||'').toLowerCase()){url=mediaMovieUrl(mediaKey,vodInfoExtension);sourceKind='vod_info_extension'}
+  else if(String(catalogExtension||'').toLowerCase()!=='mkv'){url=mediaMovieUrl(mediaKey,'mkv');sourceKind='extension_probe_mkv'}
+  return url?{url,sourceKind,extension:sourceKind==='extension_probe_mkv'?'mkv':(vodInfoExtension||catalogExtension)}:null
+}
+window.addEventListener('srh25:catalog-render',()=>warmMediaOrigin(S.cfg?.server||''),{once:true});
 async function loadVideo(item,resume){
-  const url=S.stream(item),ready=()=>{if(resume?.position>0&&resume.position<video.duration-3){video.currentTime=resume.position;const done=()=>{poster.classList.add('is-hidden');loading.classList.add('is-hidden');video.play().catch(()=>{})};video.addEventListener('seeked',done,{once:true})}else{poster.classList.add('is-hidden');loading.classList.add('is-hidden');video.play().catch(()=>{})}drawArcs()};
-  if(/\.m3u8(?:$|\?)/i.test(url)){
-    if(video.canPlayType('application/vnd.apple.mpegurl')){video.src=url;video.onloadedmetadata=ready;video.onerror=()=>S.toast('Mídia indisponível');video.load();return}
-    try{const H=await ensureHls();if(H?.isSupported?.()){const h=new H({enableWorker:true,maxBufferLength:30,capLevelToPlayerSize:false,startLevel:-1});S.state.hls=h;h.loadSource(url);h.attachMedia(video);h.on(H.Events.MANIFEST_PARSED,()=>{const highest=Math.max(0,(h.levels?.length||1)-1);h.autoLevelCapping=highest;h.currentLevel=highest;h.nextLevel=highest;ready()});h.on(H.Events.LEVEL_SWITCHED,()=>{const highest=Math.max(0,(h.levels?.length||1)-1);if(h.currentLevel!==highest)h.nextLevel=highest});h.on(H.Events.ERROR,(_,d)=>{if(d.fatal)S.toast('Falha ao iniciar o vídeo')});return}}catch(e){S.toast(e?.message||'HLS indisponível')}
+  const token=++mediaLoadToken,initialUrl=S.stream(item),mediaKey=String(S.id?.(item)||item?.stream_id||item?.id||initialUrl),catalogExtension=(mediaText(item?.container_extension)||'mp4').toLowerCase(),hasResume=Number(resume?.position)>0;let currentUrl=initialUrl,currentExtension=catalogExtension,sourceKind='catalog',vodInfoChecked=false,alternativeAttempted=false,retryPending=false,retryRecovered=false;
+  const isHls=()=>/\.m3u8(?:$|\?)/i.test(currentUrl);
+  const reveal=()=>{if(token!==mediaLoadToken)return;poster.classList.add('is-hidden');loading.classList.add('is-hidden');S.mediaUnavailableIds.delete(mediaKey);if(alternativeAttempted&&!retryRecovered){retryRecovered=true;mediaRetryExhausted.delete(mediaKey)}};
+  const ready=()=>{if(token!==mediaLoadToken)return;drawArcs();if(hasResume&&resume.position<video.duration-3){video.currentTime=resume.position;const done=()=>{if(token===mediaLoadToken&&video.paused)void mediaPlay('resume-seek',token,mediaKey,sourceKind)};video.addEventListener('seeked',done,{once:true})}else if(video.paused){void mediaPlay('metadata-ready',token,mediaKey,sourceKind)}};
+  const attachDirect=()=>{if(token!==mediaLoadToken)return;const hls=isHls();video.src=currentUrl;video.onloadedmetadata=ready;video.onerror=directError;video.preload=hls?'auto':'metadata';video.autoplay=true;video.load();void mediaPlay(alternativeAttempted?'fallback-open':'gesture-open',token,mediaKey,sourceKind)};
+  const directError=async()=>{if(token!==mediaLoadToken||retryPending)return;const code=video.error?.code||0,exhausted=mediaRetryExhausted.has(mediaKey);
+    if(code===4&&!vodInfoChecked&&!exhausted){
+      vodInfoChecked=true;retryPending=true;mediaRetryExhausted.add(mediaKey);
+      const alt=await resolveVodAlternative(item,mediaKey,currentUrl,catalogExtension);retryPending=false;if(token!==mediaLoadToken)return;
+      if(alt?.url){alternativeAttempted=true;currentUrl=alt.url;currentExtension=(alt.extension||catalogExtension).toLowerCase();sourceKind=alt.sourceKind||'vod_info';poster.classList.remove('is-hidden');loading.classList.remove('is-hidden');try{video.pause();video.removeAttribute('src');video.load()}catch{}setTimeout(()=>{if(token===mediaLoadToken)attachDirect()},250);return}
+    }
+    S.mediaUnavailableIds.add(mediaKey);S.toast('Mídia indisponível')
+  };
+  warmMediaOrigin(initialUrl);video.preload=isHls()?'auto':'metadata';video.addEventListener('playing',reveal,{once:true});
+  if(isHls()){
+    if(video.canPlayType('application/vnd.apple.mpegurl')){attachDirect();return}
+    try{const H=await ensureHls();if(H?.isSupported?.()){const h=new H({enableWorker:true,maxBufferLength:30,capLevelToPlayerSize:false,startLevel:-1});S.state.hls=h;h.loadSource(currentUrl);h.attachMedia(video);h.on(H.Events.MANIFEST_PARSED,()=>{if(token!==mediaLoadToken)return;const highest=Math.max(0,(h.levels?.length||1)-1);h.autoLevelCapping=highest;h.currentLevel=highest;h.nextLevel=highest;ready()});h.on(H.Events.LEVEL_SWITCHED,()=>{const highest=Math.max(0,(h.levels?.length||1)-1);if(h.currentLevel!==highest)h.nextLevel=highest});h.on(H.Events.ERROR,(_,d)=>{if(d.fatal){S.mediaUnavailableIds.add(mediaKey);S.toast('Falha ao iniciar o vídeo')}});return}}catch(e){S.toast(e?.message||'HLS indisponível')}
   }
-  video.src=url;video.onloadedmetadata=ready;video.onerror=()=>S.toast('Mídia indisponível');video.load()
+  attachDirect()
 }
 S.openPlayer=(item,resumeOverride)=>{
   resetMiniPositionSession();
@@ -1228,6 +1282,7 @@ S.openPlayer=(item,resumeOverride)=>{
   loadVideo(item,hist)
 };
 function persistCurrentProgress(force=false){const cur=S.state.current,pos=Math.max(0,Number(video.currentTime)||0);if(!cur)return false;if(!force&&Math.abs(pos-lastSavedPosition)<10)return false;const ok=S.saveProgress(cur.item,pos,video.duration);if(ok){lastSavedPosition=pos;saveMiniResume(cur.item,pos,video.duration)}return ok}
+function persistExitSnapshot(){const cur=S.state.current;if(!cur)return false;const pos=Math.max(0,Number(video.currentTime)||0),dur=Math.max(0,Number(video.duration)||0);let ok=false;try{ok=!!S.saveProgress(cur.item,pos,dur)}catch{}safeSaveMiniResume(cur.item,pos,dur);lastSavedPosition=pos;return ok}
 video.ontimeupdate=()=>{
   const cur=S.state.current,pos=Number(video.currentTime||0),dur=Number(video.duration||0);
   updatePlayerHeading(pos);
@@ -1298,9 +1353,303 @@ const finishPlayerSwipe=e=>{
 };
 $('#playerStage').addEventListener('pointerup',finishPlayerSwipe,{passive:true});
 $('#playerStage').addEventListener('pointercancel',finishPlayerSwipe,{passive:true});
-window.addEventListener('pagehide',()=>{if(S.state.current){S.saveProgress(S.state.current.item,Math.max(0,Number(video.currentTime)||0),Number(video.duration));safeSaveMiniResume(S.state.current.item,Math.max(0,Number(video.currentTime)||0),Number(video.duration))}});
+window.addEventListener('pagehide',()=>{if(S.state.current)persistExitSnapshot()});
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'&&S.state.current)persistExitSnapshot()});
-window.addEventListener('srh25:ready',()=>{try{localStorage.setItem('srh25:last-runtime','a30-r42')}catch{}miniRemove(MINI_DISMISS_KEY);ensurePlayerControls();safeRenderMiniResume(false);setTimeout(()=>safeRenderMiniResume(false),120)},{once:true});
+window.addEventListener('srh25:ready',()=>{miniRemove(MINI_DISMISS_KEY);ensurePlayerControls();safeRenderMiniResume(false);setTimeout(()=>safeRenderMiniResume(false),120)},{once:true});
 Promise.resolve().then(()=>S.boot());
+})();
+(()=>{
+'use strict';
+const S=window.SRH25;
+if(!S||S.__srhLanguageVariants)return;
+S.__srhLanguageVariants=true;
+
+const VERSION='cover-language-v1';
+const SIMILARITY_THRESHOLD=0.80;
+const HASH_COLUMNS=9,HASH_ROWS=8,HASH_HEX_LENGTH=16;
+const LOAD_TIMEOUT=6500;
+const HASH_TTL=60*24*60*60*1000;
+const DB_NAME='srh25-cover-vision-v1',DB_STORE='hashes';
+const memory=new Map();
+const groupsById=new Map();
+let sourceItems=[];
+let scanTimer=0;
+let scanGeneration=0;
+let scanRunning=false;
+let languageButton=null,languageSheet=null,languageBackdrop=null,languageList=null;
+const pop=[0,1,1,2,1,2,2,3,1,2,2,3,2,3,3,4];
+
+function clean(s){return String(s??'').trim()}
+function norm(s){
+  let v=clean(s).toLocaleLowerCase('pt-BR');
+  try{v=v.normalize('NFD').replace(/[\u0300-\u036f]/g,'')}catch{}
+  return v
+}
+function variantKind(name){
+  const raw=clean(name),n=norm(raw).replace(/[_.-]+/g,' ').replace(/\s+/g,' ');
+  if(/\[\s*(?:l|leg|lg)\s*\]/i.test(raw)||/\b(?:legendad[oa]s?|legendas?|leg|lg|sub|subbed|subtitle[sd]?|idioma original|audio original)\b/.test(n))return'legendado';
+  if(/\[\s*(?:d|dub)\s*\]/i.test(raw)||/\b(?:dublad[oa]s?|dublagem|dub|dubbed|pt\s*br|ptbr|portugues|audio portugues|voz portuguesa)\b/.test(n))return'dublado';
+  return'';
+}
+function canonicalTitle(item){
+  let s=norm(item?.name||item?.title||'');
+  s=s.replace(/\[\s*(?:l|leg|lg|d|dub)\s*\]/g,' ');
+  s=s.replace(/\([^)]{0,80}\)|\[[^\]]{0,80}\]|\{[^}]{0,80}\}/g,' ');
+  s=s.replace(/\b(?:legendad[oa]s?|legendas?|leg|lg|sub|subbed|subtitle[sd]?|dublad[oa]s?|dublagem|dub|dubbed|pt\s*br|ptbr|portugues|audio portugues|voz portuguesa|idioma original|audio original)\b/g,' ');
+  s=s.replace(/\b(?:versao|version)\s*\d+\b/g,' ');
+  return s.replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ').trim()
+}
+function coverUrl(item){return clean(S.image?.(item)||item?.stream_icon||item?.movie_image||item?.cover||'')}
+function canonicalCover(url){
+  const raw=clean(url);if(!raw)return'';
+  try{const u=new URL(raw,location.href);return (u.origin+decodeURIComponent(u.pathname)).toLowerCase().replace(/\.(?:jpe?g|png|webp|avif)$/,'').replace(/[@_-](?:w\d+|h\d+|\d{2,4}x\d{2,4}|thumb(?:nail)?|small|medium|large|mini|original|hd|sd)$/,'')}
+  catch{return norm(raw).replace(/[?#].*$/,'').replace(/\.(?:jpe?g|png|webp|avif)$/,'')}
+}
+function similarity(a,b){
+  const x=String(a||''),y=String(b||'');if(!x||x.length!==y.length)return 0;
+  let d=0;for(let i=0;i<x.length;i++){const xa=parseInt(x[i],16),xb=parseInt(y[i],16);if(!Number.isFinite(xa)||!Number.isFinite(xb))return 0;d+=pop[(xa^xb)&15]}
+  return 1-d/(x.length*4)
+}
+function openDb(){
+  return new Promise((resolve,reject)=>{
+    if(!window.indexedDB){reject(new Error('IndexedDB indisponível'));return}
+    let q;try{q=indexedDB.open(DB_NAME,1)}catch(e){reject(e);return}
+    q.onupgradeneeded=()=>{try{if(!q.result.objectStoreNames.contains(DB_STORE))q.result.createObjectStore(DB_STORE)}catch{}};
+    q.onsuccess=()=>resolve(q.result);q.onerror=()=>reject(q.error||new Error('IndexedDB falhou'))
+  })
+}
+async function dbRead(key){
+  try{const db=await openDb();return await new Promise(resolve=>{let r;try{r=db.transaction(DB_STORE,'readonly').objectStore(DB_STORE).get(key)}catch{resolve(null);return}r.onsuccess=()=>resolve(r.result||null);r.onerror=()=>resolve(null)})}catch{return null}
+}
+async function dbWrite(key,value){
+  try{const db=await openDb();await new Promise(resolve=>{let tx;try{tx=db.transaction(DB_STORE,'readwrite');tx.objectStore(DB_STORE).put(value,key)}catch{resolve();return}tx.oncomplete=()=>resolve();tx.onerror=()=>resolve();tx.onabort=()=>resolve()})}catch{}
+}
+function loadImage(url){
+  return new Promise((resolve,reject)=>{
+    const img=new Image();let done=false;
+    const timer=setTimeout(()=>{if(done)return;done=true;img.src='';reject(new Error('cover timeout'))},LOAD_TIMEOUT);
+    img.crossOrigin='anonymous';img.referrerPolicy='no-referrer';img.decoding='async';
+    img.onload=()=>{if(done)return;done=true;clearTimeout(timer);resolve(img)};
+    img.onerror=()=>{if(done)return;done=true;clearTimeout(timer);reject(new Error('cover load'))};
+    img.src=url
+  })
+}
+function imageHash(img){
+  const canvas=document.createElement('canvas');canvas.width=HASH_COLUMNS;canvas.height=HASH_ROWS;
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});if(!ctx)return null;
+  ctx.drawImage(img,0,0,HASH_COLUMNS,HASH_ROWS);
+  const data=ctx.getImageData(0,0,HASH_COLUMNS,HASH_ROWS).data,luma=new Float64Array(HASH_COLUMNS*HASH_ROWS);
+  for(let i=0;i<luma.length;i++){const o=i*4;luma[i]=data[o]*.299+data[o+1]*.587+data[o+2]*.114}
+  let out='',n=0,bits=0;
+  for(let y=0;y<HASH_ROWS;y++)for(let x=0;x<HASH_COLUMNS-1;x++){
+    const left=luma[y*HASH_COLUMNS+x],right=luma[y*HASH_COLUMNS+x+1];
+    n=(n<<1)|(left>right?1:0);bits++;
+    if(bits===4){out+=n.toString(16);n=0;bits=0}
+  }
+  return out.length===HASH_HEX_LENGTH?out:null
+}
+async function hashCover(url){
+  const raw=clean(url);if(!raw)return null;
+  const key=canonicalCover(raw)||raw;
+  const cached=memory.get(key);if(cached)return cached;
+  const stored=await dbRead(key);
+  if(stored?.hash&&Date.now()-Number(stored.at||0)<HASH_TTL){memory.set(key,stored.hash);return stored.hash}
+  const candidates=typeof S.coverProxyCandidates==='function'?S.coverProxyCandidates(raw):[raw];
+  for(const candidate of [...new Set((candidates||[]).filter(Boolean))]){
+    try{const img=await loadImage(candidate),h=imageHash(img);if(!h)continue;memory.set(key,h);void dbWrite(key,{hash:h,at:Date.now(),url:raw});return h}catch{}
+  }
+  return null
+}
+async function parallel(rows,fn,limit=2){
+  let cursor=0;const out=new Array(rows.length);
+  const worker=async()=>{for(;;){const i=cursor++;if(i>=rows.length)return;out[i]=await fn(rows[i],i)}};
+  await Promise.all(Array.from({length:Math.min(limit,rows.length)},()=>worker()));return out
+}
+function buildCandidateRows(items){
+  const byName=new Map(),byCover=new Map();
+  for(const item of items){
+    const id=S.id(item),name=canonicalTitle(item),cover=canonicalCover(coverUrl(item));
+    if(!id)continue;
+    if(name){if(!byName.has(name))byName.set(name,[]);byName.get(name).push(item)}
+    if(cover){if(!byCover.has(cover))byCover.set(cover,[]);byCover.get(cover).push(item)}
+  }
+  const ids=new Set(),rows=[];
+  for(const list of [...byName.values(),...byCover.values()])if(list.length>1)for(const item of list){const id=S.id(item);if(!ids.has(id)){ids.add(id);rows.push(item)}}
+  return{rows,byName,byCover}
+}
+function parentHelpers(items){
+  const parent=items.map((_,i)=>i),byId=new Map(items.map((x,i)=>[S.id(x),i]));
+  const find=i=>{while(parent[i]!==i){parent[i]=parent[parent[i]];i=parent[i]}return i};
+  const union=(a,b)=>{const x=find(a),y=find(b);if(x!==y)parent[y]=x};
+  return{parent,byId,find,union}
+}
+function labelledVariants(items,similarityToPrimary){
+  const rank={dublado:0,legendado:1,'':2};
+  const ordered=items.map((item,index)=>({item,index,kind:variantKind(item?.name||item?.title||'')})).sort((a,b)=>(rank[a.kind]??3)-(rank[b.kind]??3)||a.index-b.index);
+  const totals=ordered.reduce((m,x)=>(m[x.kind]=(m[x.kind]||0)+1,m),{}),seen={};
+  return ordered.map((x,index)=>{
+    seen[x.kind]=(seen[x.kind]||0)+1;
+    let label=x.kind==='dublado'?'Dublado':x.kind==='legendado'?'Legendado':'Versão '+(index+1);
+    if(x.kind&&totals[x.kind]>1)label+=' '+seen[x.kind];
+    return{item:x.item,id:S.id(x.item),kind:x.kind,label,similarity:Number(similarityToPrimary?.get(S.id(x.item))||1)}
+  })
+}
+function makeGroups(items,hashes,byName,byCover){
+  const {byId,find,union}=parentHelpers(items);
+  for(const list of byCover.values())if(list.length>1){const base=byId.get(S.id(list[0]));for(let i=1;i<list.length;i++){const j=byId.get(S.id(list[i]));if(base!=null&&j!=null)union(base,j)}}
+  for(const list of byName.values()){
+    if(list.length<2)continue;
+    for(let a=0;a<list.length;a++)for(let b=a+1;b<list.length;b++){
+      const ia=byId.get(S.id(list[a])),ib=byId.get(S.id(list[b]));if(ia==null||ib==null)continue;
+      const ca=canonicalCover(coverUrl(list[a])),cb=canonicalCover(coverUrl(list[b]));
+      if(ca&&ca===cb){union(ia,ib);continue}
+      const ha=hashes.get(S.id(list[a])),hb=hashes.get(S.id(list[b]));
+      if(ha&&hb&&similarity(ha,hb)>=SIMILARITY_THRESHOLD)union(ia,ib)
+    }
+  }
+  const clustered=new Map();
+  items.forEach((item,i)=>{const root=find(i);if(!clustered.has(root))clustered.set(root,[]);clustered.get(root).push(item)});
+  return[...clustered.values()].filter(x=>x.length>1)
+}
+function collapse(items,clusters,hashes){
+  groupsById.clear();const hidden=new Set(),groups=[];
+  for(const members of clusters){
+    const sim=new Map(),first=members[0],firstHash=hashes.get(S.id(first));
+    for(const item of members){const h=hashes.get(S.id(item));sim.set(S.id(item),firstHash&&h?similarity(firstHash,h):canonicalCover(coverUrl(first))===canonicalCover(coverUrl(item))?1:0)}
+    const variants=labelledVariants(members,sim),primary=variants[0]?.item||members[0],group={id:'lang:'+S.id(primary),primary,variants,threshold:SIMILARITY_THRESHOLD};
+    groups.push(group);
+    for(const v of variants){groupsById.set(v.id,group);if(v.item!==primary)hidden.add(v.id)}
+  }
+  return{items:items.filter(item=>!hidden.has(S.id(item))),groups}
+}
+async function scan(items){
+  if(scanRunning)return;
+  const generation=++scanGeneration,list=(Array.isArray(items)?items:[]).filter(Boolean);
+  if(list.length<2)return;
+  scanRunning=true;
+  try{
+    const {rows,byName,byCover}=buildCandidateRows(list);
+    if(rows.length<2){groupsById.clear();syncLanguageUi(S.state.current?.item);return}
+    const hashes=new Map();
+    await parallel(rows,async item=>{const h=await hashCover(coverUrl(item));if(h)hashes.set(S.id(item),h);return h},2);
+    if(generation!==scanGeneration)return;
+    const clusters=makeGroups(list,hashes,byName,byCover),result=collapse(list,clusters,hashes);
+    sourceItems=list.slice();
+    S.state.languageVariantGroups=result.groups;
+    S.languageVariantsFor=item=>groupsById.get(S.id(item))||null;
+    S.languageVariantPrimary=item=>groupsById.get(S.id(item))?.primary||item;
+    if(result.groups.length&&typeof S.renderCatalogItems==='function'){
+      const y=window.scrollY||0;S.__variantApplying=true;
+      try{S.renderCatalogItems(result.items)}finally{S.__variantApplying=false}
+      requestAnimationFrame(()=>{try{window.scrollTo(0,y)}catch{}})
+    }
+    syncLanguageUi(S.state.current?.item);
+    
+  }finally{scanRunning=false}
+}
+function schedule(items){
+  if(S.__variantApplying)return;
+  sourceItems=(Array.isArray(items)?items:S.state.items||[]).slice();
+  clearTimeout(scanTimer);scanGeneration++;
+  const run=()=>{scanTimer=0;scan(sourceItems)};
+  if('requestIdleCallback'in window)requestIdleCallback(run,{timeout:1800});else scanTimer=setTimeout(run,650)
+}
+function ensureUi(){
+  if(languageButton)return;
+  const rail=document.querySelector('#shortPlayer .srh25-player__rail'),stage=document.getElementById('playerStage');if(!rail||!stage)return;
+  if(!document.getElementById('srh25LanguageVariantStyle')){
+    const st=document.createElement('style');st.id='srh25LanguageVariantStyle';
+    st.textContent='.srh25-language-sheet{position:absolute;z-index:28;left:12px;right:12px;bottom:14px;max-height:min(54vh,430px);overflow:auto;padding:12px;border:1px solid rgba(255,255,255,.16);border-radius:18px;background:rgba(10,14,19,.94);box-shadow:0 18px 54px rgba(0,0,0,.46);backdrop-filter:blur(18px);-webkit-backdrop-filter:blur(18px)}.srh25-language-sheet.is-hidden,.srh25-language-backdrop.is-hidden{display:none!important}.srh25-language-backdrop{position:absolute;z-index:27;inset:0;background:rgba(0,0,0,.25)}.srh25-language-head{display:flex;align-items:center;justify-content:space-between;margin:2px 3px 10px}.srh25-language-head strong{font:800 14px/1.2 system-ui;color:#fff}.srh25-language-close{width:34px;height:34px;border:0;border-radius:50%;background:rgba(255,255,255,.08);color:#fff;font-size:20px}.srh25-language-list{display:grid;gap:7px}.srh25-language-option{min-height:46px;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:0 13px;border:1px solid rgba(255,255,255,.12);border-radius:12px;background:rgba(255,255,255,.055);color:#fff;text-align:left;font:700 12px/1.2 system-ui}.srh25-language-option.is-active{border-color:rgba(255,255,255,.42);background:rgba(255,255,255,.13)}.srh25-language-option small{font-size:9px;font-weight:650;opacity:.6}.srh25-player__action[hidden]{display:none!important}';
+    document.head.appendChild(st)
+  }
+  languageButton=document.createElement('button');languageButton.type='button';languageButton.id='playerLanguages';languageButton.className='srh25-player__action';languageButton.hidden=true;languageButton.innerHTML='<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M4.5 12h15M12 4c2.2 2.4 3.2 5.1 3.2 8S14.2 17.6 12 20M12 4C9.8 6.4 8.8 9.1 8.8 12S9.8 17.6 12 20"/></svg><small>Idiomas</small>';
+  const favorite=document.getElementById('playerFavorite');favorite?.insertAdjacentElement('afterend',languageButton);
+  languageBackdrop=document.createElement('div');languageBackdrop.className='srh25-language-backdrop is-hidden';
+  languageSheet=document.createElement('section');languageSheet.className='srh25-language-sheet is-hidden';languageSheet.innerHTML='<div class="srh25-language-head"><strong>Idiomas</strong><button class="srh25-language-close" type="button" aria-label="Fechar">×</button></div><div class="srh25-language-list"></div>';
+  languageList=languageSheet.querySelector('.srh25-language-list');stage.append(languageBackdrop,languageSheet);
+  const close=()=>{languageBackdrop.classList.add('is-hidden');languageSheet.classList.add('is-hidden')};
+  languageButton.onclick=e=>{e.stopPropagation();renderLanguageOptions(S.state.current?.item);languageBackdrop.classList.remove('is-hidden');languageSheet.classList.remove('is-hidden')};
+  languageBackdrop.onclick=close;languageSheet.querySelector('.srh25-language-close').onclick=close
+}
+function renderLanguageOptions(item){
+  ensureUi();if(!languageList)return;
+  const group=groupsById.get(S.id(item));languageList.replaceChildren();if(!group)return;
+  const current=S.id(S.state.current?.item);
+  for(const v of group.variants){
+    const b=document.createElement('button');b.type='button';b.className='srh25-language-option';b.classList.toggle('is-active',v.id===current);
+    const score=Math.round(Math.max(0,Math.min(1,Number(v.similarity)||0))*100);
+    b.innerHTML='<span>'+v.label+'</span><small>'+(v.id===current?'Em reprodução':score+'% capa')+'</small>';
+    b.onclick=()=>{const pos=Math.max(0,Number(document.getElementById('shortVideo')?.currentTime)||0),dur=Math.max(0,Number(document.getElementById('shortVideo')?.duration)||0);languageBackdrop.classList.add('is-hidden');languageSheet.classList.add('is-hidden');if(v.id!==current)S.openPlayer(v.item,{position:pos,duration:dur})};
+    languageList.appendChild(b)
+  }
+}
+function syncLanguageUi(item){
+  ensureUi();if(!languageButton)return;
+  const group=item?groupsById.get(S.id(item)):null,show=!!group&&group.variants.length>1;
+  languageButton.hidden=!show;
+  if(show)languageButton.querySelector('small').textContent='Idiomas';
+  else{languageBackdrop?.classList.add('is-hidden');languageSheet?.classList.add('is-hidden')}
+}
+S.languageVariants={version:VERSION,threshold:SIMILARITY_THRESHOLD,canonicalTitle,variantKind,similarity,groups:()=>[...(S.state.languageVariantGroups||[])]};
+const baseOpen=S.openPlayer;
+if(typeof baseOpen==='function')S.openPlayer=function(item,resume){const out=baseOpen.apply(this,arguments);syncLanguageUi(item);return out};
+window.addEventListener('srh25:catalog-render',e=>schedule(e.detail?.items||S.state.items));
+window.addEventListener('srh25:ready',()=>{ensureUi();schedule(S.state.items);syncLanguageUi(S.state.current?.item)});
+setTimeout(()=>{ensureUi();if(S.state.items?.length)schedule(S.state.items)},900);
+})();
+(()=>{
+'use strict';
+const S=window.SRH25;
+if(!S||S.__shortSemanticRecommendation)return;
+S.__shortSemanticRecommendation=true;
+
+const VERSION='semantic-title-v1';
+const STATE=Object.freeze({MATCH:'MATCH',NONE:'NONE'});
+const TRIGGER_SECONDS=10;
+const ARC_SECONDS=120;
+const WATCHDOG_MS=35000;
+const STOP=new Set('a o as os um uma uns umas de da do das dos em no na nos nas por para com sem sob sobre e ou que seu sua seus suas meu minha meus minhas ele ela eles elas este esta esse essa isso aquilo como quando onde qual quais ao aos ate apos antes depois entre contra muito mais menos ja ainda tambem nao sim ser estar foi era sao filme serie short shorts episodio ep parte temporada versao dublado dublada legendado legendada portugues pt br ano anos'.split(' '));
+const BOOST={ceo:3.8,mafia:3.7,bilionario:3.6,milionario:3.2,magnata:3.3,contrato:3.25,divorcio:3.2,casamento:2.9,noivo:2.85,noiva:2.85,marido:2.9,esposa:2.9,herdeiro:3.0,rival:2.8,vinganca:2.85,gravida:2.8,bebe:2.75,chefe:2.45,segredo:2.3,secreta:2.3,guerra:2.55,draco:3.6,lobisomem:3.6,principe:2.9,princesa:2.9,duque:3.0,duquesa:3.0,rei:2.8,rainha:2.8,amor:.9,vida:.85};
+
+const video=document.getElementById('shortVideo');
+const player=document.getElementById('shortPlayer');
+const stage=document.getElementById('playerStage');
+if(!video||!player||!stage)return;
+
+let plan=null,preparedFor='',badge=null,badgeExpired=true,transitionBusy=false,statsCache=null,watchdog=0,watchdogToken=0;
+let chain={visited:new Set(),keywords:new Set()};
+const badMedia=S.mediaUnavailableIds||(S.mediaUnavailableIds=new Set());
+
+function text(v){return String(v??'').trim()}
+function norm(v){let s=text(v).toLocaleLowerCase('pt-BR');try{s=s.normalize('NFD').replace(/[\u0300-\u036f]/g,'')}catch{}return s.replace(/[^a-z0-9]+/g,' ').replace(/\s+/g,' ').trim()}
+function baseTitle(item){let s=text(S.title?.(item)||item?.name||item?.title||'');const cut=s.search(/[\(\[\{\u3010\uff08<]/);if(cut>0)s=s.slice(0,cut);s=s.replace(/\s+(?:-|—|\||\/)\s+(?:legendad[oa]|dublad[oa]|pt[\s-]?br|19\d{2}|20\d{2}).*$/i,'');return s.trim()}
+function lemma(t){const n=norm(t);const map={bilionaria:'bilionario',bilionarios:'bilionario',bilionarias:'bilionario',milionaria:'milionario',milionarios:'milionario',milionarias:'milionario',mafioso:'mafia',mafiosa:'mafia',mafiosos:'mafia',mafiosas:'mafia',contratada:'contrato',contratado:'contrato',contratados:'contrato',contratadas:'contrato',esposo:'marido',maridos:'marido',esposas:'esposa',noivos:'noivo',noivas:'noiva',divorciada:'divorcio',divorciado:'divorcio',divorciados:'divorcio',divorciadas:'divorcio',casada:'casamento',casado:'casamento',casei:'casamento',herdeira:'herdeiro',herdeiros:'herdeiro',herdeiras:'herdeiro',gravidez:'gravida',gravidas:'gravida',secretos:'segredo',secretas:'secreta',chefes:'chefe',rivais:'rival'};return map[n]||n}
+function tokenData(item){const base=baseTitle(item),raw=norm(base).split(' ').filter(Boolean),tokens=[];for(let i=0;i<raw.length;i++){const l=lemma(raw[i]);if(!l||STOP.has(l)||/^\d+$/.test(l)||(l.length<3&&l!=='ceo'))continue;tokens.push({raw:raw[i],lemma:l,index:i})}return{base,norm:norm(base),tokens}}
+function catalogStats(){const items=Array.isArray(S.state?.items)?S.state.items:[],first=items[0]?S.id(items[0]):'',last=items.length?S.id(items[items.length-1]):'',key=items.length+':'+first+':'+last;if(statsCache?.key===key)return statsCache;const df=new Map();for(const item of items){const seen=new Set(tokenData(item).tokens.map(x=>x.lemma));for(const t of seen)df.set(t,(df.get(t)||0)+1)}statsCache={key,total:Math.max(1,items.length),df};return statsCache}
+function classify(item,blocked=new Set()){const data=tokenData(item),stats=catalogStats(),ranked=[];for(let i=0;i<data.tokens.length;i++){const t=data.tokens[i],df=stats.df.get(t.lemma)||0,idf=Math.log((stats.total+1)/(df+1))+1,semantic=BOOST[t.lemma]||1.35,pos=i===data.tokens.length-1?1.22:i===0?1.08:1,len=1+Math.min(.28,Math.max(0,t.lemma.length-5)*.035),score=idf*semantic*pos*len*(blocked.has(t.lemma)?.08:1);ranked.push({...t,score,idf,semantic})}ranked.sort((a,b)=>b.score-a.score);const best=ranked.find(x=>!blocked.has(x.lemma))||ranked[0];if(!best)return{state:STATE.NONE,keyword:'',pair:'',score:0,title:data.base,ranked:[]};const original=data.tokens.findIndex(x=>x.lemma===best.lemma),neighbor=original>=0?(data.tokens[original+1]||data.tokens[original-1]||null):null;return{state:STATE.MATCH,keyword:best.lemma,pair:neighbor?best.lemma+' '+neighbor.lemma:'',score:Number(best.score.toFixed(3)),title:data.base,ranked:ranked.slice(0,5).map(x=>({keyword:x.lemma,score:Number(x.score.toFixed(3))}))}}
+function category(item){return String(item?.category_id??item?.categoryId??item?.category??'')}
+function select(current){const all=Array.isArray(S.state?.items)?S.state.items:[],currentId=String(S.id(current)||''),currentData=tokenData(current),cat=category(current),same=cat?all.filter(x=>category(x)===cat):[],pool=same.length>1?same:all,attempted=new Set();for(let round=0;round<Math.min(5,currentData.tokens.length||1);round++){const cls=classify(current,new Set([...chain.keywords,...attempted]));if(!cls.keyword||attempted.has(cls.keyword))break;attempted.add(cls.keyword);let best=null;for(const item of pool){const id=String(S.id(item)||'');if(!id||id===currentId||chain.visited.has(id)||badMedia.has(id))continue;const data=tokenData(item);if(data.norm===currentData.norm||!data.tokens.some(x=>x.lemma===cls.keyword))continue;const lemmas=new Set(data.tokens.map(x=>x.lemma));let score=7+(cat&&category(item)===cat?1.3:0);for(const src of currentData.tokens)if(lemmas.has(src.lemma))score+=Math.min(3.5,(BOOST[src.lemma]||1)*.75);if(cls.pair){const parts=cls.pair.split(' ');if(parts.length===2&&lemmas.has(parts[0])&&lemmas.has(parts[1]))score+=2.1}const hist=S.historyFor?.(item);if(hist&&Number(hist.duration)>0&&Number(hist.position)>=Number(hist.duration)-30)score-=1.8;if(!best||score>best.score)best={item,score}}if(best)return{state:STATE.MATCH,item:best.item,keyword:cls.keyword,pair:cls.pair,score:Number(best.score.toFixed(3)),classifier:cls,sourceId:currentId,targetId:String(S.id(best.item)||''),sourceTitle:baseTitle(current),targetTitle:baseTitle(best.item),sameCategory:!!cat&&category(best.item)===cat}}return{state:STATE.NONE,item:null,keyword:'',pair:'',score:0,sourceId:currentId,sourceTitle:baseTitle(current)}}
+
+function ensureStyle(){if(document.getElementById('srh25RecStyle'))return;const st=document.createElement('style');st.id='srh25RecStyle';st.textContent='.srh25-recommended-badge{display:inline-flex;align-items:center;min-height:14px;padding:2px 7px;margin:0 0 5px;border:1px solid rgba(255,255,255,.16);border-radius:5px;background:rgba(18,22,28,.58);color:rgba(255,255,255,.78);font-size:9px;line-height:11px;font-weight:720;letter-spacing:.015em;backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px)}#playerStage{will-change:transform,opacity}.srh25-rec-exit{transition:transform .22s cubic-bezier(.4,0,.2,1),opacity .20s ease;transform:translate3d(0,-18%,0);opacity:0}.srh25-rec-preenter{transition:none!important;transform:translate3d(0,18%,0);opacity:0}.srh25-rec-enter{transition:transform .26s cubic-bezier(.22,1,.36,1),opacity .22s ease;transform:translate3d(0,0,0);opacity:1}';document.head.appendChild(st)}
+function ensureBadge(){ensureStyle();if(badge||badgeExpired)return;const title=document.getElementById('playerTitle');if(!title?.parentNode)return;badge=document.createElement('span');badge.className='srh25-recommended-badge';badge.textContent='Recomendado para você';title.parentNode.insertBefore(badge,title)}
+function updateBadge(position=video.currentTime){const cur=S.state?.current;if(!cur?.recommended){if(badge){badge.remove();badge=null}badgeExpired=true;return}if(badgeExpired)return;if((Number(position)||0)>=ARC_SECONDS){badgeExpired=true;if(badge){badge.remove();badge=null}return}ensureBadge()}
+function prepare(){const cur=S.state?.current?.item;if(!cur)return null;const id=String(S.id(cur)||'');if(!id)return null;if(preparedFor===id)return plan;preparedFor=id;plan=select(cur);return plan}
+function resetChain(item){chain={visited:new Set(),keywords:new Set()};const id=String(S.id(item)||'');if(id)chain.visited.add(id)}
+function transition(next){if(transitionBusy||!next?.item)return false;transitionBusy=true;const from=S.state?.current?.item;if(from)chain.visited.add(String(S.id(from)||''));chain.visited.add(String(S.id(next.item)||''));if(next.keyword)chain.keywords.add(next.keyword);stage.classList.remove('srh25-rec-preenter','srh25-rec-enter');stage.classList.add('srh25-rec-exit');setTimeout(()=>{stage.classList.remove('srh25-rec-exit');stage.classList.add('srh25-rec-preenter');S.openPlayer(next.item,{position:0,duration:0},{recommended:true,recommendation:next,preserveRecommendationChain:true});requestAnimationFrame(()=>requestAnimationFrame(()=>{stage.classList.remove('srh25-rec-preenter');stage.classList.add('srh25-rec-enter');setTimeout(()=>{stage.classList.remove('srh25-rec-enter');transitionBusy=false},280)}))},220);return true}
+
+function watchdogUnavailable(token,id,phase){if(token!==watchdogToken||String(S.id(S.state?.current?.item)||'')!==id||video.ended)return;document.getElementById('playerLoading')?.classList.add('is-hidden');S.toast?.('Mídia indisponível')}
+function armWatchdog(item){clearTimeout(watchdog);const token=++watchdogToken,id=String(S.id(item)||'');watchdog=setTimeout(()=>{if(token!==watchdogToken||String(S.id(S.state?.current?.item)||'')!==id||video.ended)return;if(video.readyState>0){try{video.play().catch(()=>{})}catch{}watchdog=setTimeout(()=>{if(!video.paused)return;watchdogUnavailable(token,id,'play-timeout')},10000);return}watchdogUnavailable(token,id,'no-metadata')},WATCHDOG_MS)}
+video.addEventListener('playing',()=>clearTimeout(watchdog),true);
+video.addEventListener('error',()=>clearTimeout(watchdog),true);
+
+const baseOpen=S.openPlayer;
+if(typeof baseOpen==='function')S.openPlayer=function(item,resume,options={}){if(!options?.preserveRecommendationChain)resetChain(item);else chain.visited.add(String(S.id(item)||''));plan=null;preparedFor='';badgeExpired=!options?.recommended;if(badge){badge.remove();badge=null}const out=baseOpen.apply(this,arguments);if(S.state?.current){S.state.current.recommended=!!options?.recommended;S.state.current.recommendation=options?.recommendation||null}updateBadge(Number(resume?.position)||0);armWatchdog(item);return out};
+
+const baseTime=video.ontimeupdate;
+video.ontimeupdate=function(e){try{baseTime?.call(this,e)}catch{}const cur=S.state?.current,pos=Number(video.currentTime)||0,dur=Number(video.duration)||0;updateBadge(pos);if(cur&&Number.isFinite(dur)&&dur>0&&dur-pos<=TRIGGER_SECONDS&&dur-pos>=0)prepare()};
+const baseEnded=video.onended;
+video.onended=function(e){try{baseEnded?.call(this,e)}catch{}clearTimeout(watchdog);const next=plan||prepare();if(next?.state===STATE.MATCH&&next.item)transition(next)};
+
+S.shortRecommendation={version:VERSION,state:STATE,classify,select,baseTitle,tokenData,prepare,current:()=>plan};
 })();
 })();
