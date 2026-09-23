@@ -2027,21 +2027,42 @@ async function closeDetail(){
   },true);
 
   /* SRHELL R24 feed hero polish */
-  let heroToken=0,heroTimer=0,heroViewToken=0,heroItems=[],heroIndex=0,heroNode=null;
-  const heroMeta=new Map();
+  let heroToken=0,heroTimer=0,heroViewToken=0,heroItems=[],heroIndex=0,heroNode=null,heroSetBucket=-1,heroSetMode='auto',heroSetExpiresAt=0;
+  const heroMeta=new Map(),HERO_SET_MS=10*60*1000,HERO_FAVORITE='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.8l2.52 5.1 5.63.82-4.08 3.97.96 5.61L12 16.65 6.97 19.3l.96-5.61L3.85 9.72l5.63-.82L12 3.8z"/></svg>';
+  function heroIsVisible(){return !document.hidden&&!state.playerActive&&!state.collectionOpen&&el.detailLayer.classList.contains('is-hidden')&&!document.body.classList.contains('srh-searching')}
+  function compactChannelTitle(value){
+    const s=stripEmoji(String(value||'Canal'),'Canal').replace(/\s{2,}/g,' ').trim();
+    if(s.length<=34)return s;
+    const words=s.split(/\s+/),out=[];let chars=0;
+    for(const w of words){if(out.length>=5||chars+w.length+(out.length?1:0)>31)break;out.push(w);chars+=w.length+(out.length>1?1:0)}
+    return (out.join(' ')||s.slice(0,31)).trim()+'…'
+  }
+  async function heroCycleMode(type,bucket,hasHistory){
+    if(type==='live'||!hasHistory)return'auto';
+    const key='srhell:'+STANDARD_APP_NS+':feed:'+type+':cycle:v1',saved=await standardStateGet(key);
+    if(saved&&Number(saved.bucket)===bucket)return saved.mode==='recommended'?'recommended':'auto';
+    const mode=saved?.mode==='auto'?'recommended':'auto';
+    void standardStateSet(key,{bucket,mode,at:Date.now()});
+    return mode
+  }
 
   function heroHost(){
     if(heroNode?.isConnected)return heroNode;
     heroNode=document.createElement('section');
     heroNode.className='stream-hero';
-    heroNode.innerHTML='<div class="stream-hero__skeleton"></div><div class="stream-hero__bg-stack"><div class="stream-hero__bg stream-hero__bg--a is-active"></div><div class="stream-hero__bg stream-hero__bg--b"></div></div><div class="stream-hero__shade"></div><div class="stream-hero__content"><div class="stream-hero__brand"><img class="stream-hero__logo is-hidden" alt=""><div class="srh-art-brand__fallback stream-hero__brand-fallback is-hidden"></div></div><div class="stream-hero__meta"></div><p class="stream-hero__plot"></p><div class="stream-hero__actions"><button class="stream-hero__action" data-stream-open>▶ <span>Abrir</span></button><button class="stream-hero__action stream-hero__action--ghost" data-stream-next>Próximo</button></div></div><div class="stream-hero__dots"></div>';
+    heroNode.innerHTML='<div class="stream-hero__skeleton"></div><div class="stream-hero__bg-stack"><div class="stream-hero__bg stream-hero__bg--a is-active"></div><div class="stream-hero__bg stream-hero__bg--b"></div></div><div class="stream-hero__shade"></div><div class="stream-hero__content"><div class="stream-hero__brand"><img class="stream-hero__logo is-hidden" alt=""><div class="srh-art-brand__fallback stream-hero__brand-fallback is-hidden"></div></div><div class="stream-hero__meta"></div><p class="stream-hero__plot"></p><div class="stream-hero__actions"><button class="stream-hero__action" data-stream-open>▶ <span>Abrir</span></button><button class="stream-hero__action stream-hero__action--ghost stream-hero__favorite" data-stream-favorite aria-label="Adicionar aos favoritos">'+HERO_FAVORITE+'<span>Favoritar</span></button></div></div><div class="stream-hero__dots"></div>';
     el.homeStatus.insertAdjacentElement('afterend',heroNode);
-    heroNode.querySelector('[data-stream-next]').onclick=()=>showHero((heroIndex+1)%Math.max(1,heroItems.length),true);
+    heroNode.addEventListener('click',e=>{
+      if(e.target.closest?.('button,.stream-hero__content'))return;
+      const r=heroNode.getBoundingClientRect(),x=e.clientX-r.left;
+      if(x<r.width*.34)showHero(heroIndex-1,true);
+      else if(x>r.width*.66)showHero(heroIndex+1,true);
+    });
     return heroNode;
   }
 
-  function stableShuffle(items,type){
-    const day=Math.floor(Date.now()/86400000),seed=String(BASE_CONFIG.appId||BASE_CONFIG.appName||'app')+':'+type+':'+day;
+  function stableShuffle(items,type,salt=''){
+    const day=Math.floor(Date.now()/86400000),seed=String(BASE_CONFIG.appId||BASE_CONFIG.appName||'app')+':'+type+':'+day+':'+String(salt);
     let h=2166136261;
     for(const ch of seed){h^=ch.charCodeAt(0);h=Math.imul(h,16777619)}
     const out=[...items];
@@ -2077,7 +2098,7 @@ async function closeDetail(){
 
   function dots(){
     if(!heroNode)return;
-    heroNode.querySelector('.stream-hero__dots').innerHTML=heroItems.map((_,i)=>'<button class="stream-hero__dot'+(i===heroIndex?' is-active':'')+'" data-stream-dot="'+i+'" aria-label="Destaque '+(i+1)+'"></button>').join('');
+    heroNode.querySelector('.stream-hero__dots').innerHTML=heroItems.map((_,i)=>'<button class="stream-hero__dot'+(i===heroIndex?' is-active is-worm':'')+'" data-stream-dot="'+i+'" aria-label="Destaque '+(i+1)+'"></button>').join('');
     heroNode.querySelectorAll('[data-stream-dot]').forEach(b=>b.onclick=()=>showHero(Number(b.dataset.streamDot),true));
   }
 
@@ -2223,13 +2244,18 @@ async function closeDetail(){
     const plot=node.querySelector('.stream-hero__plot'),metaNode=node.querySelector('.stream-hero__meta'),skeleton=node.querySelector('.stream-hero__skeleton');
     if(node.dataset.srhPainted!=='1')skeleton?.classList.remove('is-hidden');
     node.querySelector('[data-stream-open]').onclick=()=>openItem(item,type);
+    const fav=node.querySelector('[data-stream-favorite]'),favApi=window.__srhStandardFavorites;
+    if(fav){
+      const syncFav=()=>{const on=!!favApi?.is?.(type,item);fav.classList.toggle('is-active',on);fav.setAttribute('aria-label',on?'Remover dos favoritos':'Adicionar aos favoritos');fav.querySelector('span').textContent=on?'Favorito':'Favoritar'};
+      syncFav();fav.onclick=e=>{e.stopPropagation();favApi?.toggle?.(type,item);syncFav()}
+    }
     dots();
 
     let data=null;
     if(type!=='live')data=await heroTmdb(item,type);
     if(local!==heroToken||heroViewToken!==state.renderToken||state.activeType!==type)return;
 
-    const title=stripEmoji(type==='live'?(item.baseName||'Canal'):(data?.title||itemTitle(item)),type==='live'?'Canal':'Sem título');
+    const title=type==='live'?compactChannelTitle(item.baseName||'Canal'):stripEmoji(data?.title||itemTitle(item),'Sem título');
     const image=heroImage(item,type,data);
     setHeroBrand(node,title,data,local);
     plot.textContent=type==='live'?'':(data?.overview||String(item?.plot||item?.description||''));
@@ -2238,41 +2264,57 @@ async function closeDetail(){
     await paintHeroBackground(node,image,type==='live',local);
     if(local!==heroToken||heroViewToken!==state.renderToken||state.activeType!==type)return;
     skeleton?.classList.add('is-hidden');
-    heroTimer=setTimeout(()=>showHero(heroIndex+1),user?8500:7000);
+    heroTimer=setTimeout(()=>{
+      if(!heroIsVisible()){heroTimer=setTimeout(()=>showHero(heroIndex),1000);return}
+      const bucket=Math.floor(Date.now()/HERO_SET_MS);
+      if(bucket!==heroSetBucket||Date.now()>=heroSetExpiresAt){buildHero(state.renderToken);return}
+      showHero(heroIndex+1)
+    },user?8500:7000);
     warmHero((heroIndex+1)%Math.max(1,heroItems.length),type);
   }
 
   async function buildHero(token){
-    const node=heroHost(),type=state.activeType;
+    const node=heroHost(),type=state.activeType,bucket=Math.floor(Date.now()/HERO_SET_MS);
     if(node.dataset.srhPainted!=='1')node.querySelector('.stream-hero__skeleton')?.classList.remove('is-hidden');
-    const targets=targetsFor(type).slice(0,Math.min(5,targetsFor(type).length));
-    const lists=[];
-    for(const target of targets){
-      if(token!==state.renderToken)return;
-      try{
-        const raw=await loadTargetItems(target,token);
-        if(token!==state.renderToken)return;
-        lists.push(type==='live'?groupChannels(raw):uniqueById(raw,type));
-      }catch{}
-      if(lists.flat().length>=28)break;
-    }
+    heroSetBucket=bucket;heroSetExpiresAt=(bucket+1)*HERO_SET_MS;
+    const last=type==='live'?null:(getHistory(type)[0]||null),mode=await heroCycleMode(type,bucket,!!last);
     if(token!==state.renderToken)return;
-    let items=lists.flat();
-    if(type!=='live')items=uniqueById(items,type);
-    const seen=new Set();
-    items=items.filter(item=>{
-      const key=type==='live'?(item.baseName||itemTitle(item)):String(itemId(item,type)||itemTitle(item));
-      if(!key||seen.has(key))return false;
-      seen.add(key);
-      return true;
-    });
-    heroItems=stableShuffle(items,type).slice(0,10);
-    heroIndex=0;
-    if(!heroItems.length){
-      node.classList.add('is-hidden');
-      return;
+    heroSetMode=mode;
+    let recommended=[];
+    if(mode==='recommended'&&last&&window.__srhStandardRecommendations?.get){
+      try{recommended=await window.__srhStandardRecommendations.get(type,last,10,{budgetMs:9000})}catch{}
+      if(token!==state.renderToken)return;
     }
+    if(recommended.length>=10){
+      heroItems=recommended.slice(0,10).map(x=>x.item);
+    }else{
+      heroSetMode='auto';
+      const targets=targetsFor(type).slice(0,Math.min(5,targetsFor(type).length)),lists=[];
+      for(const target of targets){
+        if(token!==state.renderToken)return;
+        try{
+          const raw=await loadTargetItems(target,token);
+          if(token!==state.renderToken)return;
+          lists.push(type==='live'?groupChannels(raw):uniqueById(raw,type));
+        }catch{}
+        if(lists.flat().length>=28)break;
+      }
+      if(token!==state.renderToken)return;
+      let items=lists.flat();
+      if(type!=='live')items=uniqueById(items,type);
+      const seen=new Set();
+      items=items.filter(item=>{
+        const key=type==='live'?(item.baseName||itemTitle(item)):String(itemId(item,type)||itemTitle(item));
+        if(!key||seen.has(key))return false;
+        seen.add(key);
+        return true;
+      });
+      heroItems=stableShuffle(items,type,bucket).slice(0,10);
+    }
+    heroIndex=0;
+    if(!heroItems.length){node.classList.add('is-hidden');return}
     node.classList.remove('is-hidden');
+    playbackDebug('hero-set',{type,mode:heroSetMode,bucket,count:heroItems.length,expiresAt:heroSetExpiresAt});
     showHero(0);
   }
 
@@ -2287,6 +2329,9 @@ async function closeDetail(){
     buildHero(token);
     return out;
   };
+
+  const baseMainStreamCardDataName=cardDataName;
+  cardDataName=function(item,type){const name=baseMainStreamCardDataName(item,type);return type==='live'?compactChannelTitle(name):name};
 
   const baseRailMetrics=RailVirtualizer.prototype.metrics;
   RailVirtualizer.prototype.metrics=function(){
