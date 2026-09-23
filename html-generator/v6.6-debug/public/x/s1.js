@@ -827,6 +827,11 @@ async function closeDetail(){
     try{localStorage.removeItem(FAVORITES_KEY);sessionStorage.removeItem(FAVORITES_KEY)}catch{}
     pruneShortContinueEntries();
     purgeContinueFrameWorkers();
+    setTimeout(()=>{
+      const run=()=>migrateContinueFrames().catch(()=>{});
+      if(typeof requestIdleCallback==='function')requestIdleCallback(run,{timeout:1800});
+      else run()
+    },700);
     return true
   };
 
@@ -1431,13 +1436,53 @@ async function closeDetail(){
   }
 
   async function ensureContinueFrameRecord(entry,type){
-    /* r62: never create a hidden decoder worker. Existing IndexedDB frames are
-       consumed directly; legacy entries are upgraded the next time real playback
-       persists a frame from the visible player. */
-    return readContinueFrame(entry)
+    if(!entry)return null;
+    const existing=await readContinueFrame(entry);
+    if(existing)return existing;
+    const normalized={...entry,type:type==='series'?'series':'vod',frameKey:continueFrameKey({...entry,type:type==='series'?'series':'vod'})};
+    const sources=continueFrameSources(normalized);
+    if(!sources.length)return null;
+    const video=document.createElement('video');
+    video.className='srh-resume-frame-worker';
+    video.muted=true;video.playsInline=true;video.preload='metadata';
+    let result=null;
+    try{
+      /* Deliberately never append this video to the DOM. Android/WebView cannot
+         promote a detached decoder surface over the application UI. */
+      result=await loadIsolatedFrame(video,sources,entry.position,6200);
+      if(!result.ok)return null;
+      const dataUrl=captureContinueFrameDataUrl(video);
+      if(!dataUrl){
+        playbackDebug('continue-frame-migrate-skip',{type,key:entry.key,reason:'canvas-unavailable'});
+        return null
+      }
+      const payload={version:CONTINUE_FRAME_VERSION,kind:'data-url',dataUrl,position:Number(entry.position)||Number(video.currentTime)||0,capturedAt:Date.now(),migrated:true};
+      await standardStateSet(normalized.frameKey,payload);
+      if(entry.frameKey!==normalized.frameKey){
+        const bucket=type==='series'?'series':'vod',rows=getHistory(bucket).map(row=>continueIdentity(row)===continueIdentity(normalized)?{...row,frameKey:normalized.frameKey,frameVersion:CONTINUE_FRAME_VERSION}:row);
+        contMemory[bucket]=rows;void standardStateSet(historyKey(bucket),rows)
+      }
+      playbackDebug('continue-frame-migrate',{type,key:entry.key,kind:'data-url',position:payload.position});
+      return payload
+    }finally{
+      try{result?.hls?.destroy?.()}catch{}
+      try{video.pause();video.removeAttribute('src');video.load()}catch{}
+    }
   }
 
-  async function migrateContinueFrames(){return false}
+  async function migrateContinueFrames(){
+    const rows=[];
+    for(const type of ['vod','series']){
+      for(const entry of getHistory(type).filter(x=>Number(x.position)>=MIN_CONTINUE_SECONDS&&Number(x.duration)>0).slice(0,12))rows.push({type,entry})
+    }
+    for(const row of rows){
+      if(state.playerActive||!el.detailLayer.classList.contains('is-hidden'))break;
+      if(!await readContinueFrame(row.entry))await ensureContinueFrameRecord(row.entry,row.type).catch(()=>null);
+      await new Promise(resolve=>setTimeout(resolve,120))
+    }
+    if(['vod','series'].includes(state.activeType))renderContinue();
+    return true
+  }
 
   function queueContinueCardFrame(task){
     continueFrameCardTail=continueFrameCardTail.catch(()=>{}).then(task);
