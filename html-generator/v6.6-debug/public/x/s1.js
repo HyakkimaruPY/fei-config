@@ -1314,6 +1314,7 @@ async function closeDetail(){
   const CACHE_TTL=7*24*60*60*1000;
   const MAX_CACHE=42;
   const MAX_CACHE_BYTES=720000;
+  const TMDB_METADATA_VERSION=3;
   let tmdbConfig=null;
   let coverActive=0;
   const coverQueue=[];
@@ -1461,7 +1462,7 @@ async function closeDetail(){
     const year=titleYear(rawTitle)||titleYear(extra?.name||extra?.title||'');
     const cacheKey=kind+':'+(explicit?'id:'+explicit:'q:'+clean.toLocaleLowerCase('pt-BR')+':'+year);
     const cached=cacheRead(cacheKey),stale=cached||cacheReadStale(cacheKey);
-    if(Number(cached?.visualVersion||0)>=2)return cached;
+    if(Number(cached?.metadataVersion||0)>=TMDB_METADATA_VERSION)return cached;
 
     let id=explicit||String(stale?.id||''),picked=null;
     if(!id&&clean){
@@ -1520,7 +1521,8 @@ async function closeDetail(){
       year:/^\d{4}/.test(String(releaseRaw||''))?String(releaseRaw).slice(0,4):'',
       vote:Number.isFinite(voteRaw)&&voteRaw>0?Math.round(voteRaw*10)/10:null,
       posterHero:!backdropPath&&!!posterPath,
-      visualVersion:2
+      visualVersion:2,
+      metadataVersion:TMDB_METADATA_VERSION
     };
     cacheWrite(cacheKey,data);
     return data;
@@ -1543,7 +1545,7 @@ async function closeDetail(){
     return eps&&typeof eps==='object'?eps:{};
   }
 
-  async function tmdbFirstProviderResponse(action,params,data){
+  async function tmdbFirstProviderResponse(action,params,data,{waitForTmdb=false}={}){
     if(!data||typeof data!=='object')return data;
     const kind=action==='get_vod_info'?'movie':action==='get_series_info'?'tv':'';
     if(!kind)return data;
@@ -1554,7 +1556,7 @@ async function closeDetail(){
         ?{...movie,...info,name:movie.name||info.name||info.title||''}
         :{...info,name:info.name||info.title||data.name||''};
       const tmdbPromise=resolveTmdb(kind,probe,data);
-      const tmdb=state.srhOpeningContinue
+      const tmdb=state.srhOpeningContinue&&!waitForTmdb
         ?await Promise.race([tmdbPromise,new Promise(resolve=>setTimeout(()=>resolve(null),1600))])
         :await tmdbPromise;
       if(!tmdb){
@@ -1573,6 +1575,8 @@ async function closeDetail(){
         if(tmdb.backdrop)data.info.backdrop_path=[tmdb.backdrop];
         else if(tmdb.poster)data.info.backdrop_path=[tmdb.poster];
         if(tmdb.overview){data.info.plot=tmdb.overview;data.info.description=tmdb.overview}
+        if(tmdb.year){data.info.year=tmdb.year;if(!data.info.releasedate)data.info.releasedate=tmdb.year}
+        if(tmdb.vote!==null&&tmdb.vote!==undefined){data.info.rating=tmdb.vote;data.info.rating_5based=Math.round(Number(tmdb.vote)*5)/10}
         if(tmdb.poster){data.info.movie_image=tmdb.poster;data.movie_data.stream_icon=tmdb.poster;data.movie_data.movie_image=tmdb.poster}
         const id=params?.vod_id??movie.stream_id??probe.stream_id;
         if(id!==undefined)detailTmdb.set('vod:'+String(id),tmdb);
@@ -1582,6 +1586,8 @@ async function closeDetail(){
         else if(tmdb.poster){data.info.backdrop_path=[tmdb.poster];data.info.backdrop=tmdb.poster}
         if(tmdb.poster){data.info.cover_big=tmdb.poster;data.info.cover=tmdb.poster}
         if(tmdb.overview){data.info.plot=tmdb.overview;data.info.description=tmdb.overview}
+        if(tmdb.year){data.info.year=tmdb.year;if(!data.info.releasedate)data.info.releasedate=tmdb.year}
+        if(tmdb.vote!==null&&tmdb.vote!==undefined){data.info.rating=tmdb.vote;data.info.rating_5based=Math.round(Number(tmdb.vote)*5)/10}
         const id=params?.series_id??probe.series_id;
         if(id!==undefined)detailTmdb.set('series:'+String(id),tmdb);
 
@@ -1616,6 +1622,16 @@ async function closeDetail(){
     const action=params?.action;
     if(action==='get_vod_info'||action==='get_series_info'){
       return tmdbFirstProviderResponse(action,params,data);
+    }
+    return data;
+  };
+  const providerDetailRequest=requestDetail;
+  requestDetail=async function(params={},cfg=CONFIG){
+    const data=await providerDetailRequest(params,cfg);
+    if(cfg!==CONFIG)return data;
+    const action=params?.action;
+    if(action==='get_vod_info'||action==='get_series_info'){
+      return tmdbFirstProviderResponse(action,params,data,{waitForTmdb:true});
     }
     return data;
   };
@@ -1779,6 +1795,15 @@ async function closeDetail(){
     }
   }
 
+  function applyTmdbDetailText(type,data){
+    const overview=String(data?.overview||'').trim();
+    const syn=el.detailBody.querySelector(type==='series'?'#seriesSynopsis':'#filmSynopsis');
+    if(syn&&overview){
+      setSynopsisState(syn,overview,false);
+      syn.onclick=e=>{e.stopPropagation();setSynopsisState(syn,overview,!state.synopsisExpanded)}
+    }
+  }
+
   function applyTmdbDetailBackdrop(type,data){
     const src=String(data?.backdrop||'').trim();if(!src)return;
     const token=state.detailToken,art=el.detailBody.querySelector('.detail-art');
@@ -1809,6 +1834,7 @@ async function closeDetail(){
 
     modal.classList.add('srh-branded-detail');
     art.classList.toggle('srh-poster-hero-fallback',!!data?.posterHero);
+    applyTmdbDetailText(type,data);
     applyTmdbDetailBackdrop(type,data);
     art.querySelector('.srh-art-brand')?.remove();
     art.parentElement?.querySelector(':scope > .srh-full-title-reveal')?.remove();
@@ -1921,11 +1947,23 @@ async function closeDetail(){
     const type=kind==='tv'?'series':'vod';
     const id=String(kind==='tv'?(item?.series_id??item?.id??''):(item?.stream_id??item?.id??''));
     const rich=id?detailTmdb.get(type+':'+id):null;
-    if(Number(rich?.visualVersion||0)>=2)return rich;
+    if(Number(rich?.metadataVersion||0)>=TMDB_METADATA_VERSION)return rich;
     const resolved=await resolveTmdb(kind,item,extra);
     if(rich){
       if(!resolved)return rich;
-      return{...resolved,...rich,logo:rich.logo||resolved.logo,backdrop:rich.backdrop||resolved.backdrop,poster:rich.poster||resolved.poster,overview:rich.overview||resolved.overview};
+      return{
+        ...rich,
+        ...resolved,
+        title:resolved.title||rich.title||'',
+        logo:resolved.logo||rich.logo||'',
+        backdrop:resolved.backdrop||rich.backdrop||'',
+        poster:resolved.poster||rich.poster||'',
+        overview:resolved.overview||rich.overview||'',
+        year:resolved.year||rich.year||'',
+        vote:resolved.vote??rich.vote??null,
+        visualVersion:Math.max(Number(rich.visualVersion||0),Number(resolved.visualVersion||0)),
+        metadataVersion:Math.max(Number(rich.metadataVersion||0),Number(resolved.metadataVersion||0))
+      };
     }
     return resolved;
   };
@@ -2494,7 +2532,7 @@ async function closeDetail(){
     if(type==='live')return null;
     const key=type+':'+String(itemId(item,type)||itemTitle(item));
     const cached=heroMeta.get(key);
-    if(Number(cached?.visualVersion||0)>=2)return cached;
+    if(Number(cached?.metadataVersion||0)>=TMDB_METADATA_VERSION)return cached;
     try{
       const data=await resolveCatalogMetadata?.(type==='series'?'tv':'movie',item,null);
       const best=data?.backdrop||data?.poster||data?.logo?data:(cached||data||null);
