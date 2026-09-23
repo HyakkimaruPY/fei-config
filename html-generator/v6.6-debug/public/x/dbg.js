@@ -851,7 +851,9 @@ function installShortsPerformanceSupervisor(){
         if(allDebug||overlapsDebugUiWork(e.startTime||0,0))continue;
         const score=Number(e.value)||0;if(score<=0)continue;
         const p=get('performance.shorts')||{},sample={time:new Date().toISOString(),score:Number(score.toFixed(4)),hadRecentInput:!!e.hadRecentInput,sources:sources.slice(0,4).map(x=>perfTarget(x?.node)).filter(Boolean)},recent=Array.isArray(p.recentLayoutShifts)?p.recentLayoutShifts.slice(-7):[];
-        recent.push(sample);shortsPerfPatch({layoutShifts:(Number(p.layoutShifts)||0)+1,maxLayoutShift:Math.max(Number(p.maxLayoutShift)||0,Number(score.toFixed(4))),recentLayoutShifts:recent});
+        recent.push(sample);
+        if(e.hadRecentInput){shortsPerfPatch({layoutShiftsInputIgnored:(Number(p.layoutShiftsInputIgnored)||0)+1,recentLayoutShifts:recent});continue}
+        shortsPerfPatch({layoutShifts:(Number(p.layoutShifts)||0)+1,maxLayoutShift:Math.max(Number(p.maxLayoutShift)||0,Number(score.toFixed(4))),recentLayoutShifts:recent});
         if(score>=0.15)noteSlow({kind:'ui.layout',layer:'render',origin:'shorts',ms:0,message:'Mudança visual significativa durante renderização',details:sample})
       }});
       shifts.observe({entryTypes:['layout-shift']})
