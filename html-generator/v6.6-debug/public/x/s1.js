@@ -1404,7 +1404,7 @@ async function closeDetail(){
     for(const type of ['vod','series'])for(const entry of getHistory(type).slice(0,12))rows.push({type,entry});
     for(const row of rows){
       if(state.playerActive||!el.detailLayer.classList.contains('is-hidden'))break;
-      if(!await readContinueFrame(row.entry))await ensureContinueFrameRecord(row.entry,row.type).catch(()=>null);
+      if(!await readContinueFrame(row.entry))await queueContinueCardFrame(()=>ensureContinueFrameRecord(row.entry,row.type).catch(()=>null));
       await new Promise(resolve=>setTimeout(resolve,90))
     }
     if(['vod','series'].includes(state.activeType))renderContinue()
@@ -1418,7 +1418,7 @@ async function closeDetail(){
   async function hydrateContinueCard(card,entry,type){
     if(!card?.isConnected)return;
     let payload=await readContinueFrame(entry);
-    if(!payload)payload=await ensureContinueFrameRecord(entry,type).catch(()=>null);
+    if(!payload)payload=await queueContinueCardFrame(()=>ensureContinueFrameRecord(entry,type).catch(()=>null));
     if(!payload||!card.isConnected)return;
     const host=card.querySelector('.continue-card__media'),img=host?.querySelector('img');
     if(!host)return;
@@ -1461,7 +1461,8 @@ async function closeDetail(){
     const framePromise=ensureContinueFrameRecord(entry,'vod').catch(()=>null);
     const loading=openFilm(item),token=state.detailToken;
     try{
-      const [frame]=await Promise.all([framePromise,loading.then(()=>framePromise)]);
+      await loading;
+      const frame=await framePromise;
       if(!isDetailCurrent(token))return;
       const art=el.detailBody.querySelector('.detail-art'),image=art?.querySelector('img'),watch=el.detailBody.querySelector('#watchFilm'),sources=uniqueMediaUrls([entry?.lastWorkingUrl,...(entry?.sources||[]),...(state.currentDetail?.entry?.sources||[])]);
       if(!art)return;
@@ -1489,7 +1490,8 @@ async function closeDetail(){
     const framePromise=ensureContinueFrameRecord(entry,'series').catch(()=>null);
     const loading=openSeries(item),token=state.detailToken;
     try{
-      const [frame]=await Promise.all([framePromise,loading.then(()=>framePromise)]);
+      await loading;
+      const frame=await framePromise;
       if(!isDetailCurrent(token))return;
       const season=String(entry.season??''),collections=state.currentSeries?.episodes||{},seasonKey=season&&collections[season]?season:Object.keys(collections).sort((a,b)=>Number(a)-Number(b))[0],eps=Array.isArray(collections[seasonKey])?collections[seasonKey]:[];
       if(seasonKey){const option=[...el.detailBody.querySelectorAll('[data-season]')].find(b=>String(b.dataset.season)===String(seasonKey));option?.click()}
@@ -1909,7 +1911,7 @@ async function closeDetail(){
       const info=data?.info||{},movie=data?.movie_data||{},root=data||{};
       const backdrop=providerImageValue(
         info.backdrop_path,info.backdrop,root.backdrop_path,root.backdrop,
-        movie.backdrop_path,movie.backdrop_path,
+        movie.backdrop_path,movie.backdrop,
         item?.backdrop_path,item?.backdrop
       );
       const cover=providerImageValue(
