@@ -430,6 +430,7 @@ async function storeContinueFrame(entry,video,force=false){
   const ok=await standardStateSet(key,payload);
   if(ok)continueFramePayloadMemory.set(key,payload);
   playbackDebug('continue-frame-save',{type:entry.type,key:entry.key,kind:payload.kind,position:Number(position.toFixed?.(2)||position),pending:!dataUrl&&exactContinueFramePayload(existing),ok});
+  if(ok&&dataUrl)setTimeout(()=>{if(!state.playerActive&&el.detailLayer.classList.contains('is-hidden'))renderContinue()},40);
   if(ok&&!dataUrl&&(force||(!state.playerActive&&!state.seriesVideo&&!state.detailInlineVideo)))queueMicrotask(()=>window.__srhUpgradeContinueFrame?.({...entry,position,frameKey:key}).catch?.(()=>{}));
   return ok
 }
@@ -1754,7 +1755,7 @@ async function closeDetail(){
       ...(existing?.pendingSources||[]),existing?.source,...(existing?.sources||[])
     ]);
     if(!direct.length)return existing||null;
-    const groups=[{name:'direct',sources:direct.slice(0,2),cors:false}];
+    const groups=[{name:'direct-cors',sources:direct.slice(0,2),cors:true}];
     const proxied=frameProxyCandidates(direct).slice(0,2);
     if(proxied.length)groups.push({name:'cors-proxy',sources:proxied,cors:true});
     for(const group of groups){
@@ -1779,6 +1780,7 @@ async function closeDetail(){
           contMemory[bucket]=rows;void standardStateSet(historyKey(bucket),rows)
         }
         playbackDebug('continue-frame-migrate',{type,key:entry.key,kind:'data-url',position:payload.position,path:group.name,ok});
+        if(ok)setTimeout(()=>{if(!state.playerActive&&el.detailLayer.classList.contains('is-hidden'))renderContinue()},40);
         return payload
       }finally{
         try{result?.hls?.destroy?.()}catch{}
@@ -2286,6 +2288,18 @@ async function closeDetail(){
   /* Critical order change: detail provider data is enriched before the base
      renderer receives it. Skeleton stays visible until this promise settles. */
   const providerRequest=request;
+  const fastDetailInflight=new Map(),fastDetailFailureAt=new Map();
+  function detailTransportUrls(params,cfg=CONFIG){
+    const target=apiUrl(params,cfg),out=[];
+    const add=url=>{const s=String(url||'').trim();if(s&&!out.includes(s))out.push(s)};
+    let secure='';
+    try{const u=new URL(target);if(u.protocol==='http:'){u.protocol='https:';secure=u.toString()}}catch{}
+    const localFile=location.protocol==='file:';
+    if(localFile&&cfg.corsProxy){add(proxyUrl(target,cfg));if(secure)add(proxyUrl(secure,cfg))}
+    add(target);if(secure)add(secure);
+    if(!localFile&&cfg.corsProxy){add(proxyUrl(target,cfg));if(secure)add(proxyUrl(secure,cfg))}
+    return out
+  }
   window.__srhFastProviderDetail=async function(params={},cfg=CONFIG){
     const action=String(params?.action||''),mediaId=String(params?.series_id??params?.vod_id??params?.stream_id??'');
     const key=[normalizeServer(cfg.server),String(cfg.username||''),action,mediaId].join('|');
@@ -2294,24 +2308,35 @@ async function closeDetail(){
       playbackDebug('detail-fast-cache',{action,mediaId,ageMs:Math.round(age)});
       return cloneDetailPayload(cached.data)
     }
-    const started=performance.now();
-    try{
-      const data=await providerRequest(params,cfg);
-      const ms=Math.round(performance.now()-started);
-      detailResponseCache.set(key,{at:Date.now(),data:cloneDetailPayload(data)});
-      if(detailResponseCache.size>18)detailResponseCache.delete(detailResponseCache.keys().next().value);
-      if(ms>2600)window.SRHDebug?.noteSlow?.({kind:'detail.api',action,mediaId,origin:(()=>{try{return new URL(apiUrl({},cfg)).origin}catch{return''}})(),layer:'fetch',ms,message:'Detalhe demorou para carregar'});
-      playbackDebug('detail-fast-provider',{action,mediaId,ms});
-      return cloneDetailPayload(data)
-    }catch(e){
+    if(fastDetailInflight.has(key))return fastDetailInflight.get(key);
+    const lastFail=Number(fastDetailFailureAt.get(key)||0);
+    if(!cached&&lastFail&&Date.now()-lastFail<1800)throw new Error('Detalhe temporariamente indisponível.');
+    const job=(async()=>{
+      const started=performance.now(),urls=detailTransportUrls(params,cfg);let last=null,attempt=0;
+      for(const url of urls){
+        attempt++;
+        try{
+          const data=await requestJson(url,7800,{srhBypassCircuit:true});
+          const ms=Math.round(performance.now()-started);
+          detailResponseCache.set(key,{at:Date.now(),data:cloneDetailPayload(data)});
+          fastDetailFailureAt.delete(key);
+          if(detailResponseCache.size>24)detailResponseCache.delete(detailResponseCache.keys().next().value);
+          if(ms>2600)window.SRHDebug?.noteSlow?.({kind:'detail.api',action,mediaId,origin:(()=>{try{return new URL(apiUrl({},cfg)).origin}catch{return''}})(),layer:'fetch',ms,message:'Detalhe demorou para carregar'});
+          playbackDebug('detail-fast-provider',{action,mediaId,ms,attempt,transport:url===apiUrl(params,cfg)?'direct':url.startsWith('https:')?'https':'proxy'});
+          return cloneDetailPayload(data)
+        }catch(e){last=e;playbackDebug('detail-fast-attempt-failed',{action,mediaId,attempt,message:e?.message||String(e)})}
+      }
       const ms=Math.round(performance.now()-started);
       if(cached&&age<DETAIL_STALE_TTL){
-        playbackDebug('detail-fast-stale',{action,mediaId,ageMs:Math.round(age),ms,reason:e?.message||String(e)});
+        playbackDebug('detail-fast-stale',{action,mediaId,ageMs:Math.round(age),ms,reason:last?.message||'provider-failure'});
         return cloneDetailPayload(cached.data)
       }
-      playbackDebug('detail-fast-failure',{action,mediaId,ms,message:e?.message||String(e)});
-      throw e
-    }
+      fastDetailFailureAt.set(key,Date.now());
+      playbackDebug('detail-fast-failure',{action,mediaId,ms,attempts:urls.length,message:last?.message||String(last)});
+      throw last||new Error('Não foi possível carregar os detalhes.')
+    })().finally(()=>fastDetailInflight.delete(key));
+    fastDetailInflight.set(key,job);
+    return job
   };
   request=async function(params={},cfg=CONFIG){
     const data=await providerRequest(params,cfg);
