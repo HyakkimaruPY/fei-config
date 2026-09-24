@@ -97,14 +97,21 @@ const DETAIL_CACHE_TTL=6*60*1000,DETAIL_STALE_TTL=60*60*1000;
 function cloneDetailPayload(value){
   try{return typeof structuredClone==='function'?structuredClone(value):JSON.parse(JSON.stringify(value))}catch{return value}
 }
-async function requestProviderDetailStable(params={},cfg=CONFIG,timeout=12000){
+async function requestProviderDetailStable(params={},cfg=CONFIG,timeout=12000,opts=null){
   const action=String(params?.action||''),mediaId=String(params?.series_id??params?.vod_id??params?.stream_id??'');
   const provider=normalizeServer(cfg.server),cacheKey=[provider,String(cfg.username||''),action,mediaId].join('|');
-  const cached=detailResponseCache.get(cacheKey),age=cached?Date.now()-Number(cached.at||0):Infinity;
-  if(cached&&age<DETAIL_CACHE_TTL)return cloneDetailPayload(cached.data);
-  /* Match the distributed stable classic exactly: direct is authoritative;
-     the configured CORS proxy is a fallback for the same request, never a
-     sticky transport preference from an earlier failure. */
+  const force=!!opts?.force,accept=typeof opts?.accept==='function'?opts.accept:null;
+  let cached=detailResponseCache.get(cacheKey),age=cached?Date.now()-Number(cached.at||0):Infinity;
+  if(cached&&!force&&age<DETAIL_CACHE_TTL){
+    const value=cloneDetailPayload(cached.data);
+    if(!accept||accept(value))return value;
+    detailResponseCache.delete(cacheKey);
+    playbackDebug('detail-stable-cache-rejected',{action,mediaId,ageMs:Math.round(age)});
+    cached=null;age=Infinity
+  }
+  /* Match the distributed stable classic transport: direct is authoritative
+     when its payload is usable; proxy is the fallback for transport failures
+     and semantically incomplete detail responses. */
   const target=apiUrl(params,cfg),proxied=cfg.corsProxy?proxyUrl(target,cfg):'';
   const urls=[{url:target,kind:'direct'}];
   if(proxied&&proxied!==target)urls.push({url:proxied,kind:'proxy'});
@@ -113,18 +120,25 @@ async function requestProviderDetailStable(params={},cfg=CONFIG,timeout=12000){
     try{
       const started=performance.now(),data=await requestJson(candidate.url,timeout,{srhBypassCircuit:true});
       if(!data||typeof data!=='object')throw new Error('O provedor retornou um detalhe inválido.');
+      if(accept&&!accept(data)){
+        playbackDebug('detail-stable-payload-rejected',{action,mediaId,transport:candidate.kind,ms:Math.round(performance.now()-started)});
+        throw new Error('O provedor respondeu sem os dados necessários.')
+      }
       detailResponseCache.set(cacheKey,{at:Date.now(),data:cloneDetailPayload(data)});
       if(detailResponseCache.size>24)detailResponseCache.delete(detailResponseCache.keys().next().value);
-      playbackDebug('detail-stable-provider',{action,mediaId,transport:candidate.kind,ms:Math.round(performance.now()-started)});
+      playbackDebug('detail-stable-provider',{action,mediaId,transport:candidate.kind,ms:Math.round(performance.now()-started),forced:force});
       return cloneDetailPayload(data)
     }catch(e){
       last=e;
-      playbackDebug('detail-stable-failed',{action,mediaId,transport:candidate.kind,message:e?.message||String(e)})
+      playbackDebug('detail-stable-failed',{action,mediaId,transport:candidate.kind,message:e?.message||String(e),forced:force})
     }
   }
   if(cached&&age<DETAIL_STALE_TTL){
-    playbackDebug('detail-stable-stale-cache',{action,mediaId,ageMs:Math.round(age),message:last?.message||'provider-failure'});
-    return cloneDetailPayload(cached.data)
+    const value=cloneDetailPayload(cached.data);
+    if(!accept||accept(value)){
+      playbackDebug('detail-stable-stale-cache',{action,mediaId,ageMs:Math.round(age),message:last?.message||'provider-failure',forced:force});
+      return value
+    }
   }
   throw last||new Error('Não foi possível carregar os detalhes.')
 }
@@ -570,7 +584,7 @@ async function loadSeriesDetailStable(item,{force=false}={}){
   const job=(async()=>{
     let last=null;
     try{
-      const data=await requestProviderDetailStable(params,CONFIG,12000),stats=seriesEpisodeStats(data);
+      const data=await requestProviderDetailStable(params,CONFIG,12000,{force,accept:value=>seriesEpisodeStats(value).episodes>0}),stats=seriesEpisodeStats(data);
       if(!stats.episodes)throw new Error('O provedor respondeu sem temporadas/episódios.');
       await saveSeriesDetailCache(item,data,'stable-distributed-transport');
       playbackDebug('series-detail-restored',{mediaId,source:'stable-distributed-transport',seasons:stats.seasons.length,episodes:stats.episodes,attempts:1});
