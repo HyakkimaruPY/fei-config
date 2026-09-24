@@ -2611,7 +2611,7 @@ async function closeDetail(){
     }
     art.classList.toggle('srh-poster-hero-fallback',!!data?.posterHero);
     applyTmdbDetailText(type,data);
-    if(!(state.srhOpeningContinue&&state.srhContinueFrameUrl))applyTmdbDetailBackdrop(type,data);
+    if(!data?.artSource&&!(state.srhOpeningContinue&&state.srhContinueFrameUrl))applyTmdbDetailBackdrop(type,data);
     art.querySelector('.srh-art-brand')?.remove();
     art.parentElement?.querySelector(':scope > .srh-full-title-reveal')?.remove();
 
