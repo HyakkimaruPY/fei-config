@@ -598,16 +598,23 @@ async function loadSeriesDetailStable(item,{force=false}={}){
   }
   if(seriesDetailStableInflight.has(stableKey))return seriesDetailStableInflight.get(stableKey);
   const job=(async()=>{
+    const attempts=[
+      ['distributed-request',()=>request(params,CONFIG)],
+      ['legacy-request-detail',()=>requestDetail(params,CONFIG)],
+      ['xui-last-resort',()=>requestProviderDetailStable(params,CONFIG,12000,{force:true,accept:value=>seriesEpisodeStats(value).episodes>0})]
+    ];
     let last=null;
-    try{
-      const raw=await requestProviderDetailStable(params,CONFIG,12000,{force,accept:value=>seriesEpisodeStats(value).episodes>0}),stats=seriesEpisodeStats(raw),data=stats.data;
-      if(!stats.episodes)throw new Error('O provedor respondeu sem temporadas/episódios.');
-      await saveSeriesDetailCache(item,data,'stable-distributed-transport');
-      playbackDebug('series-detail-restored',{mediaId,source:'stable-distributed-transport',seasons:stats.seasons.length,episodes:stats.episodes,attempts:1});
-      return data
-    }catch(e){
-      last=e;
-      playbackDebug('series-detail-source-failed',{mediaId,source:'stable-distributed-transport',message:e?.message||String(e)})
+    for(const [source,run] of attempts){
+      try{
+        const raw=await run(),stats=seriesEpisodeStats(raw),data=stats.data;
+        if(!stats.episodes)throw new Error('O provedor respondeu sem temporadas/episódios.');
+        await saveSeriesDetailCache(item,data,source);
+        playbackDebug('series-detail-restored',{mediaId,source,seasons:stats.seasons.length,episodes:stats.episodes});
+        return data
+      }catch(e){
+        last=e;
+        playbackDebug('series-detail-source-failed',{mediaId,source,message:e?.message||String(e)})
+      }
     }
     if(cached){
       playbackDebug('series-detail-cache-stale',{mediaId,ageMs:Date.now()-Number(cached.at||0),reason:last?.message||'provider-failure'});
