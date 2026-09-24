@@ -810,12 +810,15 @@ async function resolveModalDetailPackage(type,item,providerData){
     {src:providerCover,source:'provider-cover'}
   ].filter(x=>x.src);
   let art='',artSource='none';
-  for(const candidate of candidates){
-    if(await preloadModalAsset(candidate.src)){art=candidate.src;artSource=candidate.source;break}
-  }
-  if(!art&&candidates[0]){art=candidates[0].src;artSource=candidates[0].source}
-  let logo=String(tmdb?.logo||'').trim();
-  if(logo&&!(await preloadModalAsset(logo,4200)))logo='';
+  const logoCandidate=String(tmdb?.logo||'').trim();
+  const [ready,logoReady]=await Promise.all([
+    Promise.all(candidates.map(candidate=>preloadModalAsset(candidate.src))),
+    logoCandidate?preloadModalAsset(logoCandidate,4200):Promise.resolve(false)
+  ]);
+  const chosenIndex=ready.findIndex(Boolean);
+  if(chosenIndex>=0){art=candidates[chosenIndex].src;artSource=candidates[chosenIndex].source}
+  else if(candidates[0]){art=candidates[0].src;artSource=candidates[0].source}
+  const logo=logoCandidate&&logoReady?logoCandidate:'';
   const overview=String(tmdb?.overview||providerOverview||'').trim();
   const title=stripEmoji(tmdb?.title||providerTitle,'Sem título');
   const year=String(tmdb?.year||providerYear||'').trim();
