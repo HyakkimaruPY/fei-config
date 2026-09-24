@@ -760,7 +760,7 @@ async function renderSeriesRecoveryModal(item,error,token){
 }
 async function stopInlineSeriesVideo(){const sv=state.seriesVideo;if(!sv)return;srhClearPlaybackFeedback(sv.art,{restoreBrand:true});sv.video.onpause=null;await persistProgress(sv.video,{frame:true});sv.video.pause();destroyHls();sv.video.onloadedmetadata=null;sv.video.onerror=null;sv.video.removeAttribute('src');sv.video.load();sv.video.classList.add('is-hidden');sv.image.classList.remove('is-hidden');sv.actions.classList.add('is-hidden');state.seriesVideo=null;state.currentMedia=null;await leaveFullscreenPortrait()}
 async function openSeries(item,opts=null){if(seriesProviderGuardBlocked()){showSeriesProviderGuardPopup();if(state.activeType==='series')renderActiveType();return}openDetail(itemTitle(item));const token=state.detailToken;detailModal()?.classList.add('is-series');await waitDetailSkeletonPaint(token);if(!isDetailCurrent(token))return;try{let data=null;try{data=await loadSeriesDetailStable(item,{force:!!opts?.forceEpisodes});seriesProviderGuardSuccess()}catch(detailError){const guard=seriesProviderGuardFailure(detailError,item);if(guard.blocked){await activateSeriesProviderGuard();return}data=seriesDetailFallback(item,detailError);playbackDebug('series-detail-partial-fallback',{mediaId:String(item?.series_id||''),resumeRecovered:!!data.__srhResumeRecovered,message:detailError?.message||String(detailError),errorType:detailError?.srhKind||'',rawMessage:detailError?.srhRawMessage||''})}if(!isDetailCurrent(token))return;const modalPackage=await resolveModalDetailPackage('series',item,data);if(!isDetailCurrent(token))return;const info=data?.info||{},episodes=normalizeEpisodes(data?.episodes),seasons=Object.keys(episodes).sort((a,b)=>Number(a)-Number(b)),backdrop=modalPackage.art||IMAGE_PLACEHOLDER,plot=modalPackage.overview||'';state.currentSeries={item,data,episodes,backdrop,tmdbId:modalPackage.brand?.id||info?.tmdb_id||null};state.srhDetailPackage={token,type:'series',mediaId:String(item.series_id||''),brand:modalPackage.brand};if(state.srhOpeningContinue&&state.srhContinueFramePromise){await state.srhContinueFramePromise.catch(()=>null);if(!isDetailCurrent(token))return}const displayBackdrop=state.srhOpeningContinue&&state.srhContinueFrameUrl?state.srhContinueFrameUrl:backdrop;el.detailBody.innerHTML=`<div class="detail-content"><div class="series-static"><div class="detail-art" id="seriesArt"><img class="backdrop" id="seriesImage" src="${escapeHtml(displayBackdrop||IMAGE_PLACEHOLDER)}" alt=""><video class="is-hidden" id="seriesInlineVideo" controls autoplay playsinline></video><div class="detail-art__actions is-hidden" id="seriesVideoActions"><button class="floating-action" id="seriesStop" title="Fechar vídeo"><svg class="ui-svg" viewBox="0 0 24 24"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg></button><button class="floating-action" id="seriesExpand" title="Expandir ou minimizar"><svg class="ui-svg" viewBox="0 0 24 24"><path d="M8.5 4.5h-4v4M15.5 4.5h4v4M8.5 19.5h-4v-4M15.5 19.5h4v-4"/></svg></button></div></div><div class="detail-title-row"><h2 class="detail-title">${escapeHtml(itemTitle(item))}</h2></div><div class="synopsis" id="seriesSynopsis">${synopsisMarkup(plot,false)}</div><div class="season-box"><button class="season-trigger" id="seasonTrigger"><span id="seasonLabel">${seasons[0]?'Temporada '+escapeHtml(seasons[0]):'Temporadas'}</span><span>⌄</span></button><div class="season-menu is-hidden${seasons.length>4?' season-menu--scroll':''}" id="seasonMenu"></div></div></div><div class="episode-container"><div class="episode-list" id="episodeList"></div></div></div>`;const art=$('#seriesArt'),image=$('#seriesImage'),video=$('#seriesInlineVideo'),actions=$('#seriesVideoActions'),seasonMenu=$('#seasonMenu'),seasonLabel=$('#seasonLabel'),list=$('#episodeList'),syn=$('#seriesSynopsis');setSynopsisState(syn,plot,false);syn.onclick=e=>{e.stopPropagation();setSynopsisState(syn,plot,!state.synopsisExpanded)};seasonMenu.innerHTML=seasons.map((s,i)=>`<button class="season-option${i===0?' is-active':''}" data-season="${escapeHtml(s)}">Temporada ${escapeHtml(s)}</button>`).join('');$('#seasonTrigger').onclick=e=>{e.stopPropagation();seasonMenu.classList.toggle('is-hidden')};function drawSeason(key){seasonLabel.textContent='Temporada '+key;seasonMenu.classList.add('is-hidden');seasonMenu.querySelectorAll('[data-season]').forEach(b=>b.classList.toggle('is-active',b.dataset.season===key));const eps=Array.isArray(episodes[key])?episodes[key]:[],history=new Map(getHistory('series').map(x=>[x.key,x]));list.innerHTML=eps.map((ep,idx)=>{const n=ep.episode_num??idx+1,thumb=ep.__srhEpisodeThumb||ep.info?.movie_image||ep.info?.cover_big||ep.info?.cover||ep.stream_icon||backdrop||IMAGE_PLACEHOLDER,h=history.get(episodeKey(item,ep)),done=getStandardCompleted(episodeKey(item,ep)),pct=h?.duration?Math.min(100,h.position/h.duration*100):(done?100:0);return `<article class="episode" data-ep="${idx}"><img class="episode__thumb" src="${escapeHtml(thumb)}" alt="" loading="lazy"><div><div class="episode__title">Episódio ${escapeHtml(n)}</div><div class="episode__meta">${escapeHtml(ep.info?.duration||'')}</div><div class="episode__progress"><span style="width:${pct}%"></span></div></div><div class="episode__play"><svg class="ui-svg" viewBox="0 0 24 24"><path d="M9 6.5v11l8-5.5z"/></svg></div></article>`}).join('');list.querySelectorAll('[data-ep]').forEach(row=>row.onclick=()=>playEpisode(eps[Number(row.dataset.ep)],Number(row.dataset.ep),key));list.scrollTop=0}async function playEpisode(ep,idx,season){const playToken=++state.seriesPlayToken;await stopInlineSeriesVideo();if(!isDetailCurrent(token)||playToken!==state.seriesPlayToken)return;const n=ep.episode_num??idx+1,eid=ep?.id||ep?.stream_id,catalogExt=String(ep?.container_extension||'mp4').replace(/^\./,'').toLowerCase(),infoExt=String(ep?.info?.container_extension||'').replace(/^\./,'').toLowerCase(),declaredExt=infoExt||catalogExt||'mp4',direct=normalizeMediaUrl(ep?.direct_source||ep?.info?.direct_source||''),declaredUrl=mediaUrlWithExtension('series',eid,declaredExt),catalogUrl=catalogExt&&catalogExt!==declaredExt?mediaUrlWithExtension('series',eid,catalogExt):'',hls=mediaUrlWithExtension('series',eid,'m3u8'),mkv=(declaredExt!=='mkv'&&catalogExt!=='mkv')?mediaUrlWithExtension('series',eid,'mkv'):'',sources=uniqueMediaUrls([direct,declaredUrl,catalogUrl,hls,mkv]),key=episodeKey(item,ep),old=getHistory('series').find(x=>String(x.seriesId??'')===String(item.series_id)&&String(x.season??'')===String(season)&&(String(x.itemSnapshot?.stream_id??'')===String(eid)||String(x.episodeNumber??'')===String(n))),entry={key,type:'series',title:itemTitle(item)+' — Episódio '+n,image:ep.__srhWaitingArt||ep.info?.movie_image||ep.info?.cover_big||ep.info?.cover||ep.stream_icon||backdrop,url:sources[0],sources,seriesId:item.series_id,season,episodeNumber:n,tmdbId:state.currentSeries?.tmdbId||data?.__tmdb?.id||null,containerExtension:infoExt||catalogExt,itemSnapshot:{series_id:item.series_id,stream_id:eid,name:itemTitle(item),cover:item.cover||backdrop,tmdb_id:state.currentSeries?.tmdbId||data?.__tmdb?.id||null,container_extension:infoExt||catalogExt,movie_image:ep.info?.movie_image||''},position:0,duration:0};sources.forEach(warmMediaOrigin);const episodeArt=ep.__srhWaitingArt||ep.info?.movie_image||ep.info?.cover_big||ep.info?.cover||ep.stream_icon||backdrop||IMAGE_PLACEHOLDER;if(episodeArt)image.src=episodeArt;image.classList.remove('is-hidden');video.classList.add('is-hidden');video.muted=false;video.volume=1;video.controls=true;video.autoplay=true;actions.classList.remove('is-hidden');const playbackSources=uniqueMediaUrls([old?.lastWorkingUrl,...sources]);state.currentMedia=old?{...entry,...old,tmdbId:entry.tmdbId||old.tmdbId||old.itemSnapshot?.tmdb_id||null,itemSnapshot:{...(old.itemSnapshot||{}),...(entry.itemSnapshot||{})},sources:playbackSources}:entry;state.saveTick=0;state.seriesVideo={video,image,actions,art};srhShowPlaybackLoading(art,itemTitle(item));attachVideo(video,playbackSources,()=>{srhClearPlaybackFeedback(art,{restoreBrand:true});if(old?.position>5&&old.position<video.duration-5)video.currentTime=old.position;image.classList.add('is-hidden');video.classList.remove('is-hidden');art.classList.add('is-playing')},err=>{image.classList.remove('is-hidden');video.classList.add('is-hidden');art.classList.remove('is-playing');srhShowProviderError(art,err);toast('Não foi possível reproduzir este episódio.')});video.ontimeupdate=()=>{if(++state.saveTick%25===0)persistProgress(video)};video.onpause=()=>persistProgress(video,{frame:true});video.onended=()=>{const cur=state.currentMedia||entry;finalizeSeriesEpisode(cur,video.duration);drawSeason(season)};const stopButton=$('#seriesStop');if(stopButton)stopButton.onclick=e=>{e.stopPropagation();stopInlineSeriesVideo().then(()=>drawSeason(season))};$('#seriesExpand').onclick=e=>{e.stopPropagation();toggleFullscreen(art)}}seasonMenu.querySelectorAll('[data-season]').forEach(b=>b.onclick=e=>{e.stopPropagation();drawSeason(b.dataset.season)});if(seasons[0])drawSeason(seasons[0]);else{list.innerHTML='<div class="rail-load-error srh-series-detail-partial"><span>'+escapeHtml(data?.__srhPartialSeries?'Os dados dos episódios não chegaram do provedor.':'A API não retornou episódios.')+'</span><button type="button">Tentar carregar episódios</button></div>';const retry=list.querySelector('button');if(retry)retry.onclick=e=>{e.stopPropagation();retry.disabled=true;retry.textContent='Carregando…';openSeries(item,{forceEpisodes:true})}}if(data?.__srhPartialSeries){playbackDebug('series-detail-partial-rendered',{mediaId:String(item?.series_id||''),seasons:seasons.length,resumeRecovered:!!data.__srhResumeRecovered})}}catch(e){if(!isDetailCurrent(token))return;const recovered=await renderSeriesRecoveryModal(item,e,token);if(!recovered&&isDetailCurrent(token)){el.detailBody.innerHTML='<div class="rail-load-error srh-series-detail-partial"><span>Não foi possível montar os episódios agora.</span><button type="button">Tentar novamente</button></div>';el.detailBody.querySelector('button').onclick=()=>openSeries(item,{forceEpisodes:true})}}}
-async function openLive(group){openDetail(group.baseName);const token=state.detailToken;await waitDetailSkeletonPaint(token);if(!isDetailCurrent(token))return;state.currentDetail={type:'live',group};const logo=group.image||IMAGE_PLACEHOLDER,variants=group.variants||[];el.detailBody.innerHTML=`<div class="detail-content"><div class="detail-art"><img class="channel-logo" src="${escapeHtml(logo)}" alt=""></div><div class="detail-title-row"><h2 class="detail-title">${escapeHtml(group.baseName)}</h2></div><div class="quality-list">${variants.map((v,i)=>`<button class="quality-row" data-quality-index="${i}"><span class="quality-row__name">${escapeHtml(group.baseName)}</span><span class="quality-row__quality">${escapeHtml(v._quality||'Padrão')}</span></button>`).join('')}</div></div>`;el.detailBody.querySelectorAll('[data-quality-index]').forEach(b=>b.onclick=()=>{const v=variants[Number(b.dataset.qualityIndex)],primary=streamUrl('live',v),base=normalizeServer(CONFIG.server),u=encodeURIComponent(CONFIG.username),p=encodeURIComponent(CONFIG.password),id=v?.id||v?.stream_id,m3u8=`${base}/live/${u}/${p}/${id}.m3u8`,ts=`${base}/live/${u}/${p}/${id}.ts`,declaredExt=String(v?.container_extension||CONFIG.liveExtension||'').toLowerCase(),sources=declaredExt==='ts'?uniqueMediaUrls([ts,primary,m3u8]):uniqueMediaUrls([m3u8,primary,ts]);sources.forEach(warmMediaOrigin);openGeneralPlayer(sources,group.baseName+' · '+(v._quality||'Padrão'),{key:'live:'+v.stream_id,type:'live',title:group.baseName,url:sources[0],sources,image:logo,position:0,duration:0})})}
+async function openLive(group){openDetail(group.baseName);const token=state.detailToken;await waitDetailSkeletonPaint(token);if(!isDetailCurrent(token))return;state.currentDetail={type:'live',group};const logo=group.image||IMAGE_PLACEHOLDER,variants=group.variants||[];el.detailBody.innerHTML=`<div class="detail-content"><div class="detail-art"><img class="channel-logo" src="${escapeHtml(logo)}" alt=""></div><div class="detail-title-row"><h2 class="detail-title">${escapeHtml(group.baseName)}</h2></div><div class="quality-list">${variants.map((v,i)=>`<button class="quality-row" data-quality-index="${i}"><span class="quality-row__name">${escapeHtml(group.baseName)}</span><span class="quality-row__quality">${escapeHtml(v._quality||'Padrão')}</span></button>`).join('')}</div></div>`;el.detailBody.querySelectorAll('[data-quality-index]').forEach(b=>b.onclick=()=>{const v=variants[Number(b.dataset.qualityIndex)],url=streamUrl('live',v);warmMediaOrigin(url);playbackDebug('live-stable-route',{mediaId:String(v?.stream_id??v?.id??''),extension:String(CONFIG.liveExtension||'m3u8')});openGeneralPlayer(url,group.baseName+' · '+(v._quality||'Padrão'),{key:'live:'+v.stream_id,type:'live',title:group.baseName,url,image:logo,position:0,duration:0})})}
 function openItem(item,type){if(type==='live')openLive(item);else if(type==='series')openSeries(item);else openFilm(item)}
 function normalizeUpdateCategories(raw,type){return(Array.isArray(raw)?raw:[]).map((c,i)=>({type,id:String(c.category_id??c.id??'').trim(),name:String(c.category_name??c.name??('Categoria '+(i+1)))})).filter(c=>c.id)}
 function updateCategoryKey(c){return String(c?.type||'')+'::'+String(c?.id||'')}
@@ -3765,10 +3765,10 @@ async function closeDetail(){
   }
   async function heroItemsWithCleanLogo(items,type,token,limit=10){
     if(type==='live')return items.slice(0,limit);
-    const source=(Array.isArray(items)?items:[]).slice(0,36),out=[];let scanned=0;
-    for(let i=0;i<source.length&&out.length<limit;i+=6){
+    const source=Array.isArray(items)?items:[],out=[];let scanned=0;
+    for(let i=0;i<source.length&&out.length<limit;i+=5){
       if(token!==state.renderToken||state.activeType!==type)return[];
-      const batch=source.slice(i,i+6),results=await Promise.all(batch.map(async item=>{
+      const batch=source.slice(i,i+5),results=await Promise.all(batch.map(async item=>{
         const meta=await heroTmdb(item,type);scanned++;
         const logo=String(meta?.logo||'').trim();if(!logo)return null;
         const ready=await preloadHeroImage(logo,3600).catch(()=>false);
@@ -3778,6 +3778,26 @@ async function closeDetail(){
       for(const item of results)if(item&&out.length<limit)out.push(item)
     }
     playbackDebug('hero-logo-filter',{type,scanned,accepted:out.length,rejected:Math.max(0,scanned-out.length)});
+    return out
+  }
+  async function collectCleanLogoHeroItems(targets,type,token,bucket,limit=10){
+    const out=[],seen=new Set();let categoriesScanned=0,candidatesScanned=0;
+    const ordered=stableShuffle(Array.isArray(targets)?targets.slice():[],type+':hero-categories',bucket);
+    for(let ti=0;ti<ordered.length&&out.length<limit;ti++){
+      if(token!==state.renderToken||state.activeType!==type)return[];
+      let raw=[];try{raw=await loadTargetItems(ordered[ti],token,{priority:100-ti})}catch{continue}
+      if(token!==state.renderToken||state.activeType!==type)return[];
+      categoriesScanned++;
+      const sampled=stableShuffle(heroSample(raw,type,bucket+ti,96),type+':hero-items',bucket+ti),candidates=[];
+      for(const item of sampled){
+        const id=String(itemId(item,type)||itemTitle(item));if(!id||seen.has(id))continue;
+        seen.add(id);candidates.push(item)
+      }
+      const need=limit-out.length,found=await heroItemsWithCleanLogo(candidates,type,token,need);
+      candidatesScanned+=candidates.length;
+      for(const item of found)if(out.length<limit)out.push(item)
+    }
+    playbackDebug('hero-clean-logo-set',{type,categoriesScanned,candidatesScanned,count:out.length,limit});
     return out
   }
 
@@ -4074,39 +4094,39 @@ async function closeDetail(){
   }
 
   async function buildHero(token){
-    const node=heroHost(),type=state.activeType,bucket=Math.floor(Date.now()/HERO_SET_MS),targets=targetsFor(type).slice(0,Math.min(5,targetsFor(type).length));
+    const node=heroHost(),type=state.activeType,bucket=Math.floor(Date.now()/HERO_SET_MS),targets=targetsFor(type);
     if(type==='series'&&seriesProviderGuardBlocked()){node.classList.add('is-hidden');playbackDebug('hero-suppressed',{type,reason:'series-provider-guard'});return}
     if(node.dataset.srhPainted!=='1')node.querySelector('.stream-hero__skeleton')?.classList.remove('is-hidden');
     heroSetBucket=bucket;heroSetExpiresAt=(bucket+1)*HERO_SET_MS;
-    const firstTarget=targets[0],firstRawPromise=firstTarget?loadTargetItems(firstTarget,token,{priority:100}).catch(()=>[]):Promise.resolve([]);
     const last=type==='live'?null:(getStandardLastWatched(type)||getHistory(type)[0]||null),mode=await heroCycleMode(type,bucket,!!last);
     if(token!==state.renderToken)return;
     heroSetMode=mode;
-    const lists=[],firstRaw=await firstRawPromise;
-    if(token!==state.renderToken)return;
-    if(firstRaw.length)lists.push(heroSample(firstRaw,type,bucket,72));
-    for(let i=1;i<targets.length&&lists.flat().length<32;i++){
-      if(token!==state.renderToken)return;
-      try{const raw=await loadTargetItems(targets[i],token,{priority:80-i});if(token!==state.renderToken)return;lists.push(heroSample(raw,type,bucket+i,48))}catch{}
+    if(type==='live'){
+      const liveTargets=targets.slice(0,Math.min(5,targets.length)),lists=[];
+      for(let i=0;i<liveTargets.length&&lists.flat().length<32;i++){
+        if(token!==state.renderToken)return;
+        try{const raw=await loadTargetItems(liveTargets[i],token,{priority:100-i});if(token!==state.renderToken)return;lists.push(heroSample(raw,type,bucket+i,i===0?72:48))}catch{}
+      }
+      let items=lists.flat(),seen=new Set();
+      items=items.filter(item=>{const key=item.baseName||itemTitle(item);if(!key||seen.has(key))return false;seen.add(key);return true});
+      heroItems=stableShuffle(items,type,bucket).slice(0,10)
+    }else{
+      heroItems=await collectCleanLogoHeroItems(targets,type,token,bucket,10)
     }
-    let items=lists.flat(),seen=new Set();
-    items=items.filter(item=>{const key=type==='live'?(item.baseName||itemTitle(item)):String(itemId(item,type)||itemTitle(item));if(!key||seen.has(key))return false;seen.add(key);return true});
-    const shuffled=stableShuffle(items,type,bucket);
-    heroItems=type==='live'?shuffled.slice(0,10):await heroItemsWithCleanLogo(shuffled,type,token,10);
     if(token!==state.renderToken||state.activeType!==type)return;
     heroIndex=0;
-    if(!heroItems.length){node.classList.add('is-hidden');return}
+    if(!heroItems.length){node.classList.add('is-hidden');playbackDebug('hero-suppressed',{type,reason:type==='live'?'empty':'no-clean-logo'});return}
     node.classList.remove('is-hidden');
-    playbackDebug('hero-set',{type,mode:'auto-fast',requestedMode:mode,bucket,count:heroItems.length,expiresAt:heroSetExpiresAt});
+    playbackDebug('hero-set',{type,mode:'auto-fast',requestedMode:mode,bucket,count:heroItems.length,cleanLogoOnly:type!=='live',expiresAt:heroSetExpiresAt});
     showHero(0);
     if(mode==='recommended'&&last&&window.__srhStandardRecommendations?.get){
       setTimeout(async()=>{
         if(token!==state.renderToken||state.activeType!==type)return;
-        let recommended=[];try{recommended=await window.__srhStandardRecommendations.get(type,last,10,{budgetMs:12000})}catch{}
+        let recommended=[];try{recommended=await window.__srhStandardRecommendations.get(type,last,24,{budgetMs:12000})}catch{}
         if(token!==state.renderToken||state.activeType!==type||recommended.length<10)return;
         const recommendedItems=recommended.map(x=>x.item),filtered=type==='live'?recommendedItems.slice(0,10):await heroItemsWithCleanLogo(recommendedItems,type,token,10);
-        if(token!==state.renderToken||state.activeType!==type||!filtered.length)return;
-        heroSetMode='recommended';heroItems=filtered;heroIndex=0;
+        if(token!==state.renderToken||state.activeType!==type||filtered.length<10)return;
+        heroSetMode='recommended';heroItems=filtered.slice(0,10);heroIndex=0;
         playbackDebug('hero-set-upgrade',{type,mode:'recommended',bucket,count:heroItems.length,cleanLogoOnly:type!=='live'});
         showHero(0)
       },650)
