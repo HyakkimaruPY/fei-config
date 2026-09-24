@@ -73,8 +73,16 @@ function installImageFallback(){document.addEventListener('error',e=>{const img=
 function stripEmoji(value,fallback='Categoria'){let s=String(value||'');try{s=s.replace(/\p{Extended_Pictographic}/gu,'')}catch{}try{s=s.replace(/[\u{1F1E6}-\u{1F1FF}\u{1F3FB}-\u{1F3FF}\u{E0020}-\u{E007F}]/gu,'')}catch{}s=s.replace(/[\u200D\u20E3\uFE0E\uFE0F]/g,'').replace(/[\u2600-\u27BF]/g,'').replace(/^[\s|•·:;,_—–-]+|[\s|•·:;,_—–-]+$/g,'').replace(/\s{2,}/g,' ').trim();return s||fallback}
 function normalizeServer(s){return String(s||'').trim().replace(/\/+$/,'')}
 function parseLogin(raw){let text=String(raw||'').trim();if(!text)throw new Error('Informe o novo M3U.');if(!/^https?:\/\//i.test(text))text='http://'+text;let u;try{u=new URL(text)}catch{throw new Error('URL inválida.')}let username=u.searchParams.get('username')||u.searchParams.get('user'),password=u.searchParams.get('password')||u.searchParams.get('pass');const path=u.pathname.split('/').filter(Boolean);if((!username||!password)&&path.length>=2&&!/\.php$/i.test(path[path.length-1])){username=username||decodeURIComponent(path[0]);password=password||decodeURIComponent(path[1])}if(!username||!password)throw new Error('Não encontrei username e password.');return{server:normalizeServer(u.origin),username,password,liveExtension:(u.searchParams.get('output')||'m3u8').toLowerCase()==='ts'?'ts':'m3u8'}}
-function apiUrl(params={},cfg=CONFIG){const u=new URL(normalizeServer(cfg.server)+'/player_api.php');u.searchParams.set('username',cfg.username);u.searchParams.set('password',cfg.password);Object.entries(params).forEach(([k,v])=>u.searchParams.set(k,String(v)));return u.toString()}
+const xuiRouteState={bases:[],discovery:null,preferred:new Map()};
+function playerApiUrl(base,params={},cfg=CONFIG,endpoint='player_api.php'){const root=normalizeServer(base||cfg.server),u=new URL(root+'/'+String(endpoint||'player_api.php').replace(/^\/+/,''));u.searchParams.set('username',cfg.username);u.searchParams.set('password',cfg.password);Object.entries(params).forEach(([k,v])=>u.searchParams.set(k,String(v)));return u.toString()}
+function apiUrl(params={},cfg=CONFIG){return playerApiUrl(cfg.server,params,cfg,'player_api.php')}
 function proxyUrl(url,cfg=CONFIG){const p=String(cfg.corsProxy||'').trim();if(!p)return url;return p.includes('{url}')?p.replace('{url}',encodeURIComponent(url)):p+encodeURIComponent(url)}
+function xuiBaseFromParts(raw,protocol='',port=''){let value=String(raw||'').trim();if(!value)return'';try{if(!/^https?:\/\//i.test(value))value=(protocol||'http')+'://'+value;const u=new URL(value);if(port)u.port=String(port);u.pathname='/';u.search='';u.hash='';return normalizeServer(u.origin)}catch{return''}}
+function protocolTwinBase(base){try{const u=new URL(normalizeServer(base));u.protocol=u.protocol==='http:'?'https:':'http:';return normalizeServer(u.origin)}catch{return''}}
+function rememberXuiServerInfo(payload,cfg=CONFIG){if(cfg!==CONFIG)return[];const info=payload?.server_info;if(!info||typeof info!=='object')return[];const found=[],seen=new Set(xuiRouteState.bases);const add=v=>{v=normalizeServer(v);if(!v||v===normalizeServer(cfg.server)||seen.has(v))return;seen.add(v);xuiRouteState.bases.push(v);found.push(v)};const raw=info.url||info.server_url||info.host||info.server||'',protocol=String(info.server_protocol||info.protocol||'http').replace(/:$/,''),port=info.port||'',httpsPort=info.https_port||info.httpsPort||'';add(xuiBaseFromParts(raw,protocol,port));add(xuiBaseFromParts(raw,'http',port));if(httpsPort)add(xuiBaseFromParts(raw,'https',httpsPort));else add(xuiBaseFromParts(raw,'https',''));if(found.length)playbackDebug('xui-route-discovered',{count:found.length,origins:found.map(v=>{try{return new URL(v).origin}catch{return v}})});return found}
+function addDetailCandidate(out,seen,base,endpoint,params,cfg,kind,proxied=false){if(!base)return;let raw='';try{raw=playerApiUrl(base,params,cfg,endpoint)}catch{return}const url=proxied?proxyUrl(raw,cfg):raw;if(!url||seen.has(url))return;seen.add(url);out.push({url,base:normalizeServer(base),endpoint,kind,proxied,signature:[normalizeServer(base),endpoint,proxied?'proxy':'direct'].join('|')})}
+function seriesXuiCandidates(params,cfg=CONFIG,seen=new Set()){const out=[],provider=normalizeServer(cfg.server),pref=xuiRouteState.preferred.get(provider+'|get_series_info');if(pref)addDetailCandidate(out,seen,pref.base,pref.endpoint,params,cfg,'xui-preferred',pref.proxied);const roots=[],rootSeen=new Set(),addRoot=v=>{v=normalizeServer(v);if(v&&!rootSeen.has(v)){rootSeen.add(v);roots.push(v)}};addRoot(cfg.server);addRoot(protocolTwinBase(cfg.server));xuiRouteState.bases.forEach(v=>{addRoot(v);addRoot(protocolTwinBase(v))});for(const base of roots){for(const endpoint of ['player_api.php','player_api']){addDetailCandidate(out,seen,base,endpoint,params,cfg,endpoint==='player_api.php'?'xui-player':'xui-player-alias',false);if(cfg.corsProxy)addDetailCandidate(out,seen,base,endpoint,params,cfg,endpoint==='player_api.php'?'xui-player-proxy':'xui-player-alias-proxy',true)}}return out}
+async function ensureXuiRouteDiscovery(cfg=CONFIG,timeout=5200){if(cfg!==CONFIG||xuiRouteState.bases.length)return xuiRouteState.bases;if(xuiRouteState.discovery)return xuiRouteState.discovery;xuiRouteState.discovery=(async()=>{const seen=new Set(),roots=[normalizeServer(cfg.server),protocolTwinBase(cfg.server)].filter(Boolean),attempts=[];for(const base of roots){addDetailCandidate(attempts,seen,base,'player_api.php',{},cfg,'xui-account',false);if(cfg.corsProxy)addDetailCandidate(attempts,seen,base,'player_api.php',{},cfg,'xui-account-proxy',true)}for(const candidate of attempts){try{const data=await requestJson(candidate.url,timeout,{srhBypassCircuit:true});if(data?.server_info){rememberXuiServerInfo(data,cfg);break}}catch{}}return xuiRouteState.bases})().finally(()=>{xuiRouteState.discovery=null});return xuiRouteState.discovery}
 async function requestJson(url,timeout=12000,fetchInit=null){
   const controller=new AbortController(),timer=setTimeout(()=>controller.abort(),timeout);
   try{
@@ -88,8 +96,8 @@ async function requestJson(url,timeout=12000,fetchInit=null){
 }
 async function request(params={},cfg=CONFIG){
   const target=apiUrl(params,cfg);
-  try{return await requestJson(target)}
-  catch(error){if(!cfg.corsProxy)throw error;return requestJson(proxyUrl(target,cfg))}
+  try{const data=await requestJson(target);if(!params?.action)rememberXuiServerInfo(data,cfg);return data}
+  catch(error){if(!cfg.corsProxy)throw error;const data=await requestJson(proxyUrl(target,cfg));if(!params?.action)rememberXuiServerInfo(data,cfg);return data}
 }
 const detailRequestInflight=new Map();
 const detailResponseCache=new Map();
@@ -109,30 +117,37 @@ async function requestProviderDetailStable(params={},cfg=CONFIG,timeout=12000,op
     playbackDebug('detail-stable-cache-rejected',{action,mediaId,ageMs:Math.round(age)});
     cached=null;age=Infinity
   }
-  /* Match the distributed stable classic transport: direct is authoritative
-     when its payload is usable; proxy is the fallback for transport failures
-     and semantically incomplete detail responses. */
-  const target=apiUrl(params,cfg),proxied=cfg.corsProxy?proxyUrl(target,cfg):'';
-  const urls=[{url:target,kind:'direct'}];
-  if(proxied&&proxied!==target)urls.push({url:proxied,kind:'proxy'});
+  const seen=new Set(),routes=[];
+  addDetailCandidate(routes,seen,cfg.server,'player_api.php',params,cfg,'configured-direct',false);
+  if(cfg.corsProxy)addDetailCandidate(routes,seen,cfg.server,'player_api.php',params,cfg,'configured-proxy',true);
   let last=null;
-  for(const candidate of urls){
-    try{
-      const started=performance.now(),data=await requestJson(candidate.url,timeout,{srhBypassCircuit:true});
-      if(!data||typeof data!=='object')throw new Error('O provedor retornou um detalhe inválido.');
-      if(accept&&!accept(data)){
-        playbackDebug('detail-stable-payload-rejected',{action,mediaId,transport:candidate.kind,ms:Math.round(performance.now()-started)});
-        throw new Error('O provedor respondeu sem os dados necessários.')
+  const tryRoutes=async list=>{
+    for(const candidate of list){
+      try{
+        const started=performance.now(),data=await requestJson(candidate.url,timeout,{srhBypassCircuit:true});
+        if(!data||typeof data!=='object')throw new Error('O provedor retornou um detalhe inválido.');
+        if(accept&&!accept(data)){
+          playbackDebug('detail-stable-payload-rejected',{action,mediaId,transport:candidate.kind,endpoint:candidate.endpoint,origin:(()=>{try{return new URL(candidate.url).origin}catch{return''}})(),ms:Math.round(performance.now()-started)});
+          throw new Error('O provedor respondeu sem os dados necessários.')
+        }
+        detailResponseCache.set(cacheKey,{at:Date.now(),data:cloneDetailPayload(data)});
+        if(detailResponseCache.size>24)detailResponseCache.delete(detailResponseCache.keys().next().value);
+        if(action==='get_series_info'&&candidate.base)xuiRouteState.preferred.set(provider+'|get_series_info',{base:candidate.base,endpoint:candidate.endpoint,proxied:candidate.proxied});
+        playbackDebug('detail-stable-provider',{action,mediaId,transport:candidate.kind,endpoint:candidate.endpoint,origin:(()=>{try{return new URL(candidate.url).origin}catch{return''}})(),ms:Math.round(performance.now()-started),forced:force});
+        return data
+      }catch(e){
+        last=e;
+        playbackDebug('detail-stable-failed',{action,mediaId,transport:candidate.kind,endpoint:candidate.endpoint,origin:(()=>{try{return new URL(candidate.url).origin}catch{return''}})(),message:e?.message||String(e),forced:force})
       }
-      detailResponseCache.set(cacheKey,{at:Date.now(),data:cloneDetailPayload(data)});
-      if(detailResponseCache.size>24)detailResponseCache.delete(detailResponseCache.keys().next().value);
-      playbackDebug('detail-stable-provider',{action,mediaId,transport:candidate.kind,ms:Math.round(performance.now()-started),forced:force});
-      return cloneDetailPayload(data)
-    }catch(e){
-      last=e;
-      playbackDebug('detail-stable-failed',{action,mediaId,transport:candidate.kind,message:e?.message||String(e),forced:force})
     }
+    return null
+  };
+  let data=await tryRoutes(routes);
+  if(!data&&action==='get_series_info'){
+    await ensureXuiRouteDiscovery(cfg,Math.min(timeout,5200)).catch(()=>[]);
+    data=await tryRoutes(seriesXuiCandidates(params,cfg,seen))
   }
+  if(data)return cloneDetailPayload(data);
   if(cached&&age<DETAIL_STALE_TTL){
     const value=cloneDetailPayload(cached.data);
     if(!accept||accept(value)){
@@ -548,15 +563,16 @@ el.detailClose.onclick=closeDetail;
 el.detailLayer.addEventListener('click',e=>{if(e.target===el.detailLayer)closeDetail()});detailModal()?.addEventListener('click',e=>{if(state.synopsisExpanded&&!e.target.closest('.synopsis'))collapseSynopsis()},true);
 async function openFilm(item){openDetail(itemTitle(item));const token=state.detailToken;await waitDetailSkeletonPaint(token);if(!isDetailCurrent(token))return;try{const detailParams={action:'get_vod_info',vod_id:item.stream_id};let data=null;try{data=await requestProviderDetailStable(detailParams)}catch(detailError){data={info:{plot:item?.plot||item?.description||'',description:item?.description||item?.plot||'',movie_image:item?.movie_image||item?.stream_icon||item?.cover||'',backdrop_path:item?.backdrop_path||'',tmdb_id:item?.tmdb_id||''},movie_data:{...item,stream_id:item.stream_id,name:itemTitle(item),container_extension:item?.container_extension||'mp4'}};playbackDebug('vod-detail-catalog-fallback',{mediaId:String(item?.stream_id||''),message:detailError?.message||String(detailError)})}if(!isDetailCurrent(token))return;const modalPackage=await resolveModalDetailPackage('vod',item,data);if(!isDetailCurrent(token))return;const info=data?.info||{},movie=data?.movie_data||item,art=modalPackage.art||IMAGE_PLACEHOLDER,title=modalPackage.title||movie.name||itemTitle(item),plot=modalPackage.overview||'',sources=vodSourcesFromInfo(data,item),url=sources[0]||streamUrl('vod',{...movie,stream_id:movie.stream_id||item.stream_id,container_extension:movie.container_extension||item.container_extension}),entry={key:'vod:'+(movie.stream_id||item.stream_id),type:'vod',title,image:art,url,sources,tmdbId:data?.__tmdb?.id||info?.tmdb_id||null,containerExtension:String(movie.container_extension||info.container_extension||item.container_extension||'mp4').toLowerCase(),itemSnapshot:{stream_id:movie.stream_id||item.stream_id,name:title,stream_icon:movie.stream_icon||item.stream_icon,movie_image:info.movie_image||movie.movie_image||'',cover:item.cover||'',cover_big:info.cover_big||'',backdrop_path:info.backdrop_path||'',tmdb_id:data?.__tmdb?.id||info?.tmdb_id||null,container_extension:movie.container_extension||info.container_extension||item.container_extension||'mp4'},position:0,duration:0};sources.forEach(warmMediaOrigin);state.currentDetail={type:'vod',entry};state.srhDetailPackage={token,type:'vod',mediaId:String(movie.stream_id||item.stream_id||''),brand:modalPackage.brand};if(state.srhOpeningContinue&&state.srhContinueFramePromise){await state.srhContinueFramePromise.catch(()=>null);if(!isDetailCurrent(token))return}const displayArt=state.srhOpeningContinue&&state.srhContinueFrameUrl?state.srhContinueFrameUrl:art;el.detailBody.innerHTML=`<div class="detail-content"><div class="detail-art"><img src="${escapeHtml(displayArt||IMAGE_PLACEHOLDER)}" alt=""></div><div class="detail-title-row"><h2 class="detail-title">${escapeHtml(title)}</h2><button class="watch-button" id="watchFilm"><svg class="watch-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.8v12.4L18 12z"/></svg><span>Assistir</span></button></div><div class="synopsis" id="filmSynopsis">${synopsisMarkup(plot,false)}</div></div>`;const filmSynopsis=$('#filmSynopsis');setSynopsisState(filmSynopsis,plot,false);filmSynopsis.onclick=e=>{e.stopPropagation();setSynopsisState(filmSynopsis,plot,!state.synopsisExpanded)};$('#watchFilm').onclick=()=>{const old=getHistory('vod').find(x=>x.key===entry.key);openGeneralPlayer(entry.sources||url,title,old?{...entry,...old,tmdbId:entry.tmdbId||old.tmdbId||old.itemSnapshot?.tmdb_id||null,itemSnapshot:{...(old.itemSnapshot||{}),...(entry.itemSnapshot||{})},sources:entry.sources}:entry)}}catch(e){if(!isDetailCurrent(token))return;el.detailBody.innerHTML='<div class="rail-load-error"><span>'+escapeHtml(e.message)+'</span><button type="button">Tentar novamente</button></div>';el.detailBody.querySelector('button').onclick=()=>openItem(item,item.series_id!==undefined?'series':'vod')}}
 function normalizeEpisodes(v){if(Array.isArray(v))return{'1':v};return v&&typeof v==='object'?v:{}}
+function normalizeSeriesDetailPayload(data){if(!data||typeof data!=='object')return data;const roots=[data,data.data,data.result,data.response,data.series_info,data.series].filter(v=>v&&typeof v==='object'),root=roots.find(v=>Array.isArray(v.episodes)||(v.episodes&&typeof v.episodes==='object'));if(!root||root===data)return data;return{...data,info:data.info||root.info||root.series_info||{},seasons:data.seasons||root.seasons||[],episodes:root.episodes}}
 function episodeKey(series,ep){return `series:${series.series_id}:${ep.id||ep.stream_id}`}
 const SERIES_DETAIL_CACHE_VERSION=1;
 function seriesDetailCacheKey(item){
   return 'srhell:'+STANDARD_APP_NS+':standard:series-detail:'+standardProviderId()+':'+String(item?.series_id??item?.id??'')+':v'+SERIES_DETAIL_CACHE_VERSION
 }
 function seriesEpisodeStats(data){
-  const groups=normalizeEpisodes(data?.episodes),seasons=Object.keys(groups);
+  const normalized=normalizeSeriesDetailPayload(data),groups=normalizeEpisodes(normalized?.episodes),seasons=Object.keys(groups);
   let episodes=0;for(const season of seasons)episodes+=Array.isArray(groups[season])?groups[season].length:0;
-  return{groups,seasons,episodes}
+  return{data:normalized,groups,seasons,episodes}
 }
 async function readSeriesDetailCache(item){
   const cached=await standardStateGet(seriesDetailCacheKey(item));
@@ -567,7 +583,7 @@ async function readSeriesDetailCache(item){
 }
 async function saveSeriesDetailCache(item,data,source='provider'){
   const stats=seriesEpisodeStats(data);if(!stats.episodes)return false;
-  const payload={version:SERIES_DETAIL_CACHE_VERSION,at:Date.now(),source,data:cloneDetailPayload(data),seasonCount:stats.seasons.length,episodeCount:stats.episodes};
+  const payload={version:SERIES_DETAIL_CACHE_VERSION,at:Date.now(),source,data:cloneDetailPayload(stats.data),seasonCount:stats.seasons.length,episodeCount:stats.episodes};
   const ok=await standardStateSet(seriesDetailCacheKey(item),payload);
   playbackDebug('series-detail-cache-save',{mediaId:String(item?.series_id||''),source,seasons:stats.seasons.length,episodes:stats.episodes,ok});
   return ok
@@ -584,7 +600,7 @@ async function loadSeriesDetailStable(item,{force=false}={}){
   const job=(async()=>{
     let last=null;
     try{
-      const data=await requestProviderDetailStable(params,CONFIG,12000,{force,accept:value=>seriesEpisodeStats(value).episodes>0}),stats=seriesEpisodeStats(data);
+      const raw=await requestProviderDetailStable(params,CONFIG,12000,{force,accept:value=>seriesEpisodeStats(value).episodes>0}),stats=seriesEpisodeStats(raw),data=stats.data;
       if(!stats.episodes)throw new Error('O provedor respondeu sem temporadas/episódios.');
       await saveSeriesDetailCache(item,data,'stable-distributed-transport');
       playbackDebug('series-detail-restored',{mediaId,source:'stable-distributed-transport',seasons:stats.seasons.length,episodes:stats.episodes,attempts:1});
@@ -1067,7 +1083,7 @@ async function closeDetail(){
   installPageZoomLock();
   if(!document.getElementById('srhContinueFrameStyle')){
     const s=document.createElement('style');s.id='srhContinueFrameStyle';
-    s.textContent='body.srh-main-stream-style .home-status{height:0!important;min-height:0!important;margin:0!important;padding:0!important;line-height:0!important;overflow:hidden!important;opacity:0!important}body.srh-main-stream-style .stream-hero{margin-top:-12px!important}@media(max-width:680px){body.srh-main-stream-style .stream-hero__content{left:0!important;right:0!important;width:100%!important;max-width:none!important;padding-left:max(22px,env(safe-area-inset-left))!important;padding-right:max(22px,env(safe-area-inset-right))!important;box-sizing:border-box!important}body.srh-main-stream-style .stream-hero__brand,body.srh-main-stream-style .stream-hero__meta,body.srh-main-stream-style .stream-hero__plot,body.srh-main-stream-style .stream-hero__actions{max-width:100%!important}body.srh-main-stream-style .stream-hero__actions{padding-left:0!important}}.continue-card__media{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;background:#080a0c;contain:layout paint style;isolation:isolate}.continue-card__media>img{display:block;width:100%!important;height:100%!important;aspect-ratio:auto!important;object-fit:cover!important;pointer-events:none}.continue-card__frame-video{position:absolute!important;inset:0!important;display:none!important;width:0!important;height:0!important;opacity:0!important;visibility:hidden!important;pointer-events:none!important}.srh-watched-note{margin:7px 0 12px;padding:8px 11px;border:1px solid rgba(255,255,255,.14);border-radius:10px;background:rgba(255,255,255,.055);font-size:13px;font-weight:700;line-height:1.25;display:inline-flex;align-items:center;gap:6px}body.srh-main-stream-style,body.srh-main-stream-style *{-webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important}body.srh-main-stream-style input,body.srh-main-stream-style textarea,body.srh-main-stream-style [contenteditable="true"],body.srh-main-stream-style .detail-modal .synopsis,body.srh-main-stream-style .detail-modal .srh-full-title-reveal{-webkit-user-select:text!important;user-select:text!important;-webkit-touch-callout:default!important}';
+    s.textContent='body.srh-main-stream-style .home-status{height:0!important;min-height:0!important;margin:0!important;padding:0!important;line-height:0!important;overflow:hidden!important;opacity:0!important}body.srh-main-stream-style .stream-hero{margin-top:-12px!important}body.srh-main-stream-style .stream-hero__brand{opacity:0;transform:translate3d(0,14px,0);transition:opacity .42s ease,transform .52s cubic-bezier(.2,.72,.22,1);will-change:opacity,transform}body.srh-main-stream-style .stream-hero__brand.is-ready{opacity:1;transform:translate3d(0,0,0)}@media(prefers-reduced-motion:reduce){body.srh-main-stream-style .stream-hero__brand{transition:none;transform:none}}@media(max-width:680px){body.srh-main-stream-style .stream-hero__content{left:0!important;right:0!important;width:100%!important;max-width:none!important;padding-left:max(22px,env(safe-area-inset-left))!important;padding-right:max(22px,env(safe-area-inset-right))!important;box-sizing:border-box!important}body.srh-main-stream-style .stream-hero__brand,body.srh-main-stream-style .stream-hero__meta,body.srh-main-stream-style .stream-hero__plot,body.srh-main-stream-style .stream-hero__actions{max-width:100%!important}body.srh-main-stream-style .stream-hero__actions{padding-left:0!important}}.continue-card__media{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;background:#080a0c;contain:layout paint style;isolation:isolate}.continue-card__media>img{display:block;width:100%!important;height:100%!important;aspect-ratio:auto!important;object-fit:cover!important;pointer-events:none}.continue-card__frame-video{position:absolute!important;inset:0!important;display:none!important;width:0!important;height:0!important;opacity:0!important;visibility:hidden!important;pointer-events:none!important}.srh-watched-note{margin:7px 0 12px;padding:8px 11px;border:1px solid rgba(255,255,255,.14);border-radius:10px;background:rgba(255,255,255,.055);font-size:13px;font-weight:700;line-height:1.25;display:inline-flex;align-items:center;gap:6px}body.srh-main-stream-style,body.srh-main-stream-style *{-webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important}body.srh-main-stream-style input,body.srh-main-stream-style textarea,body.srh-main-stream-style [contenteditable="true"],body.srh-main-stream-style .detail-modal .synopsis,body.srh-main-stream-style .detail-modal .srh-full-title-reveal{-webkit-user-select:text!important;user-select:text!important;-webkit-touch-callout:default!important}';
     document.head.appendChild(s)
   }
   if(!window.__srhSelectionGuard){
@@ -3713,7 +3729,7 @@ async function closeDetail(){
     const logo=node.querySelector('.stream-hero__logo'),fallback=node.querySelector('.stream-hero__brand-fallback'),box=node.querySelector('.stream-hero__brand');
     if(logo){logo.onload=null;logo.onerror=null;hideHeroLogo(logo);logo.removeAttribute('src');logo.removeAttribute('data-srh-normalized')}
     fallback?.classList.add('is-hidden');if(fallback)fallback.textContent='';
-    box?.classList.remove('srh-logo-flare-light','srh-logo-flare-dark','has-logo','has-fallback');
+    box?.classList.remove('srh-logo-flare-light','srh-logo-flare-dark','has-logo','has-fallback','is-ready');
     const meta=node.querySelector('.stream-hero__meta'),plot=node.querySelector('.stream-hero__plot'),dots=node.querySelector('.stream-hero__dots');
     if(meta)meta.textContent='';if(plot)plot.textContent='';if(dots)dots.innerHTML='';
     node.querySelector('.stream-hero__skeleton')?.classList.remove('is-hidden')
@@ -3776,6 +3792,8 @@ async function closeDetail(){
     box.setAttribute('aria-label',String(title||'').trim())
   }
 
+  function revealHeroBrand(box,local){if(!box||local!==heroToken)return;box.classList.remove('is-ready');requestAnimationFrame(()=>{if(local!==heroToken)return;requestAnimationFrame(()=>{if(local===heroToken)box.classList.add('is-ready')})})}
+
   function setHeroBrand(node,title,data,local){
     const box=node.querySelector('.stream-hero__brand');
     const logo=node.querySelector('.stream-hero__logo');
@@ -3798,7 +3816,8 @@ async function closeDetail(){
       fallback.textContent=String(title||'').trim();
       fallback.classList.remove('is-hidden');
       box.classList.remove('has-logo');
-      box.classList.add('has-fallback','is-ready');
+      box.classList.add('has-fallback');
+      revealHeroBrand(box,local);
     };
 
     if(!data?.logo){showFallback();return}
@@ -3821,7 +3840,8 @@ async function closeDetail(){
       fallback.classList.add('is-hidden');
       showHeroLogo(logo);
       box.classList.remove('has-fallback');
-      box.classList.add('has-logo','is-ready');
+      box.classList.add('has-logo');
+      revealHeroBrand(box,local);
     };
     logo.onerror=showFallback;
     logo.src=data.logo;
