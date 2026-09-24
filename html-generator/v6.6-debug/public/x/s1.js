@@ -1227,7 +1227,7 @@ async function closeDetail(){
       const ctrl=new AbortController();
       const timer=setTimeout(()=>ctrl.abort(),timeout);
       try{
-        const r=await fetch(url,{cache:'no-store',signal:ctrl.signal,...(opts?.probe?{srhProbe:true}:{})});
+        const r=await fetch(url,{cache:'no-store',signal:ctrl.signal,srhBypassCircuit:true,...(opts?.probe?{srhProbe:true}:{})});
         if(!r.ok)throw new Error('HTTP '+r.status);
         return await r.json();
       }catch(e){last=e;return next()}
@@ -1296,37 +1296,59 @@ async function closeDetail(){
     state.railInstances.push(v);
     section.querySelector('[data-all]').onclick=()=>openCollection(target.name,target.type,items);
   }
-  renderRail=async function(section,target,token){
+  const railRecoveryTimers=new WeakMap();
+  function scheduleRailRecovery(section,target,token,attempt=1){
+    const previous=railRecoveryTimers.get(section);if(previous)clearTimeout(previous);
+    if(attempt>3||token!==state.renderToken)return;
+    const delay=attempt===1?1600:attempt===2?4200:8500;
+    const timer=setTimeout(()=>{
+      railRecoveryTimers.delete(section);
+      if(token!==state.renderToken||state.collectionOpen||!section?.isConnected)return;
+      if(section._railV)return;
+      const body=section.querySelector('.rail-body');if(!body)return;
+      body.innerHTML=railSkeletonMarkup(target.type);
+      renderRail(section,target,token,{recoveryAttempt:attempt}).catch(()=>{})
+    },delay);
+    railRecoveryTimers.set(section,timer)
+  }
+  renderRail=async function(section,target,token,opts=null){
     if(token!==state.renderToken)return;
     const body=section.querySelector('.rail-body');
     body.innerHTML=railSkeletonMarkup(target.type);
     let error=null;
-    for(let attempt=0;attempt<2;attempt++){
+    for(let attempt=0;attempt<3;attempt++){
       try{
-        const raw=await loadTargetItems(target,token);
+        const raw=await loadTargetItems(target,token,{priority:opts?.recoveryAttempt?5:0});
         if(token!==state.renderToken)return;
         const items=target.type==='live'?groupChannels(raw):uniqueById(raw,target.type);
         if(!items.length){
           body.innerHTML='<div class="skeleton">Sem conteúdos nesta categoria.</div>';
           return;
         }
+        const timer=railRecoveryTimers.get(section);if(timer){clearTimeout(timer);railRecoveryTimers.delete(section)}
         mountRailItems(section,target,items);
+        playbackDebug('catalog-rail-ready',{type:target.type,categoryId:targetId(target),recoveryAttempt:Number(opts?.recoveryAttempt||0),items:items.length});
         return;
       }catch(e){
         error=e;
-        if(attempt===0){
-          await new Promise(resolve=>setTimeout(resolve,320));
-          body.innerHTML=railSkeletonMarkup(target.type);
+        if(token!==state.renderToken)return;
+        if(attempt<2){
+          await new Promise(resolve=>setTimeout(resolve,attempt===0?360:920));
+          body.innerHTML=railSkeletonMarkup(target.type)
         }
       }
     }
     if(token!==state.renderToken)return;
-    body.innerHTML='<div class="rail-load-error"><span>Não foi possível carregar esta categoria agora.</span><button type="button">Tentar novamente</button></div>';
+    const recoveryAttempt=Number(opts?.recoveryAttempt||0);
+    body.innerHTML='<div class="rail-load-error"><span>Categoria aguardando nova tentativa.</span><button type="button">Tentar agora</button></div>';
     body.querySelector('button').onclick=()=>{
+      const timer=railRecoveryTimers.get(section);if(timer)clearTimeout(timer);
+      railRecoveryTimers.delete(section);
       section.dataset.loaded='1';
-      renderRail(section,target,state.renderToken);
+      renderRail(section,target,state.renderToken,{recoveryAttempt:Math.max(1,recoveryAttempt)}).catch(()=>{})
     };
-    console.warn('Não foi possível carregar uma categoria.');
+    playbackDebug('catalog-rail-retry',{type:target.type,categoryId:targetId(target),attempt:recoveryAttempt+1,message:error?.message||String(error||'')});
+    scheduleRailRecovery(section,target,token,recoveryAttempt+1)
   };
   evictRail=function(section){
     if(!section||section.dataset.loaded!=='1'||state.collectionOpen)return;
@@ -1336,6 +1358,7 @@ async function closeDetail(){
       state.railInstances=state.railInstances.filter(x=>x!==v);
       section._railV=null;
     }
+    const timer=railRecoveryTimers.get(section);if(timer){clearTimeout(timer);railRecoveryTimers.delete(section)}
     const idx=Number(section.dataset.target);
     const target=targetsFor(state.activeType)[idx];
     section.querySelector('.rail-body').innerHTML=railSkeletonMarkup(target?.type||state.activeType);
@@ -1345,6 +1368,7 @@ async function closeDetail(){
   const baseRenderActiveType=renderActiveType;
   renderActiveType=function(){
     srhRailScheduler.queue.splice(0).forEach(job=>job.resolve([]));
+    el.content.querySelectorAll('.rail-section').forEach(section=>{const timer=railRecoveryTimers.get(section);if(timer)clearTimeout(timer)});
     baseRenderActiveType();
     const targets=targetsFor(state.activeType);
     el.content.querySelectorAll('.rail-section').forEach(section=>{
