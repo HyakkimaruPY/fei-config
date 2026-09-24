@@ -1240,7 +1240,7 @@ async function closeDetail(){
   const continueFrameUpgradeInflight=new Map();
   const continueArtMemory=new Map();
   const continueArtInflight=new Map();
-  const CONTINUE_ART_VERSION=1;
+  const CONTINUE_ART_VERSION=2;
   let continueFrameCardTail=Promise.resolve();
   window.__srhDropContinueFrameCache=(entry,key=continueFrameKey(entry))=>{
     const url=continueFrameUrlCache.get(key);
@@ -1252,7 +1252,7 @@ async function closeDetail(){
   function continueArtSignature(entry,type){
     const kind=type==='series'?'series':'vod',snap=entry?.itemSnapshot&&typeof entry.itemSnapshot==='object'?entry.itemSnapshot:{};
     if(kind==='series')return ['series',String(entry?.seriesId??snap.series_id??''),String(entry?.season??''),String(entry?.episodeNumber??''),String(snap.stream_id??entry?.streamId??'')].join(':');
-    return ['vod',String(entry?.key||''),String(entry?.tmdbId??snap.tmdb_id??'')].join(':')
+    return ['vod',String(entry?.key||('vod:'+String(snap.stream_id??'')))].join(':')
   }
   function continueArtKey(entry,type){
     return 'srhell:'+APP_NS+':standard:continue-art:v'+CONTINUE_ART_VERSION+':'+standardProviderId()+':'+encodeURIComponent(continueArtSignature(entry,type))
@@ -1326,7 +1326,10 @@ async function closeDetail(){
         if(cachedUrl&&cachedUrl.startsWith('blob:'))try{URL.revokeObjectURL(cachedUrl)}catch{}
         continueFrameUrlCache.delete(frameKey);
         continueFramePayloadMemory.delete(frameKey);
-        void standardStateDelete(frameKey)
+        void standardStateDelete(frameKey);
+        const artKey=continueArtKey(row,bucket);
+        continueArtMemory.delete(artKey);
+        void standardStateDelete(artKey)
       }
     }
     contMemory[bucket]=compact;
@@ -1344,6 +1347,11 @@ async function closeDetail(){
     const qualified=Number(entry.position)>=MIN_CONTINUE_SECONDS||!!previous?.resumeQualified||(entry.type==='series'&&!!previous);
     if(!qualified)return false;
     let list=current.filter(x=>continueIdentity(x)!==identity);
+    if(previous&&bucket==='series'&&continueArtSignature(previous,'series')!==continueArtSignature(entry,'series')){
+      const oldArtKey=continueArtKey(previous,'series');
+      continueArtMemory.delete(oldArtKey);
+      void standardStateDelete(oldArtKey)
+    }
     const normalized={...entry,resumeQualified:true,frameKey:continueFrameKey(entry)};
     list.unshift(normalized);
     const ok=writeHistoryBucket(bucket,list);
@@ -2199,7 +2207,14 @@ async function closeDetail(){
   function applyPreferredArtToContinueCard(card,entry,type,art){
     if(!art?.url||!card?.isConnected)return false;
     const img=card.querySelector('.continue-card__media img');if(!img)return false;
-    img.onerror=()=>{img.onerror=null;void hydrateContinueFrameFallback(card,entry,type)};
+    img.onerror=()=>{
+      img.onerror=null;
+      const artKey=continueArtKey(entry,type);
+      continueArtMemory.delete(artKey);
+      void standardStateDelete(artKey);
+      card.dataset.srhContinueArt='';
+      void hydrateContinueFrameFallback(card,entry,type)
+    };
     img.src=art.url;card.dataset.srhContinueArt=art.source||'tmdb';
     playbackDebug('continue-art-use',{type,key:entry.key,target:'card',source:art.source||'tmdb'});
     return true
@@ -2213,9 +2228,13 @@ async function closeDetail(){
   }
   async function hydrateContinueCard(card,entry,type){
     if(!card?.isConnected)return;
+    const cached=await readPreferredContinueArt(entry,type).catch(()=>null);
+    if(cached&&applyPreferredArtToContinueCard(card,entry,type,cached))return;
+    const framePromise=hydrateContinueFrameFallback(card,entry,type).catch(()=>false);
     const preferred=await resolvePreferredContinueArt(entry,type).catch(()=>null);
-    if(preferred&&applyPreferredArtToContinueCard(card,entry,type,preferred))return;
-    await hydrateContinueFrameFallback(card,entry,type)
+    if(!card?.isConnected)return;
+    if(preferred){applyPreferredArtToContinueCard(card,entry,type,preferred);return}
+    await framePromise
   }
 
   function useStoredFrameImage(image,entry,payload){
