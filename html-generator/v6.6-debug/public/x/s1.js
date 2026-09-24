@@ -3772,7 +3772,7 @@ async function closeDetail(){
 
   /* SRHELL R24 feed hero polish */
   let heroToken=0,heroTimer=0,heroViewToken=0,heroItems=[],heroIndex=0,heroNode=null,heroSetBucket=-1,heroSetMode='auto',heroSetExpiresAt=0;
-  const heroMeta=new Map(),HERO_SET_MS=10*60*1000,HERO_TMDB_METADATA_VERSION=3,HERO_FAVORITE='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.8l2.52 5.1 5.63.82-4.08 3.97.96 5.61L12 16.65 6.97 19.3l.96-5.61L3.85 9.72l5.63-.82L12 3.8z"/></svg>';
+  const heroMeta=new Map(),heroPrecacheMemory=new Map(),HERO_SET_MS=10*60*1000,HERO_TMDB_METADATA_VERSION=3,HERO_PRECACHE_VERSION=1,HERO_PRECACHE_LIMIT=10,HERO_PRECACHE_TTL=7*24*60*60*1000,HERO_FAVORITE='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.8l2.52 5.1 5.63.82-4.08 3.97.96 5.61L12 16.65 6.97 19.3l.96-5.61L3.85 9.72l5.63-.82L12 3.8z"/></svg>';
   function heroIsVisible(){return !document.hidden&&!state.playerActive&&!state.collectionOpen&&el.detailLayer.classList.contains('is-hidden')&&!document.body.classList.contains('srh-searching')}
   function compactChannelTitle(value){
     const s=stripEmoji(String(value||'Canal'),'Canal').replace(/\s{2,}/g,' ').trim();
@@ -3794,7 +3794,7 @@ async function closeDetail(){
     if(heroNode?.isConnected)return heroNode;
     heroNode=document.createElement('section');
     heroNode.className='stream-hero';
-    heroNode.innerHTML='<div class="stream-hero__skeleton"></div><div class="stream-hero__bg-stack"><div class="stream-hero__bg stream-hero__bg--a is-active"></div><div class="stream-hero__bg stream-hero__bg--b"></div></div><div class="stream-hero__shade"></div><div class="stream-hero__content"><div class="stream-hero__brand"><img class="stream-hero__logo is-hidden" alt=""><div class="srh-art-brand__fallback stream-hero__brand-fallback is-hidden"></div></div><div class="stream-hero__meta"></div><p class="stream-hero__plot"></p><div class="stream-hero__actions"><button class="stream-hero__action" data-stream-open>${UI_ICON_PLAY}<span>Abrir</span></button><button class="stream-hero__action stream-hero__action--ghost stream-hero__favorite" data-stream-favorite aria-label="Adicionar aos favoritos">'+HERO_FAVORITE+'<span>Favoritar</span></button></div></div><div class="stream-hero__dots"></div>';
+    heroNode.innerHTML='<div class="stream-hero__skeleton"></div><div class="stream-hero__bg-stack"><div class="stream-hero__bg stream-hero__bg--a is-active"></div><div class="stream-hero__bg stream-hero__bg--b"></div></div><div class="stream-hero__shade"></div><div class="stream-hero__content"><div class="stream-hero__brand"><img class="stream-hero__logo is-hidden" alt=""><div class="srh-art-brand__fallback stream-hero__brand-fallback is-hidden"></div></div><div class="stream-hero__meta"></div><p class="stream-hero__plot"></p><div class="stream-hero__actions"><button class="stream-hero__action" data-stream-open>'+UI_ICON_PLAY+'<span>Abrir</span></button><button class="stream-hero__action stream-hero__action--ghost stream-hero__favorite" data-stream-favorite aria-label="Adicionar aos favoritos">'+HERO_FAVORITE+'<span>Favoritar</span></button></div></div><div class="stream-hero__dots"></div>';
     el.homeStatus.insertAdjacentElement('afterend',heroNode);
     heroNode.addEventListener('click',e=>{
       if(e.target.closest?.('button,.stream-hero__content'))return;
@@ -3883,10 +3883,10 @@ async function closeDetail(){
     return chars.slice(0,Math.max(1,max-1)).join('').trimEnd()+'…';
   }
 
+  function heroMetaKey(item,type){return type+':'+String(itemId(item,type)||itemTitle(item))}
   async function heroTmdb(item,type){
     if(type==='live')return null;
-    const key=type+':'+String(itemId(item,type)||itemTitle(item));
-    const cached=heroMeta.get(key);
+    const key=heroMetaKey(item,type),cached=heroMeta.get(key);
     if(Number(cached?.metadataVersion||0)>=HERO_TMDB_METADATA_VERSION)return cached;
     try{
       const data=await resolveCatalogMetadata?.(type==='series'?'tv':'movie',item,null);
@@ -3934,6 +3934,63 @@ async function closeDetail(){
     }
     playbackDebug('hero-clean-logo-set',{type,categoriesScanned,candidatesScanned,count:out.length,limit});
     return out
+  }
+
+  function heroPrecacheTargetSignature(type,targets){
+    return (Array.isArray(targets)?targets:[]).map(t=>[type,String(targetId(t)||''),String(t?.name||'')].join(':')).join('|')
+  }
+  function heroPrecacheKey(type){
+    return 'srhell:'+STANDARD_APP_NS+':standard:hero-precache:v'+HERO_PRECACHE_VERSION+':'+encodeURIComponent(seriesProviderGuardFingerprint())+':'+type
+  }
+  function cloneHeroCacheValue(value){
+    try{return JSON.parse(JSON.stringify(value))}catch{return null}
+  }
+  async function readHeroPrecache(type,targets){
+    if(type==='live')return[];
+    const key=heroPrecacheKey(type),sig=heroPrecacheTargetSignature(type,targets);
+    let row=heroPrecacheMemory.get(key)||null;
+    if(!row){row=await standardStateGet(key);if(row)heroPrecacheMemory.set(key,row)}
+    if(!row||Number(row.version)!==HERO_PRECACHE_VERSION||row.targetSignature!==sig||Date.now()-Number(row.savedAt||0)>HERO_PRECACHE_TTL)return[];
+    const out=[];
+    for(const entry of Array.isArray(row.entries)?row.entries:[]){
+      const item=entry?.item,meta=entry?.meta;
+      if(!item||!meta?.logo||Number(meta?.metadataVersion||0)<HERO_TMDB_METADATA_VERSION)continue;
+      const art=String(meta?.backdrop||heroCatalogFallback(item)?.backdrop||heroCatalogFallback(item)?.cover||'').trim();
+      if(!art)continue;
+      heroMeta.set(heroMetaKey(item,type),meta);
+      out.push(item);
+      if(out.length>=HERO_PRECACHE_LIMIT)break
+    }
+    if(out.length){
+      playbackDebug('hero-precache-hit',{type,count:out.length,ageMs:Math.max(0,Date.now()-Number(row.savedAt||0))});
+      for(const item of out.slice(0,3)){
+        const meta=heroMeta.get(heroMetaKey(item,type));
+        if(meta?.logo)preloadHeroCleanLogo(meta.logo,3200).catch(()=>{});
+        const image=heroImage(item,type,meta,heroCatalogFallback(item));
+        if(image)preloadHeroImage(image,3200).catch(()=>{})
+      }
+    }
+    return out
+  }
+  async function writeHeroPrecache(type,items,targets){
+    if(type==='live')return false;
+    const entries=[];
+    for(const item of (Array.isArray(items)?items:[])){
+      const meta=heroMeta.get(heroMetaKey(item,type));
+      if(!meta?.logo||Number(meta?.metadataVersion||0)<HERO_TMDB_METADATA_VERSION)continue;
+      const catalog=heroCatalogFallback(item),art=String(meta?.backdrop||catalog.backdrop||catalog.cover||'').trim();
+      if(!art)continue;
+      const cleanItem=cloneHeroCacheValue(item),cleanMeta=cloneHeroCacheValue(meta);
+      if(!cleanItem||!cleanMeta)continue;
+      entries.push({item:cleanItem,meta:cleanMeta});
+      if(entries.length>=HERO_PRECACHE_LIMIT)break
+    }
+    if(!entries.length)return false;
+    const row={version:HERO_PRECACHE_VERSION,type,targetSignature:heroPrecacheTargetSignature(type,targets),savedAt:Date.now(),entries};
+    const key=heroPrecacheKey(type);heroPrecacheMemory.set(key,row);
+    const ok=await standardStateSet(key,row);
+    playbackDebug('hero-precache-save',{type,count:entries.length,ok});
+    return ok
   }
 
   function dots(){
@@ -4255,9 +4312,24 @@ async function closeDetail(){
     if(type==='series'&&seriesProviderGuardBlocked()){node.classList.add('is-hidden');playbackDebug('hero-suppressed',{type,reason:'series-provider-guard'});return}
     if(node.dataset.srhPainted!=='1')node.querySelector('.stream-hero__skeleton')?.classList.remove('is-hidden');
     heroSetBucket=bucket;heroSetExpiresAt=(bucket+1)*HERO_SET_MS;
+
+    let cachePainted=false;
+    if(type!=='live'){
+      const cached=await readHeroPrecache(type,targets).catch(()=>[]);
+      if(token!==state.renderToken||state.activeType!==type)return;
+      if(cached.length){
+        heroItems=cached.slice(0,HERO_PRECACHE_LIMIT);heroIndex=0;heroSetMode='precache';cachePainted=true;
+        node.classList.remove('is-hidden');
+        playbackDebug('hero-set',{type,mode:'precache',bucket,count:heroItems.length,cleanLogoOnly:true,expiresAt:heroSetExpiresAt});
+        showHero(0)
+      }
+    }
+
     const last=type==='live'?null:(getStandardLastWatched(type)||getHistory(type)[0]||null),mode=await heroCycleMode(type,bucket,!!last);
-    if(token!==state.renderToken)return;
+    if(token!==state.renderToken||state.activeType!==type)return;
     heroSetMode=mode;
+
+    let fresh=[];
     if(type==='live'){
       const liveTargets=targets.slice(0,Math.min(5,targets.length)),lists=[];
       for(let i=0;i<liveTargets.length&&lists.flat().length<32;i++){
@@ -4266,28 +4338,40 @@ async function closeDetail(){
       }
       let items=lists.flat(),seen=new Set();
       items=items.filter(item=>{const key=item.baseName||itemTitle(item);if(!key||seen.has(key))return false;seen.add(key);return true});
-      heroItems=stableShuffle(items,type,bucket).slice(0,10)
+      fresh=stableShuffle(items,type,bucket).slice(0,10)
     }else{
-      heroItems=await collectCleanLogoHeroItems(targets,type,token,bucket,10)
+      fresh=await collectCleanLogoHeroItems(targets,type,token,bucket,HERO_PRECACHE_LIMIT)
     }
     if(token!==state.renderToken||state.activeType!==type)return;
-    heroIndex=0;
-    if(!heroItems.length){node.classList.add('is-hidden');playbackDebug('hero-suppressed',{type,reason:type==='live'?'empty':'no-clean-logo'});return}
-    node.classList.remove('is-hidden');
-    playbackDebug('hero-set',{type,mode:'auto-fast',requestedMode:mode,bucket,count:heroItems.length,cleanLogoOnly:type!=='live',expiresAt:heroSetExpiresAt});
-    showHero(0);
+
+    if(fresh.length){
+      heroItems=fresh.slice(0,HERO_PRECACHE_LIMIT);heroIndex=0;
+      if(type!=='live')void writeHeroPrecache(type,heroItems,targets);
+      node.classList.remove('is-hidden');
+      playbackDebug('hero-set',{type,mode:'auto-fast',requestedMode:mode,bucket,count:heroItems.length,cleanLogoOnly:type!=='live',cacheReplaced:cachePainted,expiresAt:heroSetExpiresAt});
+      showHero(0)
+    }else if(!cachePainted){
+      node.classList.add('is-hidden');
+      playbackDebug('hero-suppressed',{type,reason:type==='live'?'empty':'no-clean-logo'});
+      return
+    }else{
+      heroSetMode='precache';
+      playbackDebug('hero-precache-retained',{type,count:heroItems.length,reason:'fresh-empty'})
+    }
+
     if(mode==='recommended'&&last&&window.__srhStandardRecommendations?.get){
       setTimeout(async()=>{
         if(token!==state.renderToken||state.activeType!==type)return;
         let recommended=[];try{recommended=await window.__srhStandardRecommendations.get(type,last,24,{budgetMs:12000})}catch{}
         if(token!==state.renderToken||state.activeType!==type||recommended.length<10)return;
-        const recommendedItems=recommended.map(x=>x.item),filtered=type==='live'?recommendedItems.slice(0,10):await heroItemsWithCleanLogo(recommendedItems,type,token,10);
-        if(token!==state.renderToken||state.activeType!==type||filtered.length<10)return;
-        heroSetMode='recommended';heroItems=filtered.slice(0,10);heroIndex=0;
+        const recommendedItems=recommended.map(x=>x.item),filtered=type==='live'?recommendedItems.slice(0,10):await heroItemsWithCleanLogo(recommendedItems,type,token,HERO_PRECACHE_LIMIT);
+        if(token!==state.renderToken||state.activeType!==type||filtered.length<HERO_PRECACHE_LIMIT)return;
+        heroSetMode='recommended';heroItems=filtered.slice(0,HERO_PRECACHE_LIMIT);heroIndex=0;
+        if(type!=='live')void writeHeroPrecache(type,heroItems,targets);
         playbackDebug('hero-set-upgrade',{type,mode:'recommended',bucket,count:heroItems.length,cleanLogoOnly:type!=='live'});
         showHero(0)
       },650)
-    }else heroSetMode='auto'
+    }else if(!cachePainted||fresh.length)heroSetMode='auto'
   }
 
   const baseRenderActiveType=renderActiveType;
