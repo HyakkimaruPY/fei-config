@@ -430,7 +430,7 @@ async function storeContinueFrame(entry,video,force=false){
   const ok=await standardStateSet(key,payload);
   if(ok)continueFramePayloadMemory.set(key,payload);
   playbackDebug('continue-frame-save',{type:entry.type,key:entry.key,kind:payload.kind,position:Number(position.toFixed?.(2)||position),pending:!dataUrl&&exactContinueFramePayload(existing),ok});
-  if(ok&&dataUrl)setTimeout(()=>{if(!state.playerActive&&el.detailLayer.classList.contains('is-hidden'))renderContinue()},40);
+  if(ok&&dataUrl)setTimeout(()=>{if(!state.playerActive&&state.activeType===entry.type)renderContinue()},40);
   if(ok&&!dataUrl&&(force||(!state.playerActive&&!state.seriesVideo&&!state.detailInlineVideo)))queueMicrotask(()=>window.__srhUpgradeContinueFrame?.({...entry,position,frameKey:key}).catch?.(()=>{}));
   return ok
 }
@@ -524,36 +524,41 @@ async function saveSeriesDetailCache(item,data,source='provider'){
   playbackDebug('series-detail-cache-save',{mediaId:String(item?.series_id||''),source,seasons:stats.seasons.length,episodes:stats.episodes,ok});
   return ok
 }
+const seriesDetailStableInflight=new Map();
 async function loadSeriesDetailStable(item,{force=false}={}){
-  const mediaId=String(item?.series_id??item?.id??''),params={action:'get_series_info',series_id:mediaId};
+  const mediaId=String(item?.series_id??item?.id??''),params={action:'get_series_info',series_id:mediaId},stableKey=seriesDetailCacheKey(item);
   const cached=await readSeriesDetailCache(item);
   if(cached&&!force){
     playbackDebug('series-detail-cache-hit',{mediaId,ageMs:Date.now()-Number(cached.at||0),seasons:cached.stats.seasons.length,episodes:cached.stats.episodes});
     return cloneDetailPayload(cached.data)
   }
-  const attempts=[
-    ['r66-requestDetail',()=>requestDetail(params)],
-    ['base-request',()=>request(params)]
-  ];
-  if(window.__srhFastProviderDetail)attempts.push(['fast-last-resort',()=>window.__srhFastProviderDetail(params)]);
-  let last=null;
-  for(const [source,run] of attempts){
-    try{
-      const data=await run(),stats=seriesEpisodeStats(data);
-      if(!stats.episodes)throw new Error('O provedor respondeu sem temporadas/episódios.');
-      await saveSeriesDetailCache(item,data,source);
-      playbackDebug('series-detail-restored',{mediaId,source,seasons:stats.seasons.length,episodes:stats.episodes});
-      return data
-    }catch(e){
-      last=e;
-      playbackDebug('series-detail-source-failed',{mediaId,source,message:e?.message||String(e)})
+  if(seriesDetailStableInflight.has(stableKey))return seriesDetailStableInflight.get(stableKey);
+  const job=(async()=>{
+    const fast=typeof window.__srhFastProviderDetail==='function';
+    const attempts=location.protocol==='file:'&&fast
+      ?[['file-proxy-fast',()=>window.__srhFastProviderDetail(params)],['r66-requestDetail',()=>requestDetail(params)]]
+      :[['r66-requestDetail',()=>requestDetail(params)],...(fast?[['fast-fallback',()=>window.__srhFastProviderDetail(params)]]:[])];
+    let last=null;
+    for(const [source,run] of attempts){
+      try{
+        const data=await run(),stats=seriesEpisodeStats(data);
+        if(!stats.episodes)throw new Error('O provedor respondeu sem temporadas/episódios.');
+        await saveSeriesDetailCache(item,data,source);
+        playbackDebug('series-detail-restored',{mediaId,source,seasons:stats.seasons.length,episodes:stats.episodes,attempts:attempts.length});
+        return data
+      }catch(e){
+        last=e;
+        playbackDebug('series-detail-source-failed',{mediaId,source,message:e?.message||String(e)})
+      }
     }
-  }
-  if(cached){
-    playbackDebug('series-detail-cache-stale',{mediaId,ageMs:Date.now()-Number(cached.at||0),reason:last?.message||'provider-failure'});
-    return cloneDetailPayload(cached.data)
-  }
-  throw last||new Error('Não foi possível carregar temporadas e episódios.')
+    if(cached){
+      playbackDebug('series-detail-cache-stale',{mediaId,ageMs:Date.now()-Number(cached.at||0),reason:last?.message||'provider-failure'});
+      return cloneDetailPayload(cached.data)
+    }
+    throw last||new Error('Não foi possível carregar temporadas e episódios.')
+  })().finally(()=>seriesDetailStableInflight.delete(stableKey));
+  seriesDetailStableInflight.set(stableKey,job);
+  return job
 }
 function seriesDetailFallback(item,error=null){
   const rows=getHistory('series')
@@ -983,7 +988,7 @@ async function closeDetail(){
   installPageZoomLock();
   if(!document.getElementById('srhContinueFrameStyle')){
     const s=document.createElement('style');s.id='srhContinueFrameStyle';
-    s.textContent='body.srh-main-stream-style .home-status{height:0!important;min-height:0!important;margin:0!important;padding:0!important;line-height:0!important;overflow:hidden!important;opacity:0!important}body.srh-main-stream-style .stream-hero{margin-top:-12px!important}@media(max-width:680px){body.srh-main-stream-style .stream-hero__content{left:20px!important;right:20px!important;width:auto!important;max-width:calc(100% - 40px)!important;box-sizing:border-box!important}body.srh-main-stream-style .stream-hero__brand,body.srh-main-stream-style .stream-hero__meta,body.srh-main-stream-style .stream-hero__plot,body.srh-main-stream-style .stream-hero__actions{max-width:100%!important}body.srh-main-stream-style .stream-hero__actions{padding-left:0!important}}.continue-card__media{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;background:#080a0c;contain:layout paint style;isolation:isolate}.continue-card__media>img{display:block;width:100%!important;height:100%!important;aspect-ratio:auto!important;object-fit:cover!important;pointer-events:none}.continue-card__frame-video{position:absolute!important;inset:0!important;display:none!important;width:0!important;height:0!important;opacity:0!important;visibility:hidden!important;pointer-events:none!important}.srh-watched-note{margin:7px 0 12px;padding:8px 11px;border:1px solid rgba(255,255,255,.14);border-radius:10px;background:rgba(255,255,255,.055);font-size:13px;font-weight:700;line-height:1.25;display:inline-flex;align-items:center;gap:6px}body.srh-main-stream-style,body.srh-main-stream-style *{-webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important}body.srh-main-stream-style input,body.srh-main-stream-style textarea,body.srh-main-stream-style [contenteditable="true"],body.srh-main-stream-style .detail-modal .synopsis,body.srh-main-stream-style .detail-modal .srh-full-title-reveal{-webkit-user-select:text!important;user-select:text!important;-webkit-touch-callout:default!important}';
+    s.textContent='body.srh-main-stream-style .home-status{height:0!important;min-height:0!important;margin:0!important;padding:0!important;line-height:0!important;overflow:hidden!important;opacity:0!important}body.srh-main-stream-style .stream-hero{margin-top:-12px!important}@media(max-width:680px){body.srh-main-stream-style .stream-hero__content{left:max(20px,env(safe-area-inset-left))!important;right:max(20px,env(safe-area-inset-right))!important;width:auto!important;max-width:calc(100% - 40px)!important;box-sizing:border-box!important}body.srh-main-stream-style .stream-hero__brand,body.srh-main-stream-style .stream-hero__meta,body.srh-main-stream-style .stream-hero__plot,body.srh-main-stream-style .stream-hero__actions{max-width:100%!important}body.srh-main-stream-style .stream-hero__actions{padding-left:0!important}}.continue-card__media{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;background:#080a0c;contain:layout paint style;isolation:isolate}.continue-card__media>img{display:block;width:100%!important;height:100%!important;aspect-ratio:auto!important;object-fit:cover!important;pointer-events:none}.continue-card__frame-video{position:absolute!important;inset:0!important;display:none!important;width:0!important;height:0!important;opacity:0!important;visibility:hidden!important;pointer-events:none!important}.srh-watched-note{margin:7px 0 12px;padding:8px 11px;border:1px solid rgba(255,255,255,.14);border-radius:10px;background:rgba(255,255,255,.055);font-size:13px;font-weight:700;line-height:1.25;display:inline-flex;align-items:center;gap:6px}body.srh-main-stream-style,body.srh-main-stream-style *{-webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important}body.srh-main-stream-style input,body.srh-main-stream-style textarea,body.srh-main-stream-style [contenteditable="true"],body.srh-main-stream-style .detail-modal .synopsis,body.srh-main-stream-style .detail-modal .srh-full-title-reveal{-webkit-user-select:text!important;user-select:text!important;-webkit-touch-callout:default!important}';
     document.head.appendChild(s)
   }
   if(!window.__srhSelectionGuard){
@@ -1872,7 +1877,7 @@ async function closeDetail(){
           contMemory[bucket]=rows;void standardStateSet(historyKey(bucket),rows)
         }
         playbackDebug('continue-frame-migrate',{type,key:entry.key,kind:'data-url',position:payload.position,path:group.name,ok});
-        if(ok)setTimeout(()=>{if(!state.playerActive&&el.detailLayer.classList.contains('is-hidden'))renderContinue()},40);
+        if(ok)setTimeout(()=>{if(!state.playerActive&&state.activeType===type)renderContinue()},40);
         return payload
       }finally{
         try{result?.hls?.destroy?.()}catch{}
