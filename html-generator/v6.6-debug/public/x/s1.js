@@ -506,6 +506,15 @@ function continueFrameKey(entry){
   const provider=standardProviderId()||'provider';
   return 'srhell:'+STANDARD_APP_NS+':standard:continue-frame:v'+CONTINUE_FRAME_VERSION+':'+provider+':'+encodeURIComponent(continueIdentity(entry));
 }
+function continueFrameMediaKey(entry){
+  if(!entry)return'';
+  if(entry.type==='series'){
+    const snap=entry?.itemSnapshot&&typeof entry.itemSnapshot==='object'?entry.itemSnapshot:{};
+    const sid=String(entry.seriesId??snap.series_id??'').trim(),stream=String(snap.stream_id??entry.streamId??'').trim(),season=String(entry.season??'').trim(),episode=String(entry.episodeNumber??'').trim();
+    return ['series',sid,season,episode,stream].join(':')
+  }
+  return String(entry.key||('vod:'+String(entry?.itemSnapshot?.stream_id??'')))
+}
 function continueFrameSources(entry,video=null){
   const snap=entry?.itemSnapshot&&typeof entry.itemSnapshot==='object'?entry.itemSnapshot:{};
   const out=[video?.currentSrc,entry?.lastWorkingUrl,...(Array.isArray(entry?.sources)?entry.sources:[])];
@@ -554,14 +563,14 @@ async function storeContinueFrame(entry,video,force=false){
   const blob=!dataUrl&&force?await captureContinueFrameBlob(video):null;
   let existing=continueFramePayloadMemory.get(key)||null;
   if(!existing){try{existing=await standardStateGet(key)}catch{}}
-  const pending={pendingPosition:position,pendingSource:video.currentSrc||entry.lastWorkingUrl||sources[0]||'',pendingSources:sources,refreshRequestedAt:Date.now()};
+  const mediaKey=continueFrameMediaKey(entry),pending={pendingPosition:position,pendingSource:video.currentSrc||entry.lastWorkingUrl||sources[0]||'',pendingSources:sources,pendingMediaKey:mediaKey,refreshRequestedAt:Date.now()};
   const payload=dataUrl
-    ?{version:CONTINUE_FRAME_VERSION,kind:'data-url',dataUrl,position,capturedAt:Date.now()}
+    ?{version:CONTINUE_FRAME_VERSION,kind:'data-url',dataUrl,position,mediaKey,capturedAt:Date.now()}
     :blob
-      ?{version:CONTINUE_FRAME_VERSION,kind:'blob',blob,position,capturedAt:Date.now()}
+      ?{version:CONTINUE_FRAME_VERSION,kind:'blob',blob,position,mediaKey,capturedAt:Date.now()}
       :exactContinueFramePayload(existing)
         ?{...existing,...pending,version:CONTINUE_FRAME_VERSION}
-        :{version:CONTINUE_FRAME_VERSION,kind:'reference',position,source:pending.pendingSource,sources,capturedAt:Date.now()};
+        :{version:CONTINUE_FRAME_VERSION,kind:'reference',position,mediaKey,source:pending.pendingSource,sources,capturedAt:Date.now()};
   const ok=await standardStateSet(key,payload);
   if(ok)continueFramePayloadMemory.set(key,payload);
   playbackDebug('continue-frame-save',{type:entry.type,key:entry.key,kind:payload.kind,position:Number(position.toFixed?.(2)||position),pending:!dataUrl&&!blob&&exactContinueFramePayload(existing),forced:!!force,ok});
@@ -1229,6 +1238,9 @@ async function closeDetail(){
   const continueCardResources=new Set();
   const continueFrameUrlCache=new Map();
   const continueFrameUpgradeInflight=new Map();
+  const continueArtMemory=new Map();
+  const continueArtInflight=new Map();
+  const CONTINUE_ART_VERSION=1;
   let continueFrameCardTail=Promise.resolve();
   window.__srhDropContinueFrameCache=(entry,key=continueFrameKey(entry))=>{
     const url=continueFrameUrlCache.get(key);
@@ -1237,6 +1249,58 @@ async function closeDetail(){
     continueFramePayloadMemory.delete(key)
   };
 
+  function continueArtSignature(entry,type){
+    const kind=type==='series'?'series':'vod',snap=entry?.itemSnapshot&&typeof entry.itemSnapshot==='object'?entry.itemSnapshot:{};
+    if(kind==='series')return ['series',String(entry?.seriesId??snap.series_id??''),String(entry?.season??''),String(entry?.episodeNumber??''),String(snap.stream_id??entry?.streamId??'')].join(':');
+    return ['vod',String(entry?.key||''),String(entry?.tmdbId??snap.tmdb_id??'')].join(':')
+  }
+  function continueArtKey(entry,type){
+    return 'srhell:'+APP_NS+':standard:continue-art:v'+CONTINUE_ART_VERSION+':'+standardProviderId()+':'+encodeURIComponent(continueArtSignature(entry,type))
+  }
+  function preloadContinueArt(url,timeout=5200){
+    const src=String(url||'').trim();
+    if(!src)return Promise.resolve(false);
+    return new Promise(resolve=>{
+      const img=new Image();let done=false;
+      const finish=ok=>{if(done)return;done=true;clearTimeout(timer);img.onload=null;img.onerror=null;resolve(!!ok)};
+      const timer=setTimeout(()=>finish(false),timeout);
+      img.onload=()=>finish(img.naturalWidth>0&&img.naturalHeight>0);
+      img.onerror=()=>finish(false);
+      img.src=src;
+      if(img.complete)finish(img.naturalWidth>0&&img.naturalHeight>0)
+    })
+  }
+  async function readPreferredContinueArt(entry,type){
+    const key=continueArtKey(entry,type),signature=continueArtSignature(entry,type);
+    if(continueArtMemory.has(key))return continueArtMemory.get(key);
+    const stored=await standardStateGet(key);
+    if(!stored||Number(stored.version||0)!==CONTINUE_ART_VERSION||stored.signature!==signature||!stored.url)return null;
+    const valid=await preloadContinueArt(stored.url,3200).catch(()=>false);
+    if(!valid){void standardStateDelete(key);return null}
+    continueArtMemory.set(key,stored);
+    return stored
+  }
+  async function resolvePreferredContinueArt(entry,type){
+    if(!entry||!['vod','series'].includes(type))return null;
+    const key=continueArtKey(entry,type);
+    if(continueArtInflight.has(key))return continueArtInflight.get(key);
+    const job=(async()=>{
+      const cached=await readPreferredContinueArt(entry,type).catch(()=>null);
+      if(cached)return cached;
+      const resolver=window.__srhResolveContinueTmdbArt;
+      if(typeof resolver!=='function')return null;
+      const resolved=await resolver(entry,type).catch(()=>null);
+      const url=String(resolved?.url||'').trim();
+      if(!url||!await preloadContinueArt(url,5200).catch(()=>false))return null;
+      const payload={version:CONTINUE_ART_VERSION,signature:continueArtSignature(entry,type),type,source:String(resolved?.source||'tmdb'),url,tmdbId:String(resolved?.tmdbId||''),season:String(resolved?.season??''),episodeNumber:String(resolved?.episodeNumber??''),savedAt:Date.now()};
+      const ok=await standardStateSet(key,payload);
+      if(ok)continueArtMemory.set(key,payload);
+      playbackDebug('continue-art-resolved',{type,key:entry.key,source:payload.source,tmdbId:payload.tmdbId,season:payload.season,episodeNumber:payload.episodeNumber,ok});
+      return payload
+    })().finally(()=>continueArtInflight.delete(key));
+    continueArtInflight.set(key,job);
+    return job
+  }
   function purgeContinueFrameWorkers(){
     document.querySelectorAll('video.continue-card__frame-video,video.srh-resume-frame-worker').forEach(video=>{
       try{video.pause();video.removeAttribute('src');video.load();video.remove()}catch{}
@@ -1999,7 +2063,10 @@ async function closeDetail(){
   }
   function isFrameFreshForEntry(payload,entry){
     if(!isExactFramePayload(payload))return false;
+    const expectedMedia=continueFrameMediaKey(entry),storedMedia=String(payload?.mediaKey||'');
+    if(expectedMedia&&storedMedia!==expectedMedia)return false;
     const stored=Math.max(0,Number(payload?.position)||0),target=frameTargetPosition(entry,payload);
+    if(String(payload?.pendingMediaKey||'')&&String(payload.pendingMediaKey)!==expectedMedia)return false;
     if(Number(payload?.pendingPosition)>0&&Math.abs(Number(payload.pendingPosition)-stored)>1.5)return false;
     return !(target>0&&Math.abs(target-stored)>2.5)
   }
@@ -2043,7 +2110,7 @@ async function closeDetail(){
           playbackDebug('continue-frame-capture-skip',{type,key:entry.key,path:group.name,reason:'canvas-unavailable',position:target});
           continue
         }
-        const payload={version:CONTINUE_FRAME_VERSION,kind:'data-url',dataUrl,position:Number(video.currentTime)||target,capturedAt:Date.now(),migrated:true,capturePath:group.name};
+        const payload={version:CONTINUE_FRAME_VERSION,kind:'data-url',dataUrl,position:Number(video.currentTime)||target,mediaKey:continueFrameMediaKey(normalized),capturedAt:Date.now(),migrated:true,capturePath:group.name};
         const ok=await standardStateSet(normalized.frameKey,payload);
         if(ok)continueFramePayloadMemory.set(normalized.frameKey,payload);
         if(entry.frameKey!==normalized.frameKey){
@@ -2089,8 +2156,11 @@ async function closeDetail(){
       }
       for(const row of rows){
         if(state.playerActive||!el.detailLayer.classList.contains('is-hidden')){interrupted=true;break}
-        const payload=await readContinueFrame(row.entry);
-        if(!isFrameFreshForEntry(payload,row.entry))await ensureContinueFrameOnce(row.entry,row.type).catch(()=>null);
+        const preferred=await resolvePreferredContinueArt(row.entry,row.type).catch(()=>null);
+        if(!preferred){
+          const payload=await readContinueFrame(row.entry);
+          if(!isFrameFreshForEntry(payload,row.entry))await ensureContinueFrameOnce(row.entry,row.type).catch(()=>null)
+        }
         await new Promise(resolve=>setTimeout(resolve,90))
       }
     }finally{
@@ -2119,22 +2189,33 @@ async function closeDetail(){
   }
 
   function applyFrameToContinueCard(card,entry,type,payload){
-    if(!isExactFramePayload(payload)||!card?.isConnected)return false;
+    if(!isFrameFreshForEntry(payload,entry)||!card?.isConnected)return false;
     const img=card.querySelector('.continue-card__media img'),url=storedFrameUrl(entry,payload);
     if(!url||!img)return false;
-    img.src=url;card.dataset.srhFrame='stored';
-    playbackDebug('continue-frame-use',{type,key:entry.key,target:'card',kind:payload.kind,fresh:isFrameFreshForEntry(payload,entry)});
+    img.onerror=null;img.src=url;card.dataset.srhContinueArt='exact-frame';
+    playbackDebug('continue-frame-use',{type,key:entry.key,target:'card',kind:payload.kind,fresh:true});
     return true
   }
-
+  function applyPreferredArtToContinueCard(card,entry,type,art){
+    if(!art?.url||!card?.isConnected)return false;
+    const img=card.querySelector('.continue-card__media img');if(!img)return false;
+    img.onerror=()=>{img.onerror=null;void hydrateContinueFrameFallback(card,entry,type)};
+    img.src=art.url;card.dataset.srhContinueArt=art.source||'tmdb';
+    playbackDebug('continue-art-use',{type,key:entry.key,target:'card',source:art.source||'tmdb'});
+    return true
+  }
+  async function hydrateContinueFrameFallback(card,entry,type){
+    if(!card?.isConnected)return false;
+    const payload=await readContinueFrame(entry).catch(()=>null);
+    if(applyFrameToContinueCard(card,entry,type,payload))return true;
+    const updated=await queueContinueCardFrame(()=>ensureContinueFrameOnce(entry,type)).catch(()=>null);
+    return applyFrameToContinueCard(card,entry,type,updated)
+  }
   async function hydrateContinueCard(card,entry,type){
     if(!card?.isConnected)return;
-    const payload=await readContinueFrame(entry).catch(()=>null);
-    applyFrameToContinueCard(card,entry,type,payload);
-    if(isFrameFreshForEntry(payload,entry))return;
-    queueContinueCardFrame(()=>ensureContinueFrameOnce(entry,type)).then(updated=>{
-      applyFrameToContinueCard(card,entry,type,updated)
-    }).catch(()=>{})
+    const preferred=await resolvePreferredContinueArt(entry,type).catch(()=>null);
+    if(preferred&&applyPreferredArtToContinueCard(card,entry,type,preferred))return;
+    await hydrateContinueFrameFallback(card,entry,type)
   }
 
   function useStoredFrameImage(image,entry,payload){
@@ -2237,7 +2318,7 @@ async function closeDetail(){
       el.continueSection.classList.add('is-hidden');el.continueRow.innerHTML='';return
     }
     el.continueSection.classList.remove('is-hidden');
-    el.continueRow.innerHTML=list.map((x,i)=>`<article class="continue-card" data-history="${i}"><div class="continue-card__media"><img src="${escapeHtml(x.image||'')}" alt="" loading="lazy"></div><div class="progress"><div class="progress__bar" style="width:${Math.min(100,x.position/x.duration*100)}%"></div></div><div class="continue-card__body"><div class="continue-card__title">${escapeHtml(x.title)}</div><div class="continue-card__meta">${Math.round(x.position/x.duration*100)}%</div></div></article>`).join('');
+    el.continueRow.innerHTML=list.map((x,i)=>`<article class="continue-card" data-history="${i}"><div class="continue-card__media"><img src="${escapeHtml(IMAGE_PLACEHOLDER)}" alt="" loading="lazy"></div><div class="progress"><div class="progress__bar" style="width:${Math.min(100,x.position/x.duration*100)}%"></div></div><div class="continue-card__body"><div class="continue-card__title">${escapeHtml(x.title)}</div><div class="continue-card__meta">${Math.round(x.position/x.duration*100)}%</div></div></article>`).join('');
     el.continueRow.querySelectorAll('[data-history]').forEach(card=>{
       const x=list[Number(card.dataset.history)];
       card.onclick=()=>{if(!state.srhContinueOpening&&x)openContinueEntry(x,type)};
@@ -2480,6 +2561,26 @@ async function closeDetail(){
     cacheWrite(key,out);
     return out;
   }
+  window.__srhResolveContinueTmdbArt=async function(entry,type){
+    if(!entry||!['vod','series'].includes(type))return null;
+    const snap=entry?.itemSnapshot&&typeof entry.itemSnapshot==='object'?entry.itemSnapshot:{};
+    if(type==='vod'){
+      const item={...snap,stream_id:snap.stream_id??String(entry?.key||'').split(':')[1]??'',name:snap.name||entry.title||'',tmdb_id:entry.tmdbId||snap.tmdb_id||''};
+      const meta=await resolveTmdb('movie',item,null).catch(()=>null);
+      const url=String(meta?.backdrop||meta?.poster||'').trim();
+      if(!url)return null;
+      return{url,source:meta?.backdrop?'tmdb-backdrop':'tmdb-poster',tmdbId:String(meta?.id||entry.tmdbId||snap.tmdb_id||'')}
+    }
+    const seriesId=String(entry?.seriesId??snap.series_id??''),seasonNo=Number(entry?.season),episodeNo=Number(entry?.episodeNumber);
+    if(!Number.isFinite(seasonNo)||!Number.isFinite(episodeNo)||episodeNo<1)return null;
+    const item={...snap,series_id:seriesId,name:String(snap.name||entry.title||'').replace(/\s+[—-]\s+Epis[oó]dio\s+\d+.*$/i,'').trim(),tmdb_id:entry.tmdbId||snap.tmdb_id||''};
+    const meta=await resolveTmdb('tv',item,null).catch(()=>null);
+    if(!meta?.id)return null;
+    const season=await seasonData(meta.id,seasonNo).catch(()=>null),episodes=Array.isArray(season?.episodes)?season.episodes:[],episode=episodes.find((ep,i)=>Number(ep?.episode_number??i+1)===episodeNo),url=imageUrl(episode?.still_path,'w780');
+    if(!url)return null;
+    return{url,source:'tmdb-episode-still',tmdbId:String(meta.id),season:seasonNo,episodeNumber:episodeNo}
+  };
+  setTimeout(()=>{if(['vod','series'].includes(state.activeType))renderContinue()},0);
 
   function episodeCollections(data){
     const eps=data?.episodes;
