@@ -97,29 +97,34 @@ const DETAIL_CACHE_TTL=6*60*1000,DETAIL_STALE_TTL=60*60*1000;
 function cloneDetailPayload(value){
   try{return typeof structuredClone==='function'?structuredClone(value):JSON.parse(JSON.stringify(value))}catch{return value}
 }
-const stableDetailTransportPreference=new Map();
 async function requestProviderDetailStable(params={},cfg=CONFIG,timeout=12000){
   const action=String(params?.action||''),mediaId=String(params?.series_id??params?.vod_id??params?.stream_id??'');
   const provider=normalizeServer(cfg.server),cacheKey=[provider,String(cfg.username||''),action,mediaId].join('|');
   const cached=detailResponseCache.get(cacheKey),age=cached?Date.now()-Number(cached.at||0):Infinity;
   if(cached&&age<DETAIL_CACHE_TTL)return cloneDetailPayload(cached.data);
-  const target=apiUrl(params,cfg),proxied=cfg.corsProxy?proxyUrl(target,cfg):'',pref=stableDetailTransportPreference.get(provider)||'';
-  const urls=[];
-  const add=(url,kind)=>{if(url&&!urls.some(x=>x.url===url))urls.push({url,kind})};
-  if(pref==='proxy'&&proxied)add(proxied,'proxy');
-  add(target,'direct');
-  if(proxied)add(proxied,'proxy');
+  /* Match the distributed stable classic exactly: direct is authoritative;
+     the configured CORS proxy is a fallback for the same request, never a
+     sticky transport preference from an earlier failure. */
+  const target=apiUrl(params,cfg),proxied=cfg.corsProxy?proxyUrl(target,cfg):'';
+  const urls=[{url:target,kind:'direct'}];
+  if(proxied&&proxied!==target)urls.push({url:proxied,kind:'proxy'});
   let last=null;
   for(const candidate of urls){
     try{
       const started=performance.now(),data=await requestJson(candidate.url,timeout,{srhBypassCircuit:true});
       if(!data||typeof data!=='object')throw new Error('O provedor retornou um detalhe inválido.');
-      stableDetailTransportPreference.set(provider,candidate.kind);
       detailResponseCache.set(cacheKey,{at:Date.now(),data:cloneDetailPayload(data)});
       if(detailResponseCache.size>24)detailResponseCache.delete(detailResponseCache.keys().next().value);
       playbackDebug('detail-stable-provider',{action,mediaId,transport:candidate.kind,ms:Math.round(performance.now()-started)});
       return cloneDetailPayload(data)
-    }catch(e){last=e;playbackDebug('detail-stable-failed',{action,mediaId,transport:candidate.kind,message:e?.message||String(e)})}
+    }catch(e){
+      last=e;
+      playbackDebug('detail-stable-failed',{action,mediaId,transport:candidate.kind,message:e?.message||String(e)})
+    }
+  }
+  if(cached&&age<DETAIL_STALE_TTL){
+    playbackDebug('detail-stable-stale-cache',{action,mediaId,ageMs:Math.round(age),message:last?.message||'provider-failure'});
+    return cloneDetailPayload(cached.data)
   }
   throw last||new Error('Não foi possível carregar os detalhes.')
 }
@@ -1011,7 +1016,7 @@ async function closeDetail(){
   installPageZoomLock();
   if(!document.getElementById('srhContinueFrameStyle')){
     const s=document.createElement('style');s.id='srhContinueFrameStyle';
-    s.textContent='body.srh-main-stream-style .home-status{height:0!important;min-height:0!important;margin:0!important;padding:0!important;line-height:0!important;overflow:hidden!important;opacity:0!important}body.srh-main-stream-style .stream-hero{margin-top:-12px!important}@media(max-width:680px){body.srh-main-stream-style .stream-hero__content{left:0!important;right:0!important;width:100%!important;max-width:none!important;padding-left:max(18px,env(safe-area-inset-left))!important;padding-right:max(18px,env(safe-area-inset-right))!important;box-sizing:border-box!important}body.srh-main-stream-style .stream-hero__brand,body.srh-main-stream-style .stream-hero__meta,body.srh-main-stream-style .stream-hero__plot,body.srh-main-stream-style .stream-hero__actions{max-width:100%!important}body.srh-main-stream-style .stream-hero__actions{padding-left:0!important}}.continue-card__media{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;background:#080a0c;contain:layout paint style;isolation:isolate}.continue-card__media>img{display:block;width:100%!important;height:100%!important;aspect-ratio:auto!important;object-fit:cover!important;pointer-events:none}.continue-card__frame-video{position:absolute!important;inset:0!important;display:none!important;width:0!important;height:0!important;opacity:0!important;visibility:hidden!important;pointer-events:none!important}.srh-watched-note{margin:7px 0 12px;padding:8px 11px;border:1px solid rgba(255,255,255,.14);border-radius:10px;background:rgba(255,255,255,.055);font-size:13px;font-weight:700;line-height:1.25;display:inline-flex;align-items:center;gap:6px}body.srh-main-stream-style,body.srh-main-stream-style *{-webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important}body.srh-main-stream-style input,body.srh-main-stream-style textarea,body.srh-main-stream-style [contenteditable="true"],body.srh-main-stream-style .detail-modal .synopsis,body.srh-main-stream-style .detail-modal .srh-full-title-reveal{-webkit-user-select:text!important;user-select:text!important;-webkit-touch-callout:default!important}';
+    s.textContent='body.srh-main-stream-style .home-status{height:0!important;min-height:0!important;margin:0!important;padding:0!important;line-height:0!important;overflow:hidden!important;opacity:0!important}body.srh-main-stream-style .stream-hero{margin-top:-12px!important}@media(max-width:680px){body.srh-main-stream-style .stream-hero__content{left:0!important;right:0!important;width:100%!important;max-width:none!important;padding-left:max(22px,env(safe-area-inset-left))!important;padding-right:max(22px,env(safe-area-inset-right))!important;box-sizing:border-box!important}body.srh-main-stream-style .stream-hero__brand,body.srh-main-stream-style .stream-hero__meta,body.srh-main-stream-style .stream-hero__plot,body.srh-main-stream-style .stream-hero__actions{max-width:100%!important}body.srh-main-stream-style .stream-hero__actions{padding-left:0!important}}.continue-card__media{position:relative;width:100%;aspect-ratio:16/9;overflow:hidden;background:#080a0c;contain:layout paint style;isolation:isolate}.continue-card__media>img{display:block;width:100%!important;height:100%!important;aspect-ratio:auto!important;object-fit:cover!important;pointer-events:none}.continue-card__frame-video{position:absolute!important;inset:0!important;display:none!important;width:0!important;height:0!important;opacity:0!important;visibility:hidden!important;pointer-events:none!important}.srh-watched-note{margin:7px 0 12px;padding:8px 11px;border:1px solid rgba(255,255,255,.14);border-radius:10px;background:rgba(255,255,255,.055);font-size:13px;font-weight:700;line-height:1.25;display:inline-flex;align-items:center;gap:6px}body.srh-main-stream-style,body.srh-main-stream-style *{-webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important}body.srh-main-stream-style input,body.srh-main-stream-style textarea,body.srh-main-stream-style [contenteditable="true"],body.srh-main-stream-style .detail-modal .synopsis,body.srh-main-stream-style .detail-modal .srh-full-title-reveal{-webkit-user-select:text!important;user-select:text!important;-webkit-touch-callout:default!important}';
     document.head.appendChild(s)
   }
   if(!window.__srhSelectionGuard){
