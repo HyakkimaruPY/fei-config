@@ -1221,7 +1221,13 @@ async function closeDetail(){
     const loading=baseOpenFilm(item),token=state.detailToken;
     state.srhPendingDetailType='';
     await loading;
-    if(isDetailCurrent(token))decorateDetail('vod',item);
+    if(!isDetailCurrent(token))return;
+    decorateDetail('vod',item);
+    const pkg=state.srhDetailPackage;
+    if(pkg?.token===token&&pkg.type==='vod'&&pkg.brand&&window.__srhInstallDetailBranding){
+      window.__srhInstallDetailBranding('vod',item,pkg.brand);
+      state.srhDetailBrandingToken=token
+    }
   };
   const baseOpenSeries=openSeries;
   openSeries=async function(item){
@@ -1229,7 +1235,13 @@ async function closeDetail(){
     const loading=baseOpenSeries(item),token=state.detailToken;
     state.srhPendingDetailType='';
     await loading;
-    if(isDetailCurrent(token))decorateDetail('series',item);
+    if(!isDetailCurrent(token))return;
+    decorateDetail('series',item);
+    const pkg=state.srhDetailPackage;
+    if(pkg?.token===token&&pkg.type==='series'&&pkg.brand&&window.__srhInstallDetailBranding){
+      window.__srhInstallDetailBranding('series',item,pkg.brand);
+      state.srhDetailBrandingToken=token
+    }
   };
   const baseOpenLive=openLive;
   openLive=async function(group){
@@ -2599,7 +2611,7 @@ async function closeDetail(){
     }
     art.classList.toggle('srh-poster-hero-fallback',!!data?.posterHero);
     applyTmdbDetailText(type,data);
-    applyTmdbDetailBackdrop(type,data);
+    if(!(state.srhOpeningContinue&&state.srhContinueFrameUrl))applyTmdbDetailBackdrop(type,data);
     art.querySelector('.srh-art-brand')?.remove();
     art.parentElement?.querySelector(':scope > .srh-full-title-reveal')?.remove();
 
@@ -2665,6 +2677,8 @@ async function closeDetail(){
       video.addEventListener('loadeddata',()=>{if(!video.classList.contains('is-hidden'))active()},{passive:true});
     }
   }
+
+  window.__srhInstallDetailBranding=installBranding;
 
   function bindFallback(button,title,art){
     let reveal=art.parentElement?.querySelector(':scope > .srh-full-title-reveal');
@@ -2832,10 +2846,15 @@ async function closeDetail(){
     const loading=tmdbOpenFilm(item),token=state.detailToken;
     await loading;
     if(!isDetailCurrent(token))return;
+    const pkg=state.srhDetailPackage;
+    if(state.srhDetailBrandingToken===token&&pkg?.type==='vod')return;
     const key='vod:'+String(item?.stream_id??item?.id??'');
-    const data=await resolveCatalogMetadata('movie',item,null).catch(()=>detailTmdb.get(key)||null);
+    const data=(pkg?.token===token&&pkg?.type==='vod'&&pkg.brand)
+      ?pkg.brand
+      :await resolveCatalogMetadata('movie',item,null).catch(()=>detailTmdb.get(key)||null);
     if(!isDetailCurrent(token))return;
     installBranding('vod',item,data);
+    state.srhDetailBrandingToken=token
   };
 
   const tmdbOpenSeries=openSeries;
@@ -2843,11 +2862,17 @@ async function closeDetail(){
     const loading=tmdbOpenSeries(item),token=state.detailToken;
     await loading;
     if(!isDetailCurrent(token))return;
+    const pkg=state.srhDetailPackage;
     const key='series:'+String(item?.series_id??item?.id??'');
-    const data=await resolveCatalogMetadata('tv',item,state.currentSeries?.data||null).catch(()=>detailTmdb.get(key)||null);
+    const data=(pkg?.token===token&&pkg?.type==='series'&&pkg.brand)
+      ?pkg.brand
+      :await resolveCatalogMetadata('tv',item,state.currentSeries?.data||null).catch(()=>detailTmdb.get(key)||null);
     if(!isDetailCurrent(token))return;
     if(data?.id)state.srhTmdbSeriesId=data.id;
-    installBranding('series',item,data);
+    if(state.srhDetailBrandingToken!==token){
+      installBranding('series',item,data);
+      state.srhDetailBrandingToken=token
+    }
     const label=el.detailBody.querySelector('#seasonLabel')?.textContent||'';
     const season=(label.match(/(\d+)/)||[])[1];
     if(data?.id&&season)enrichVisibleSeason(data.id,season);
