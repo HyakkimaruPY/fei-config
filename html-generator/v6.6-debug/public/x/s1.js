@@ -2241,7 +2241,7 @@ async function closeDetail(){
     const job=(async()=>{
       const action=type==='series'?'get_series_info':'get_vod_info';
       const params=type==='series'?{action,series_id:id}:{action,vod_id:id};
-      let data=null;try{data=await providerDetailRequest(params,CONFIG)}catch{}
+      let data=null;try{data=await window.__srhFastProviderDetail(params,CONFIG)}catch{}
       const info=data?.info||{},movie=data?.movie_data||{},root=data||{};
       const backdrop=providerImageValue(
         info.backdrop_path,info.backdrop,root.backdrop_path,root.backdrop,
