@@ -3780,6 +3780,20 @@ async function closeDetail(){
     return parts.join(' · ');
   }
 
+  function heroCatalogFallback(item){
+    const backdrop=String(item?.backdrop_path||item?.backdrop||'').trim();
+    const cover=String(item?.cover_big||item?.movie_image||item?.cover||item?.stream_icon||'').trim();
+    const overview=String(item?.plot||item?.description||'').trim();
+    const year=String(item?.year||String(item?.releasedate||item?.release_date||'').match(/\b(19|20)\d{2}\b/)?.[0]||'').trim();
+    const rawVote=item?.rating??item?.vote_average;
+    const vote=Number.isFinite(Number(rawVote))?Number(rawVote):null;
+    return{backdrop,cover,overview,year,vote}
+  }
+  function heroNeedsProviderFallback(data,catalog){
+    const art=String(data?.backdrop||catalog?.backdrop||catalog?.cover||'').trim();
+    const overview=String(data?.overview||catalog?.overview||'').trim();
+    return !art||!overview
+  }
   function warmHero(index,type){
     const item=heroItems[index];
     if(!item)return;
@@ -3787,8 +3801,12 @@ async function closeDetail(){
       preloadHeroImage(heroImage(item,type,null)).catch(()=>{});
       return;
     }
-    Promise.all([heroTmdb(item,type),heroProviderArt(item,type)]).then(([data,providerArt])=>{
-      const jobs=[preloadHeroImage(heroImage(item,type,data,providerArt))];
+    heroTmdb(item,type).then(async data=>{
+      const catalog=heroCatalogFallback(item);
+      let providerArt=null;
+      if(heroNeedsProviderFallback(data,catalog))providerArt=await heroProviderArt(item,type);
+      const fallback=providerArt?{...catalog,...providerArt}:catalog;
+      const jobs=[preloadHeroImage(heroImage(item,type,data,fallback))];
       if(data?.logo)jobs.push(preloadHeroImage(data.logo));
       return Promise.allSettled(jobs)
     }).catch(()=>{});
@@ -3824,32 +3842,22 @@ async function closeDetail(){
     }
     dots();
 
-    let data=null,providerArt=null;
+    let data=null,providerArt=null,catalogArt=null;
     if(type!=='live'){
       await heroYield();
       if(local!==heroToken||heroViewToken!==state.renderToken)return;
       data=await heroTmdb(item,type);
-      if(!data?.backdrop||!data?.overview||!data?.year||!(Number(data?.vote)>0))providerArt=await heroProviderArt(item,type);
+      catalogArt=heroCatalogFallback(item);
+      if(heroNeedsProviderFallback(data,catalogArt))providerArt=await heroProviderArt(item,type);
     }
     if(local!==heroToken||heroViewToken!==state.renderToken||state.activeType!==type)return;
 
+    const fallbackArt=providerArt?{...(catalogArt||{}),...providerArt}:(catalogArt||{});
     const title=type==='live'?compactChannelTitle(item.baseName||'Canal'):stripEmoji(data?.title||itemTitle(item),'Sem título');
-    const heroOverview=String(data?.overview||providerArt?.overview||item?.plot||item?.description||'').trim();
-    const heroData=type==='live'?data:{...(providerArt||{}),...(data||{}),overview:heroOverview,year:data?.year||providerArt?.year||'',vote:data?.vote??providerArt?.vote??null};
-    if(type!=='live'&&!heroOverview){
-      Promise.resolve(window.__srhProviderHeroArt?.(item,type)).then(remote=>{
-        if(local!==heroToken||heroViewToken!==state.renderToken||state.activeType!==type)return;
-        const lateOverview=String(remote?.overview||'').trim();
-        if(lateOverview){
-          plot.textContent=heroSynopsis(lateOverview,200);
-          const lateData={...heroData,overview:lateOverview,year:heroData?.year||remote?.year||'',vote:heroData?.vote??remote?.vote??null};
-          metaNode.textContent=heroMetaText(type,lateData);
-          playbackDebug('hero-metadata-late',{mediaId:String(itemId(item,type)||''),overviewChars:Array.from(lateOverview).length})
-        }
-      }).catch(()=>{})
-    }
-    const image=heroImage(item,type,data,providerArt);
-    const heroArtSource=type==='live'?'live':data?.backdrop?'tmdb':providerArt?.backdrop?'provider-backdrop':providerArt?.cover?'provider-cover':'none';
+    const heroOverview=String(data?.overview||fallbackArt?.overview||'').trim();
+    const heroData=type==='live'?data:{...(fallbackArt||{}),...(data||{}),overview:heroOverview,year:data?.year||fallbackArt?.year||'',vote:data?.vote??fallbackArt?.vote??null};
+    const image=heroImage(item,type,data,fallbackArt);
+    const heroArtSource=type==='live'?'live':data?.backdrop?'tmdb':providerArt?.backdrop?'provider-backdrop':providerArt?.cover?'provider-cover':fallbackArt?.backdrop?'catalog-backdrop':fallbackArt?.cover?'catalog-cover':'none';
     let brandData=heroData;
     if(type!=='live'&&data?.logo){
       const logoReady=await preloadHeroImage(data.logo).catch(()=>false);
@@ -3868,6 +3876,7 @@ async function closeDetail(){
         backdrop:!!data?.backdrop,
         providerBackdrop:!!providerArt?.backdrop,
         providerCover:!!providerArt?.cover,
+        providerRequested:!!providerArt,
         artSource:heroArtSource,
         logo:!!data?.logo,
         overviewChars:Array.from(heroOverview).length,
