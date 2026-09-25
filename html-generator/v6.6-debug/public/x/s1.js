@@ -2900,20 +2900,43 @@ async function closeDetail(){
     }
   }
 
+  function continueEntrySearchText(entry){
+    const snap=entry?.itemSnapshot||{},parts=[
+      entry?.title,entry?.name,entry?.seriesName,entry?.series_name,entry?.movie_name,
+      snap?.name,snap?.title,snap?.series_name,snap?.movie_name,
+      entry?.episodeTitle,entry?.episode_title,entry?.seasonTitle
+    ];
+    return normalizeSearch(parts.filter(Boolean).join(' '))
+  }
+  function eligibleContinueEntries(type){
+    if(type==='live')return[];
+    return getHistory(type).filter(x=>x.duration>0&&(x.position>=MIN_CONTINUE_SECONDS||!!x.resumeQualified)).slice(0,12)
+  }
+  function renderContinueCardsInto(section,row,type,list,{onBeforeOpen=null}={}){
+    if(!section||!row)return 0;
+    if(!Array.isArray(list)||!list.length||type==='live'){section.classList.add('is-hidden');row.innerHTML='';return 0}
+    section.classList.remove('is-hidden');
+    row.innerHTML=list.map((x,i)=>`<article class="continue-card" data-history="${i}"><div class="continue-card__media"><img src="${escapeHtml(IMAGE_PLACEHOLDER)}" alt="" loading="eager" decoding="async"></div><div class="progress"><div class="progress__bar" style="width:${Math.min(100,x.position/x.duration*100)}%"></div></div><div class="continue-card__body"><div class="continue-card__title">${escapeHtml(x.title)}</div><div class="continue-card__meta">${Math.round(x.position/x.duration*100)}%</div></div></article>`).join('');
+    row.querySelectorAll('[data-history]').forEach(card=>{
+      const x=list[Number(card.dataset.history)];
+      card.onclick=()=>{
+        if(state.srhContinueOpening||!x)return;
+        try{onBeforeOpen?.(x,type)}catch{}
+        void openContinueEntry(x,type).catch(e=>{playbackDebug('continue-open-failed',{type,key:x?.key||'',message:e?.message||String(e)});toast('Não foi possível abrir este item.')})
+      };
+      if(x)void hydrateContinueCard(card,x,type)
+    });
+    return list.length
+  }
+  window.__srhRenderSearchContinue=({section,row,type,query,onBeforeOpen}={})=>{
+    const q=normalizeSearch(query),list=q?eligibleContinueEntries(type).filter(x=>continueEntrySearchText(x).includes(q)):[];
+    playbackDebug('search-continue-filter',{type,queryChars:Array.from(q).length,matches:list.length,total:eligibleContinueEntries(type).length});
+    return renderContinueCardsInto(section,row,type,list,{onBeforeOpen})
+  };
   renderContinue=function(){
     purgeContinueFrameWorkers();
     releaseContinueCardResources();
-    const type=state.activeType,list=getHistory(type).filter(x=>x.duration>0&&(x.position>=MIN_CONTINUE_SECONDS||!!x.resumeQualified)).slice(0,12);
-    if(!list.length||type==='live'){
-      el.continueSection.classList.add('is-hidden');el.continueRow.innerHTML='';return
-    }
-    el.continueSection.classList.remove('is-hidden');
-    el.continueRow.innerHTML=list.map((x,i)=>`<article class="continue-card" data-history="${i}"><div class="continue-card__media"><img src="${escapeHtml(IMAGE_PLACEHOLDER)}" alt="" loading="eager" decoding="async"></div><div class="progress"><div class="progress__bar" style="width:${Math.min(100,x.position/x.duration*100)}%"></div></div><div class="continue-card__body"><div class="continue-card__title">${escapeHtml(x.title)}</div><div class="continue-card__meta">${Math.round(x.position/x.duration*100)}%</div></div></article>`).join('');
-    el.continueRow.querySelectorAll('[data-history]').forEach(card=>{
-      const x=list[Number(card.dataset.history)];
-      card.onclick=()=>{if(!state.srhContinueOpening&&x)void openContinueEntry(x,type).catch(e=>{playbackDebug('continue-open-failed',{type,key:x?.key||'',message:e?.message||String(e)});toast('Não foi possível abrir este item.')})};
-      if(x)void hydrateContinueCard(card,x,type)
-    })
+    return renderContinueCardsInto(el.continueSection,el.continueRow,state.activeType,eligibleContinueEntries(state.activeType))
   };
 
 })();
