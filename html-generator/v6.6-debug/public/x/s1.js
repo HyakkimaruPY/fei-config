@@ -4393,7 +4393,22 @@ async function closeDetail(){
   /* SRHELL R24 feed hero polish */
   let heroToken=0,heroTimer=0,heroViewToken=0,heroItems=[],heroIndex=0,heroNode=null,heroSetBucket=-1,heroSetMode='auto',heroSetExpiresAt=0;
   const heroMeta=new Map(),heroPrecacheMemory=new Map(),HERO_SET_MS=10*60*1000,HERO_TMDB_METADATA_VERSION=3,HERO_PRECACHE_VERSION=1,HERO_PRECACHE_LIMIT=10,HERO_PRECACHE_TTL=7*24*60*60*1000,HERO_FAVORITE='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.8l2.52 5.1 5.63.82-4.08 3.97.96 5.61L12 16.65 6.97 19.3l.96-5.61L3.85 9.72l5.63-.82L12 3.8z"/></svg>';
-  function heroIsVisible(){return !document.hidden&&!state.playerActive&&!state.collectionOpen&&el.detailLayer.classList.contains('is-hidden')&&!document.body.classList.contains('srh-searching')}
+  function heroIsVisible(){return !document.hidden&&!state.playerActive&&!state.collectionOpen&&el.detailLayer.classList.contains('is-hidden')&&!document.body.classList.contains('srh-searching')&&!document.body.classList.contains('srh-search-mode')}
+  window.addEventListener('srh:search-mode',e=>{
+    const active=!!e.detail?.active;
+    clearTimeout(heroTimer);
+    if(active){
+      heroToken++;
+      playbackDebug('hero-search-freeze',{type:state.activeType,index:heroIndex,count:heroItems.length});
+      return
+    }
+    playbackDebug('hero-search-resume',{type:state.activeType,index:heroIndex,count:heroItems.length});
+    if(!heroItems.length||!heroNode?.isConnected)return;
+    heroTimer=setTimeout(()=>{
+      if(!heroIsVisible()){heroTimer=setTimeout(()=>{if(heroIsVisible())showHero((heroIndex+1)%Math.max(1,heroItems.length))},1000);return}
+      showHero((heroIndex+1)%Math.max(1,heroItems.length))
+    },7000)
+  });
   function compactChannelTitle(value){
     const s=stripEmoji(String(value||'Canal'),'Canal').replace(/\s{2,}/g,' ').trim();
     if(s.length<=34)return s;
@@ -4688,7 +4703,7 @@ async function closeDetail(){
   window.__srhMaintainHeroReserves=async()=>{
     const all=['live','vod','series'],order=[...all.filter(type=>type!==state.activeType),state.activeType].filter(Boolean);
     for(const type of order){
-      if(state.playerActive||!el.detailLayer.classList.contains('is-hidden')||document.body.classList.contains('srh-searching'))break;
+      if(state.playerActive||!el.detailLayer.classList.contains('is-hidden')||document.body.classList.contains('srh-searching')||document.body.classList.contains('srh-search-mode'))break;
       const cached=await primeStoredHeroReserveType(type).catch(()=>[]);
       if(cached.length>=HERO_PRECACHE_LIMIT)continue;
       await collectHeroReserveType(type,HERO_PRECACHE_LIMIT).catch(()=>[])
@@ -5168,7 +5183,7 @@ async function closeDetail(){
   let raf=0;
   const sync=()=>{
     raf=0;
-    if(state.collectionOpen||document.body.classList.contains('srh-searching')){
+    if(state.collectionOpen||document.body.classList.contains('srh-searching')||document.body.classList.contains('srh-search-mode')){
       document.body.classList.remove('srh-topbar-hidden');
       return
     }
