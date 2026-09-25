@@ -2,7 +2,7 @@
 'use strict';
 if(window.SRHDebug)return;
 
-const VERSION='debug-supervisor-6';
+const VERSION='debug-supervisor-7';
 const STORAGE_SCHEMA=3;
 const HISTORY_SCHEMA=3;
 const CACHE_SCHEMA=2;
@@ -76,10 +76,10 @@ function requestMeta(value){
     const host=u.host;
     let kind='network.other';
     if(/proxy|cors/i.test(host+path))kind='proxy';
-    else if(/player_api\.php/i.test(path)&&/^get_(?:live|vod|series)_categories$/.test(action))kind='catalog.categories';
-    else if(/player_api\.php/i.test(path)&&/^(?:get_live_streams|get_vod_streams|get_series)$/.test(action))kind='catalog.items';
-    else if(/player_api\.php/i.test(path)&&/^(?:get_vod_info|get_series_info)$/.test(action))kind='xtream.detail';
-    else if(/player_api\.php/i.test(path))kind='xtream.api';
+    else if(/player_api(?:\.php)?/i.test(path)&&/^get_(?:live|vod|series)_categories$/.test(action))kind='catalog.categories';
+    else if(/player_api(?:\.php)?/i.test(path)&&/^(?:get_live_streams|get_vod_streams|get_series)$/.test(action))kind='catalog.items';
+    else if(/player_api(?:\.php)?/i.test(path)&&/^(?:get_vod_info|get_series_info)$/.test(action))kind='xtream.detail';
+    else if(/player_api(?:\.php)?/i.test(path))kind='xtream.api';
     else if(/get\.php/i.test(path)||/\.(?:m3u|m3u8)(?:$|\?)/i.test(path))kind='playlist';
     else if(/\/(?:movie|series|live|hls|auth)\//i.test(path)||/\.(?:ts|mp4|mkv|webm|aac|mp3)(?:$|\?)/i.test(path))kind='media';
     else if(/themoviedb/i.test(host))kind='tmdb';
@@ -306,8 +306,8 @@ function cachePolicy(url){
   const s=String(url);
   if(/image\.tmdb\.org/i.test(s))return null;
   if(/api\.themoviedb\.org|\/3\/(?:search|movie|tv|configuration)/i.test(s))return{ns:'tmdb',ttl:6*3600e3,stale:24*3600e3};
-  if(/player_api\.php/i.test(s)&&/(get_(?:live|vod|series)_(?:categories|streams)|get_series_info|get_vod_info)/i.test(s))return{ns:'catalog',ttl:30000,stale:5*60e3};
-  if(/player_api\.php|\.json(?:$|\?)/i.test(s))return{ns:'api',ttl:15000,stale:60000};
+  if(/player_api(?:\.php)?/i.test(s)&&/(get_(?:live|vod|series)_(?:categories|streams)|get_series_info|get_vod_info)/i.test(s))return{ns:'catalog',ttl:30000,stale:5*60e3};
+  if(/player_api(?:\.php)?|\.json(?:$|\?)/i.test(s))return{ns:'api',ttl:15000,stale:60000};
   return null;
 }
 function cacheKey(ns,url){return cachePrefix+ns+':v'+(cacheVersions[ns]||1)+':'+hash(url)}
@@ -355,7 +355,7 @@ function combineSignals(a,b){
   if(a.aborted||b.aborted)abort();else{a.addEventListener('abort',abort,{once:true});b.addEventListener('abort',abort,{once:true})}
   return c.signal
 }
-function isNavigationRequest(url){return /player_api\.php|api\.themoviedb\.org/i.test(String(url))}
+function isNavigationRequest(url){return /player_api(?:\.php)?|api\.themoviedb\.org/i.test(String(url))}
 function classifyIntent(target){
   const el=target?.closest?.('button,a,[role="button"],[data-type],[data-id],[data-category-id],.card,.srh25-card');
   if(!el)return'';
@@ -374,7 +374,7 @@ function serviceKey(url){
   try{
     const u=new URL(url,location.href),origin=u.origin;
     if(/themoviedb/i.test(u.hostname))return origin+'|tmdb';
-    if(/player_api\.php/i.test(u.pathname)){
+    if(/player_api(?:\.php)?/i.test(u.pathname)){
       const action=u.searchParams.get('action')||'account',category=u.searchParams.get('category_id')||'',media=u.searchParams.get('vod_id')||u.searchParams.get('series_id')||u.searchParams.get('stream_id')||'';
       if(/^get_(?:live|vod|series)_categories$/.test(action))return origin+'|xtream|categories|'+action;
       if(/^(?:get_live_streams|get_vod_streams|get_series)$/.test(action))return origin+'|xtream|catalog|'+action+'|'+(category||'*');
@@ -405,13 +405,13 @@ function canRetry(method,url){return method==='GET'&&!/\.(?:m3u8|ts|mp4|mkv|avi|
 const originalFetch=window.fetch?.bind(window);
 if(originalFetch){
   window.fetch=async function debugFetch(input,init={}){
-    const url=typeof input==='string'?input:input?.url||String(input),method=String(init.method||input?.method||'GET').toUpperCase(),probe=!!init?.srhProbe,meta=foregroundNetworkMeta(requestMeta(url)),traceId=uid(),key=serviceKey(url),c=circuit(key),policy=!safeMode&&method==='GET'?cachePolicy(url):null,bypassCircuit=!!init?.srhBypassCircuit,circuitEnabled=!probe&&!bypassCircuit&&!meta.kind.startsWith('catalog.')&&meta.kind!=='playlist'&&meta.kind!=='media';
+    const url=typeof input==='string'?input:input?.url||String(input),method=String(init.method||input?.method||'GET').toUpperCase(),probe=!!init?.srhProbe,meta=foregroundNetworkMeta(requestMeta(url)),traceId=uid(),key=serviceKey(url),c=circuit(key),policy=!safeMode&&method==='GET'?cachePolicy(url):null,bypassCircuit=!!init?.srhBypassCircuit,detailRouteCandidate=bypassCircuit&&meta.kind==='xtream.detail',circuitEnabled=!probe&&!bypassCircuit&&!meta.kind.startsWith('catalog.')&&meta.kind!=='playlist'&&meta.kind!=='media';
     const {srhProbe,srhBypassCircuit,...nativeInit}=init||{};
     const cached=policy?cache.get(policy.ns,url,{allowStale:true}):null;
     if(cached?.fresh){const hit=cache.response(cached);if(hit){log('info','cache.hit',{ns:policy.ns,traceId,...meta});return hit}}
     if(circuitEnabled&&c.openUntil>Date.now()){if(cached){const stale=cache.response(cached);if(stale){log('warn','network.circuit_cache',{key,traceId,...meta});return stale}}if(!c.reportedOpen){c.reportedOpen=true;noteFailure({...meta,layer:'fetch',message:'Circuit breaker aberto'})}log('warn','network.circuit_open',{key,traceId,...meta,until:c.openUntil});throw new Error('Serviço temporariamente em recuperação')}
     if(c.openUntil&&c.openUntil<=Date.now()){c.halfOpen=true;c.reportedOpen=false}
-    const maxAttempts=probe?1:(!safeMode&&canRetry(method,url)?2:1);
+    const maxAttempts=(probe||detailRouteCandidate)?1:(!safeMode&&canRetry(method,url)?2:1);
     let lastError,lastResponse;
     for(let attempt=0;attempt<maxAttempts;attempt++){
       const id=uid(),started=performance.now(),navSignal=isNavigationRequest(url)?navigation.signal():null,signal=combineSignals(init.signal||input?.signal,navSignal);
@@ -427,19 +427,19 @@ if(originalFetch){
           const ms=Math.round(performance.now()-started);if(!probe)noteRecovery({...meta,layer:'fetch',ms,status:res.status});if(!probe&&!meta.kind.startsWith('catalog.')&&ms>2600)noteSlow({...meta,layer:'fetch',ms,message:'Resposta lenta',details:{source:meta.url,path:meta.path,action:meta.action||''}});log('info','network.response',{id,traceId,...meta,status:res.status,attempt,ms,probe});
           return res
         }
-        if(!retryable){const ms=Math.round(performance.now()-started);if(!probe){state.network.failed++;noteFailure({...meta,layer:'fetch',message:'HTTP '+res.status,status:res.status,ms})}log('warn','network.response',{id,traceId,...meta,status:res.status,attempt,ms,probe});return res}
+        if(!retryable){const ms=Math.round(performance.now()-started);if(!probe&&!detailRouteCandidate){state.network.failed++;noteFailure({...meta,layer:'fetch',message:'HTTP '+res.status,status:res.status,ms})}log('warn','network.response',{id,traceId,...meta,status:res.status,attempt,ms,probe,detailRouteCandidate});return res}
         lastError=new Error('HTTP '+res.status);
       }catch(e){
         lastError=e;
         const ms=Math.round(performance.now()-started),reason=abortReason(signal,e),benignAbort=signal?.aborted&&isBenignTransportAbort(signal,e);
         if(benignAbort){state.network.aborted++;log('info','network.superseded',{id,traceId,...meta,attempt,ms,reason,probe});throw e}
         if(e?.name==='AbortError'||signal?.aborted){state.network.aborted++;if(!probe&&(meta.kind.startsWith('catalog.')||meta.kind==='playlist'))noteFailure({...meta,layer:'fetch',message:'Abortado/timeout: '+reason,ms});log('warn','network.aborted',{id,traceId,...meta,attempt,ms,reason,probe});throw e}
-        if(!probe)noteFailure({...meta,layer:'fetch',message:e?.message||String(e),ms});
+        if(!probe&&!detailRouteCandidate)noteFailure({...meta,layer:'fetch',message:e?.message||String(e),ms});
       }finally{requests.delete(id);patch('network',{active:requests.size,total:state.network.total,failed:state.network.failed,retries:state.network.retries,aborted:state.network.aborted})}
       if(attempt+1<maxAttempts&&shouldRetry(lastResponse,lastError)){state.network.retries++;const ms=retryDelay(lastResponse,attempt);log('warn','network.retry',{traceId,...meta,attempt:attempt+1,delayMs:ms,error:lastError?.message||'',status:lastResponse?.status||0});await sleep(ms);continue}
       break
     }
-    if(!probe)state.network.failed++;
+    if(!probe&&!detailRouteCandidate)state.network.failed++;
     if(circuitEnabled)recordCircuit(key,false,lastError||new Error('HTTP '+(lastResponse?.status||0)));
     if(!probe&&cached){const stale=cache.response(cached);if(stale){log('warn','cache.stale_fallback',{ns:policy?.ns,traceId,...meta,error:lastError?.message||''});return stale}}
     log('error','network.error',{traceId,...meta,error:lastError?.message||String(lastError||'Falha'),status:lastResponse?.status||0});
