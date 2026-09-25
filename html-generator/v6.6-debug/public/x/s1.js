@@ -2610,16 +2610,12 @@ async function closeDetail(){
     if(!card?.isConnected)return;
     const seed=await readContinueFrame(entry).catch(()=>null);
     if(applyFrameToContinueCard(card,entry,type,seed))return;
-    const framePromise=queueContinueCardFrame(()=>ensureContinueFrameOnce(entry,type)).catch(()=>null);
-    let artApplied=false;
     const cached=await readPreferredContinueArt(entry,type).catch(()=>null);
-    if(card?.isConnected&&cached)artApplied=applyPreferredArtToContinueCard(card,entry,type,cached);
-    if(!artApplied){
-      const preferred=await resolvePreferredContinueArt(entry,type).catch(()=>null);
-      if(card?.isConnected&&preferred)artApplied=applyPreferredArtToContinueCard(card,entry,type,preferred)
-    }
-    framePromise.then(payload=>{if(card?.isConnected&&applyFrameToContinueCard(card,entry,type,payload))card.dataset.srhContinueArt='exact-frame'}).catch(()=>{});
-    if(!artApplied){const payload=await framePromise;if(card?.isConnected)applyFrameToContinueCard(card,entry,type,payload)}
+    if(card?.isConnected&&cached&&applyPreferredArtToContinueCard(card,entry,type,cached))return;
+    const preferred=await resolvePreferredContinueArt(entry,type).catch(()=>null);
+    if(card?.isConnected&&preferred&&applyPreferredArtToContinueCard(card,entry,type,preferred))return;
+    const payload=await queueContinueCardFrame(()=>ensureContinueFrameOnce(entry,type)).catch(()=>null);
+    if(card?.isConnected)applyFrameToContinueCard(card,entry,type,payload)
   }
 
   function useStoredFrameImage(image,entry,payload){
