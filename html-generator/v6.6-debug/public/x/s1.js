@@ -1558,6 +1558,16 @@ function openGeneralPlayer(url,title,entry=null){
   if(detailOpen&&(inlineType==='vod'||inlineType==='live'))return srhFixInlinePlayer(url,title,entry);
   return srhFixOverlayPlayer(url,title,entry);
 }
+async function destroyCurrentPlayback(reason='navigation'){
+  const before={mediaId:String(state.currentMedia?.key||''),type:String(state.currentMedia?.type||''),inline:!!state.detailInlineVideo,series:!!state.seriesVideo,overlay:!!state.playerActive,lifecycle:String(state.playbackLifecycle||'idle'),transport:{hls:!!state.hls,mpegts:!!state.mpegtsPlayer,cleanup:!!state.mediaCleanup}};
+  playbackDebug('playback-destroy-current-begin',{reason,...before});
+  await srhFixStopInlineDetailVideo(false);
+  await stopInlineSeriesVideo();
+  await closePlayer(false);
+  if(state.hls||state.mpegtsPlayer||state.mediaCleanup)destroyHls('destroy-current-finalize');
+  if(!state.detailInlineVideo&&!state.seriesVideo&&!state.playerActive)setPlaybackLifecycle('idle',{mediaId:before.mediaId,type:before.type,reason:'destroy-current:'+reason});
+  playbackDebug('playback-destroy-current-end',{reason,mediaId:before.mediaId,inline:!!state.detailInlineVideo,series:!!state.seriesVideo,overlay:!!state.playerActive,transport:{hls:!!state.hls,mpegts:!!state.mpegtsPlayer,cleanup:!!state.mediaCleanup}});
+}
 let playbackNavigationTail=Promise.resolve(),playbackNavigationSeq=0;
 function serializePlaybackNavigation(label,task){
   const seq=++playbackNavigationSeq,queuedAt=performance.now();
@@ -1574,10 +1584,7 @@ async function openDetail(title){
   const token=++state.detailToken;
   state.seriesPlayToken++;
   state.srhTmdbSeriesId=null;
-  await serializePlaybackNavigation('open-detail',async()=>{
-    await srhFixStopInlineDetailVideo(false);
-    await closePlayer(false)
-  });
+  await serializePlaybackNavigation('open-detail',()=>destroyCurrentPlayback('open-detail'));
   if(token!==state.detailToken)return false;
   detailModal()?.classList.remove('is-series');
   el.detailHeadTitle.textContent='';
@@ -1716,16 +1723,7 @@ async function closeDetail(){
   state.detailToken++;
   state.seriesPlayToken++;
   state.srhTmdbSeriesId=null;
-  await serializePlaybackNavigation('close-detail',async()=>{await srhFixStopInlineDetailVideo(false)});
-  if(state.seriesVideo){
-    state.seriesVideo.video.onpause=null;
-    await persistProgress(state.seriesVideo.video,{frame:true});
-    const video=state.seriesVideo.video;
-    destroyHls('detail-series-close');
-    resetPlaybackVideo(video);
-    state.seriesVideo=null;
-    state.currentMedia=null;
-  }
+  await serializePlaybackNavigation('close-detail',()=>destroyCurrentPlayback('close-detail'));
   el.detailLayer.classList.add('is-hidden');
   queueMicrotask(()=>window.__srhFlushContinueRender?.());
   detailModal()?.classList.remove('is-series');
