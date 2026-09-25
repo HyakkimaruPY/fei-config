@@ -710,6 +710,7 @@ function beginPlaybackVideoTeardown(video,reason,onPersistError=null){
 }
 const playbackLaunchCounts=new Map();
 function notePlaybackLaunch(target,entry,sources,video){
+  try{window.__srhPurgeContinueFrameWorkers?.('foreground-playback')}catch{}
   const key=String(entry?.key||'tmp'),launch=(playbackLaunchCounts.get(key)||0)+1;playbackLaunchCounts.set(key,launch);
   setPlaybackLifecycle('preparing',{mediaId:key,type:entry?.type||'',reason:target});
   const row={target,key,launch,first:launch===1,type:String(entry?.type||''),position:Math.round((Number(entry?.position)||0)*1000)/1000,lastWorking:!!entry?.lastWorkingUrl,lastStartupMs:Math.round(Number(entry?.lastStartupMs)||0),formats:(sources||[]).map(mediaExtension),origins:(sources||[]).map(mediaOrigin),dependency:{hls:!!window.Hls?.isSupported,mpegts:!!window.mpegts?.createPlayer},transport:{hls:!!state.hls,mpegts:!!state.mpegtsPlayer,cleanup:!!state.mediaCleanup},video:playbackVideoSnapshot(video)};
@@ -878,7 +879,8 @@ function attachVideo(video,url,onReady,onError,onAutoplayBlocked=null){
 
 const CONTINUE_FRAME_VERSION=2;
 const continueFrameCaptureAt=new Map(),continueFrameCapturePosition=new Map();
-const continueFramePayloadMemory=new Map();
+const continueFramePayloadMemory=new Map(),continueFrameWorkerVideos=new Set();
+let continueFrameWorkerEpoch=0;
 function exactContinueFramePayload(payload){
   return !!payload&&((payload.kind==='data-url'&&payload.dataUrl)||(payload.kind==='blob'&&payload.blob instanceof Blob))
 }
@@ -1931,11 +1933,18 @@ async function closeDetail(){
     continueArtInflight.set(key,job);
     return job
   }
-  function purgeContinueFrameWorkers(){
-    document.querySelectorAll('video.continue-card__frame-video,video.srh-resume-frame-worker').forEach(video=>{
-      try{video.pause();video.removeAttribute('src');video.load();video.remove()}catch{}
-    })
+  function purgeContinueFrameWorkers(reason='manual'){
+    continueFrameWorkerEpoch++;
+    const videos=new Set([...continueFrameWorkerVideos,...document.querySelectorAll('video.continue-card__frame-video,video.srh-resume-frame-worker')]);
+    let stopped=0;
+    for(const video of videos){
+      try{video.pause();video.removeAttribute('src');video.load();video.remove();stopped++}catch{}
+      continueFrameWorkerVideos.delete(video)
+    }
+    if(stopped)playbackDebug('continue-frame-workers-purged',{reason,stopped,epoch:continueFrameWorkerEpoch});
+    return stopped
   }
+  window.__srhPurgeContinueFrameWorkers=purgeContinueFrameWorkers;
 
   function releaseContinueCardResources(){
     for(const r of continueCardResources){
@@ -2736,7 +2745,9 @@ async function closeDetail(){
 
   async function ensureContinueFrameRecord(entry,type){
     if(!entry)return null;
+    const workerEpoch=continueFrameWorkerEpoch;
     const existing=await readContinueFrame(entry);
+    if(workerEpoch!==continueFrameWorkerEpoch)return existing||null;
     if(isFrameFreshForEntry(existing,entry))return existing;
     const target=frameTargetPosition(entry,existing);
     const normalized={...entry,position:target,type:type==='series'?'series':'vod',frameKey:continueFrameKey({...entry,type:type==='series'?'series':'vod'})};
@@ -2751,13 +2762,16 @@ async function closeDetail(){
     groups.push({name:'direct-cors',sources:direct.slice(0,2),cors:true});
     if(location.protocol!=='file:'&&proxied.length)groups.push({name:'cors-proxy',sources:proxied,cors:true});
     for(const group of groups){
+      if(workerEpoch!==continueFrameWorkerEpoch)return existing||null;
       const video=document.createElement('video');
+      continueFrameWorkerVideos.add(video);
       video.className='srh-resume-frame-worker';video.dataset.srhBackgroundMedia='1';
       video.muted=true;video.playsInline=true;video.preload='metadata';
       if(group.cors)video.crossOrigin='anonymous';
       let result=null;
       try{
         result=await loadIsolatedFrame(video,group.sources,target,5600);
+        if(workerEpoch!==continueFrameWorkerEpoch)return existing||null;
         if(!result.ok)continue;
         const dataUrl=captureContinueFrameDataUrl(video);
         if(!dataUrl){
@@ -2775,6 +2789,7 @@ async function closeDetail(){
         if(ok)setTimeout(()=>{if(!state.playerActive&&state.activeType===type)renderContinue()},40);
         return payload
       }finally{
+        continueFrameWorkerVideos.delete(video);
         try{result?.hls?.destroy?.()}catch{}
         try{video.pause();video.removeAttribute('src');video.load()}catch{}
       }
@@ -2965,6 +2980,8 @@ async function closeDetail(){
   let continueOpenSeq=0;
   async function openContinueEntry(entry,type){
     if(!entry||state.srhContinueOpening)return;
+    purgeContinueFrameWorkers('continue-open');
+    releaseContinueCardResources();
     const seq=++continueOpenSeq;
     state.srhContinueOpening=true;
     state.srhOpeningContinue=true;
