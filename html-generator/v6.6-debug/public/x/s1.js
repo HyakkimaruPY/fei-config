@@ -4251,6 +4251,9 @@ async function closeDetail(){
       if(fav)group.insertBefore(b,fav);else group.appendChild(b);
       if(type==='series'&&trash)group.appendChild(trash);
       b.onclick=e=>{e.stopPropagation();toggleSimilar(type,item,b)};
+      fav?.addEventListener('click',closeSimilar,{capture:true});
+      trash?.addEventListener('click',closeSimilar,{capture:true});
+      el.detailBody.querySelector('#seasonTrigger')?.addEventListener('click',closeSimilar,{capture:true})
     }
     b._srhRows=completeSimilarRows(rows);
     if(!b._srhRows.length){b.remove();closeSimilar();return null}
