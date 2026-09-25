@@ -515,73 +515,115 @@ function evictRail(section){if(!section||section.dataset.loaded!=='1'||state.col
 function renderActiveType(){clearTimeout(state.searchTimer);document.body.classList.remove('srh-searching');destroyVirtualizers();state.searchDataset=null;state.searchType=null;const token=++state.renderToken;el.search.value='';el.search.placeholder='Buscar em '+TYPE[state.activeType].label.toLocaleLowerCase('pt-BR')+'…';if(state.activeType==='series'&&seriesProviderGuardBlocked()){renderSeriesProviderGuardBlocked();return}const targets=targetsFor(state.activeType);el.content.innerHTML=targets.map((t,i)=>`<section class="rail-section" data-target="${i}"><header class="rail-head"><h2 class="rail-title">${escapeHtml(stripEmoji(t.name))}</h2><button class="rail-all" data-all>Ver todos</button></header><div class="rail-body">${mediaLoaderMarkup('Preparando')}</div></section>`).join('');el.homeStatus.textContent=targets.length+' categoria(s) em '+TYPE[state.activeType].label+'.';state.categoryObserver=new IntersectionObserver(entries=>entries.forEach(e=>{if(!e.isIntersecting)return;const section=e.target;if(section.dataset.loaded)return;section.dataset.loaded='1';state.categoryObserver.unobserve(section);renderRail(section,targets[Number(section.dataset.target)],token)}),{rootMargin:'260px 0px'});state.retentionObserver=new IntersectionObserver(entries=>entries.forEach(e=>{const s=e.target;clearTimeout(s._evictTimer);if(!e.isIntersecting&&s.dataset.loaded==='1')s._evictTimer=setTimeout(()=>evictRail(s),30000)}),{rootMargin:'900px 0px'});el.content.querySelectorAll('.rail-section').forEach(s=>{state.categoryObserver.observe(s);state.retentionObserver.observe(s)});renderContinue();renderTabs()}
 function switchType(type){if(!TYPE[type]||type===state.activeType)return;closeDetail();closePlayer(false);closeCollection(false);state.searchDataset=null;state.searchType=null;el.search.value='';window.scrollTo(0,0);document.documentElement.scrollTop=0;document.body.scrollTop=0;state.activeType=type;renderActiveType();requestAnimationFrame(()=>{window.scrollTo(0,0);document.documentElement.scrollTop=0;document.body.scrollTop=0})}
 function normalizeSearch(value){return String(value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('pt-BR').replace(/\s+/g,' ').trim()}
-async function getSearchDataset(type,token){
+function ensureSearchStage(){
+  let stage=document.getElementById('srhSearchStage');
+  if(stage)return stage;
+  stage=document.createElement('section');stage.id='srhSearchStage';stage.className='srh-search-stage';stage.setAttribute('aria-hidden','true');
+  stage.innerHTML='<div class="srh-search-stage__hero" aria-hidden="true"><div class="srh-search-stage__hero-brand"><img class="srh-search-stage__hero-logo is-hidden" alt=""><span class="srh-search-stage__hero-fallback is-hidden"></span></div></div><div class="srh-search-stage__veil" aria-hidden="true"></div><div class="srh-search-stage__body"><section class="continue srh-search-continue is-hidden"><h2 class="section-title">Continuar assistindo</h2><div class="continue-viewport"><div class="continue-row" data-search-continue-row></div></div></section><div class="srh-search-stage__status is-hidden" role="status"></div><div class="srh-search-stage__results"></div></div>';
+  document.body.appendChild(stage);return stage
+}
+function searchStageParts(){
+  const stage=ensureSearchStage();
+  return{stage,hero:stage.querySelector('.srh-search-stage__hero'),heroLogo:stage.querySelector('.srh-search-stage__hero-logo'),heroFallback:stage.querySelector('.srh-search-stage__hero-fallback'),continueSection:stage.querySelector('.srh-search-continue'),continueRow:stage.querySelector('[data-search-continue-row]'),status:stage.querySelector('.srh-search-stage__status'),results:stage.querySelector('.srh-search-stage__results')}
+}
+function captureSearchHero(){
+  const p=searchStageParts(),hero=document.querySelector('.stream-hero'),active=hero?.querySelector('.stream-hero__bg.is-active'),brand=hero?.querySelector('.stream-hero__brand'),logo=brand?.querySelector('.stream-hero__logo'),fallback=brand?.querySelector('.stream-hero__brand-fallback');
+  let bg=active?.style?.backgroundImage||'';if(!bg||bg==='none'){try{bg=getComputedStyle(active).backgroundImage}catch{}}
+  p.hero.style.backgroundImage=bg&&bg!=='none'?bg:'none';
+  p.hero.style.backgroundPosition=active?.style?.backgroundPosition||'center center';p.hero.style.backgroundSize='cover';
+  const logoSrc=logo&&!logo.classList.contains('is-hidden')?String(logo.currentSrc||logo.src||''):'',fallbackText=fallback&&!fallback.classList.contains('is-hidden')?String(fallback.textContent||'').trim():'';
+  if(logoSrc){p.heroLogo.src=logoSrc;p.heroLogo.classList.remove('is-hidden');p.heroFallback.classList.add('is-hidden');p.heroFallback.textContent=''}
+  else if(fallbackText){p.heroLogo.removeAttribute('src');p.heroLogo.classList.add('is-hidden');p.heroFallback.textContent=fallbackText;p.heroFallback.classList.remove('is-hidden')}
+  else{p.heroLogo.removeAttribute('src');p.heroLogo.classList.add('is-hidden');p.heroFallback.textContent='';p.heroFallback.classList.add('is-hidden')}
+  p.stage.dataset.srhHeroCaptured=bg&&bg!=='none'?'1':'0'
+}
+function clearSearchGrid(){
+  try{state.searchGridInstance?.destroy?.()}catch{}
+  state.searchGridInstance=null;
+  const p=searchStageParts();p.results.innerHTML='';p.status.innerHTML='';p.status.classList.add('is-hidden')
+}
+function clearSearchContinue(){
+  const p=searchStageParts();p.continueRow.innerHTML='';p.continueSection.classList.add('is-hidden')
+}
+function setSearchStatus(message,buttonText='',handler=null){
+  const p=searchStageParts();
+  if(!message){p.status.innerHTML='';p.status.classList.add('is-hidden');return}
+  p.status.innerHTML='<span>'+escapeHtml(message)+'</span>'+(buttonText?'<button type="button">'+escapeHtml(buttonText)+'</button>':'');p.status.classList.remove('is-hidden');
+  const button=p.status.querySelector('button');if(button&&handler)button.onclick=handler
+}
+function renderFilteredSearchContinue(query,type){
+  const p=searchStageParts();
+  if(type==='live'||!query||typeof window.__srhRenderSearchContinue!=='function'){clearSearchContinue();return 0}
+  return Number(window.__srhRenderSearchContinue({section:p.continueSection,row:p.continueRow,type,query,onBeforeOpen:()=>closeSearchMode({selection:true})})||0)
+}
+function setSearchStageOpen(open){
+  const p=searchStageParts();p.stage.classList.toggle('is-open',!!open);p.stage.setAttribute('aria-hidden',open?'false':'true');
+  if(open){p.stage.scrollTop=0;const body=p.stage.querySelector('.srh-search-stage__body');if(body)body.scrollTop=0}
+}
+function currentPageScroll(){return Math.max(0,Number(window.scrollY||document.scrollingElement?.scrollTop||document.documentElement.scrollTop||document.body.scrollTop||0))}
+function focusSearchWithoutScroll(){try{el.search.focus({preventScroll:true})}catch{try{el.search.focus()}catch{}}}
+async function getSearchDataset(type,homeToken){
   if(state.searchDataset&&state.searchType===type)return{items:state.searchDataset,failed:0};
-  const targets=targetsFor(type);
-  const results=await Promise.allSettled(targets.map(target=>loadTargetItems(target,token,{priority:120,timeoutMs:6200})));
+  const targets=targetsFor(type),results=await Promise.allSettled(targets.map(target=>loadTargetItems(target,homeToken,{priority:120,timeoutMs:6200})));
   const failed=results.filter(result=>result.status==='rejected').length;
   let items=results.filter(result=>result.status==='fulfilled').flatMap(result=>result.value);
   items=type==='live'?groupChannels(items):uniqueById(items,type);
-  if(token===state.renderToken&&type===state.activeType&&!failed){state.searchDataset=items;state.searchType=type}
-  return{items,failed};
+  if(homeToken===state.renderToken&&type===state.activeType&&!failed&&document.body.classList.contains('srh-search-mode')){state.searchDataset=items;state.searchType=type}
+  return{items,failed}
+}
+function openSearchResult(item,type){
+  closeSearchMode({selection:true});
+  openItem(item,type)
 }
 async function runSearch(){
-  const q=normalizeSearch(el.search.value),type=state.activeType,token=++state.renderToken;
-  destroyVirtualizers();
-  if(type==='series'&&seriesProviderGuardBlocked()){renderSeriesProviderGuardBlocked();return}
-  if(!q){const restoreY=Number(state.searchOriginScrollY)||0,changed=!!state.searchSessionReplacedContent;renderActiveType();state.searchSessionReplacedContent=false;if(changed)restorePageScroll(restoreY);return}
-  state.searchSessionReplacedContent=true;
+  const q=normalizeSearch(el.search.value),type=state.activeType,seq=(Number(state.searchQueryToken)||0)+1,homeToken=state.renderToken;state.searchQueryToken=seq;
+  clearSearchGrid();
+  if(!document.body.classList.contains('srh-search-mode'))return;
+  if(type==='series'&&seriesProviderGuardBlocked()){clearSearchContinue();setSearchStatus('As séries estão temporariamente indisponíveis.');return}
+  if(!q){document.body.classList.remove('srh-searching');clearSearchContinue();setSearchStatus('');return}
   document.body.classList.add('srh-searching');
-  el.homeStatus.textContent='Buscando em '+TYPE[type].label+'…';
-  el.content.innerHTML=mediaLoaderMarkup('Buscando conteúdo');
+  renderFilteredSearchContinue(q,type);
+  setSearchStatus('Buscando em '+TYPE[type].label+'…');
   try{
-    const result=await getSearchDataset(type,token);
-    if(token!==state.renderToken||type!==state.activeType)return;
-    const items=result.items.filter(item=>normalizeSearch(cardDataName(item,type)).includes(q));
-    el.homeStatus.textContent=items.length+' resultado(s) em '+TYPE[type].label+'.'+(result.failed?' Consulta incompleta: '+result.failed+' categoria(s) indisponível(is).':'');
-    const message=result.failed?'Parte do catálogo não carregou. Você pode tentar novamente.':!items.length?'Nenhum título encontrado. Tente outro nome.':'';
-    el.content.innerHTML=(message?'<div class="rail-load-error" role="status"><span>'+message+'</span><button type="button" data-search-retry>'+(result.failed?'Tentar novamente':'Limpar busca')+'</button></div>':'')+(items.length?'<section class="search-results"><div class="grid-scroller" id="searchGrid"><div class="grid-spacer" id="searchSpacer"></div></div></section>':'');
-    const retry=el.content.querySelector('[data-search-retry]');
-    if(retry)retry.onclick=()=>{
-      if(token!==state.renderToken)return;
-      if(result.failed){state.searchDataset=null;runSearch()}
-      else{el.search.value='';renderActiveType();el.search.focus()}
-    };
-    if(!items.length)return;
-    const sc=$('#searchGrid'),sp=$('#searchSpacer');
-    sc.style.height='calc(100dvh - 145px)';sc.style.overflowY='auto';sc.style.overflowX='hidden';
-    state.gridInstance=new GridVirtualizer(sc,sp,type,items,openItem);
+    const result=await getSearchDataset(type,homeToken);
+    if(seq!==state.searchQueryToken||homeToken!==state.renderToken||type!==state.activeType||!document.body.classList.contains('srh-search-mode'))return;
+    const items=result.items.filter(item=>normalizeSearch(cardDataName(item,type)).includes(q)),p=searchStageParts();
+    if(result.failed)setSearchStatus('Parte do catálogo não carregou. '+result.failed+' categoria(s) indisponível(is).','Tentar novamente',()=>{state.searchDataset=null;void runSearch()});
+    else if(!items.length)setSearchStatus('Nenhum título encontrado. Tente outro nome.');
+    else setSearchStatus('');
+    if(!items.length){p.results.innerHTML='';return}
+    p.results.innerHTML='<section class="search-results srh-search-results"><div class="grid-scroller" data-search-grid><div class="grid-spacer" data-search-spacer></div></div></section>';
+    const sc=p.results.querySelector('[data-search-grid]'),sp=p.results.querySelector('[data-search-spacer]');
+    state.searchGridInstance=new GridVirtualizer(sc,sp,type,items,(itemValue,itemType)=>openSearchResult(itemValue,itemType))
   }catch(error){
-    if(token!==state.renderToken||type!==state.activeType)return;
-    el.content.innerHTML='<div class="rail-load-error" role="status"><span>Não foi possível concluir a busca.</span><button type="button">Tentar novamente</button></div>';
-    el.content.querySelector('button').onclick=()=>{if(token===state.renderToken)runSearch()};
+    if(seq!==state.searchQueryToken||type!==state.activeType||!document.body.classList.contains('srh-search-mode'))return;
+    setSearchStatus('Não foi possível concluir a busca.','Tentar novamente',()=>void runSearch())
   }
 }
-el.search.oninput=()=>{
-  clearTimeout(state.searchTimer);
-  const token=++state.renderToken;
-  state.searchTimer=setTimeout(()=>{if(token===state.renderToken)runSearch()},220);
-};
-function currentPageScroll(){return Math.max(0,Number(window.scrollY||document.scrollingElement?.scrollTop||document.documentElement.scrollTop||document.body.scrollTop||0))}
-function restorePageScroll(top){const y=Math.max(0,Number(top)||0);const apply=()=>{try{window.scrollTo({top:y,left:0,behavior:'auto'})}catch{window.scrollTo(0,y)}if(document.scrollingElement)document.scrollingElement.scrollTop=y;document.documentElement.scrollTop=y;document.body.scrollTop=y};requestAnimationFrame(()=>{apply();setTimeout(apply,0)})}
-function focusSearchWithoutScroll(){try{el.search.focus({preventScroll:true})}catch{try{el.search.focus()}catch{}}}
-function toggleSearch(){
-  const opening=!el.searchWrap.classList.contains('is-open');
-  el.searchWrap.classList.toggle('is-open',opening);
-  el.searchButton.classList.toggle('is-active',opening);
-  if(opening){
-    state.searchOriginScrollY=currentPageScroll();
-    state.searchOriginType=state.activeType;
-    state.searchSessionReplacedContent=false;
-    el.search.placeholder='Buscar em '+TYPE[state.activeType].label.toLocaleLowerCase('pt-BR')+'…';
-    setTimeout(focusSearchWithoutScroll,20);
-    return
-  }
-  const restoreY=Number(state.searchOriginScrollY)||0,changed=!!state.searchSessionReplacedContent;
-  el.search.value='';state.searchDataset=null;state.searchType=null;
-  if(changed){renderActiveType();restorePageScroll(restoreY)}
-  state.searchOriginScrollY=null;state.searchOriginType=null;state.searchSessionReplacedContent=false
+function closeSearchMode(opts={}){
+  clearTimeout(state.searchTimer);state.searchQueryToken=(Number(state.searchQueryToken)||0)+1;
+  clearSearchGrid();clearSearchContinue();
+  state.searchDataset=null;state.searchType=null;
+  document.body.classList.remove('srh-search-mode','srh-searching');
+  el.searchWrap.classList.remove('is-open');el.searchButton.classList.remove('is-active');
+  el.search.value='';setSearchStageOpen(false);
+  try{el.search.blur()}catch{}
+  window.dispatchEvent(new CustomEvent('srh:search-mode',{detail:{active:false,selection:!!opts.selection}}));
+  state.searchOriginScrollY=null;state.searchOriginType=null
 }
+function openSearchMode(){
+  if(document.body.classList.contains('srh-search-mode'))return;
+  state.searchOriginScrollY=currentPageScroll();state.searchOriginType=state.activeType;state.searchQueryToken=(Number(state.searchQueryToken)||0)+1;
+  captureSearchHero();clearSearchGrid();clearSearchContinue();setSearchStageOpen(true);
+  document.body.classList.add('srh-search-mode');document.body.classList.remove('srh-topbar-hidden');
+  el.searchWrap.classList.add('is-open');el.searchButton.classList.add('is-active');
+  el.search.placeholder='Buscar em '+TYPE[state.activeType].label.toLocaleLowerCase('pt-BR')+'…';
+  window.dispatchEvent(new CustomEvent('srh:search-mode',{detail:{active:true,type:state.activeType}}));
+  setTimeout(focusSearchWithoutScroll,20)
+}
+function toggleSearch(){document.body.classList.contains('srh-search-mode')?closeSearchMode():openSearchMode()}
+el.search.oninput=()=>{clearTimeout(state.searchTimer);state.searchTimer=setTimeout(()=>void runSearch(),220)};
+el.search.onsearch=()=>{if(!el.search.value&&document.body.classList.contains('srh-search-mode'))closeSearchMode();else void runSearch()};
 el.searchButton.onclick=toggleSearch;
 const HLS_CDN='https://cdn.jsdelivr.net/npm/hls.js@1.7.3/dist/hls.min.js';
 const MPEGTS_CDN='https://cdn.jsdelivr.net/npm/mpegts.js@1.8.2/dist/mpegts.min.js';
