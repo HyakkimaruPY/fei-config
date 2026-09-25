@@ -2,7 +2,7 @@
 'use strict';
 if(window.SRHDebug)return;
 
-const VERSION='debug-supervisor-5';
+const VERSION='debug-supervisor-6';
 const STORAGE_SCHEMA=3;
 const HISTORY_SCHEMA=3;
 const CACHE_SCHEMA=2;
@@ -38,7 +38,7 @@ const state={
   cache:{schema:CACHE_SCHEMA,hits:0,misses:0,stale:0},
   network:{active:0,total:0,failed:0,retries:0,aborted:0},
   incidents:{active:0,total:0,recovered:0,slow:0,last:null},
-  performance:{longTasks:0,longestMs:0,slowResources:0,shorts:{enabled:false,interactionCount:0,slowInteractions:0,worstInteractionMs:0,renderMutations:0,renderBatches:0,largestMutationBatch:0,scrollBursts:0,jankBursts:0,worstFrameMs:0,missedFrames:0,layoutShifts:0,maxLayoutShift:0}},
+  performance:{longTasks:0,longestMs:0,slowResources:0,mainThreadAttribution:{supported:false,samples:[]},media4k:{enabled:true,samples:0,worstDropPct:0,maxDroppedDelta:0,minBufferAhead:null,latest:null,capability:null},shorts:{enabled:false,interactionCount:0,slowInteractions:0,worstInteractionMs:0,renderMutations:0,renderBatches:0,largestMutationBatch:0,scrollBursts:0,jankBursts:0,worstFrameMs:0,missedFrames:0,layoutShifts:0,maxLayoutShift:0}},
   regression:{status:'idle',last:null},
   health:{},
   features:{safeMode}
@@ -189,7 +189,7 @@ function issueExport(){
     layer:x.layer||'',
     severity:x.status==='active'?'error':x.type==='slow'?'slow':'recovered',details:sanitize(x.details||{})
   }));
-  const recommendation=sanitize(get('recommendation')||{}),performance=shortsPerformanceExport();
+  const recommendation=sanitize(get('recommendation')||{}),performance=debugPerformanceExport();
   return{sessionId:SESSION_ID,build:clone(window.__SRH_DEBUG_BUILD__||{}),recommendation,performance,count:rows.length,summary:{active:rows.filter(x=>x.severity==='error').length,slow:rows.filter(x=>x.severity==='slow').length,recovered:rows.filter(x=>x.severity==='recovered').length},issues:rows}
 }
 function sanitize(v,depth=0){if(depth>5)return'[max-depth]';if(v==null||typeof v==='number'||typeof v==='boolean')return v;if(typeof v==='string')return safeText(v).slice(0,1800);if(Array.isArray(v))return v.slice(0,100).map(x=>sanitize(x,depth+1));if(typeof v==='object'){const out={};for(const [k,x] of Object.entries(v)){if(/pass|token|secret|cookie|authorization|credential/i.test(k))out[k]='[redacted]';else out[k]=sanitize(x,depth+1)}return out}return safeText(v)}
@@ -482,6 +482,49 @@ const player={
   },
   end(reason='close',clearSource=false){if(this.active)log('info','player.end',{id:this.active.id,reason,durationMs:Date.now()-this.active.startedAt});if(clearSource&&this.media&&!this.media.isConnected){try{this.media.removeAttribute('src');this.media.load()}catch{}}this.active=null;set('player',{status:'idle',session:null,reason})}
 };
+const standardMediaDiagnostics={samples:new WeakMap(),pipelineByMedia:new Map(),capabilitySeen:new Set(),timer:0};
+function mediaBufferAhead(video){
+  try{const t=Number(video.currentTime)||0;for(let i=0;i<video.buffered.length;i++)if(t>=video.buffered.start(i)-.05&&t<=video.buffered.end(i)+.05)return Math.max(0,video.buffered.end(i)-t)}catch{}
+  return 0
+}
+function mediaQualityCounters(video){
+  try{const q=video.getVideoPlaybackQuality?.();if(q)return{decoded:Number(q.totalVideoFrames)||0,dropped:Number(q.droppedVideoFrames)||0,corrupted:Number(q.corruptedVideoFrames)||0}}catch{}
+  return{decoded:Number(video.webkitDecodedFrameCount)||0,dropped:Number(video.webkitDroppedFrameCount)||0,corrupted:0}
+}
+function mediaPipelineKey(detail){return String(detail?.mediaId||'')||String(player.media?.dataset?.srhMediaId||'')||'active'}
+async function probe4kCapability(detail){
+  const codec=String(detail?.videoCodec||'').trim(),width=Number(detail?.width)||0,height=Number(detail?.height)||0,bitrate=Math.max(1,Number(detail?.bitrate)||1),framerate=Math.max(1,Number(detail?.frameRate)||30);
+  if(!navigator.mediaCapabilities?.decodingInfo||(!codec&&!(width>=3000||height>=1700)))return;
+  const key=[codec,width,height,Math.round(bitrate/100000),framerate].join('|');if(standardMediaDiagnostics.capabilitySeen.has(key))return;standardMediaDiagnostics.capabilitySeen.add(key);
+  let contentType='video/mp4';if(codec)contentType+='; codecs="'+codec.replace(/"/g,'')+'"';
+  try{
+    const result=await navigator.mediaCapabilities.decodingInfo({type:'media-source',video:{contentType,width:Math.max(1,width),height:Math.max(1,height),bitrate,framerate}});
+    const capability={codec,width,height,bitrate,framerate,supported:!!result.supported,smooth:!!result.smooth,powerEfficient:!!result.powerEfficient,hardwareAccelerationHint:result.powerEfficient?'power-efficient':'not-confirmed',decoderExposure:'web-platform-does-not-expose-selected-decoder'};
+    patch('performance',{media4k:{...(get('performance.media4k')||{}),capability}});log('info','media.4k_capability',capability)
+  }catch(e){log('info','media.4k_capability_unavailable',{codec,width,height,message:e?.message||String(e)})}
+}
+function installMediaPipelineDiagnostics(){
+  if(window.__SRH_MEDIA_DIAGNOSTICS_V1__)return;window.__SRH_MEDIA_DIAGNOSTICS_V1__=true;
+  window.addEventListener('srh25:media-pipeline',e=>{
+    const d=sanitize(e.detail||{}),key=mediaPipelineKey(d);standardMediaDiagnostics.pipelineByMedia.set(key,d);if(standardMediaDiagnostics.pipelineByMedia.size>20)standardMediaDiagnostics.pipelineByMedia.delete(standardMediaDiagnostics.pipelineByMedia.keys().next().value);
+    patch('player',{pipeline:d});log('info','media.pipeline',d);
+    if((Number(d.height)>=1700||Number(d.width)>=3000)&&String(d.phase||'')==='level')void probe4kCapability(d)
+  },{passive:true});
+  standardMediaDiagnostics.timer=setInterval(()=>{
+    const video=player.media;if(!(video instanceof HTMLVideoElement)||video.paused||video.ended||document.hidden||!video.isConnected)return;
+    const width=Number(video.videoWidth)||0,height=Number(video.videoHeight)||0;if(width<3000&&height<1700)return;
+    const nowMs=performance.now(),q=mediaQualityCounters(video),prev=standardMediaDiagnostics.samples.get(video)||{at:nowMs,decoded:q.decoded,dropped:q.dropped,heap:0};
+    const elapsed=Math.max(.25,(nowMs-prev.at)/1000),decodedDelta=Math.max(0,q.decoded-prev.decoded),droppedDelta=Math.max(0,q.dropped-prev.dropped),frameTotal=decodedDelta+droppedDelta,dropPct=frameTotal?droppedDelta/frameTotal*100:0,bufferAhead=mediaBufferAhead(video);
+    const mediaId=String(video.dataset?.srhMediaId||''),pipeline=standardMediaDiagnostics.pipelineByMedia.get(mediaId)||standardMediaDiagnostics.pipelineByMedia.get('active')||{};
+    const heap=Number(performance.memory?.usedJSHeapSize)||0,heapDropMB=prev.heap&&heap<prev.heap?Math.round((prev.heap-heap)/104857.6)/10:0;
+    const sample={time:now(),mediaId,sourceKind:String(video.dataset?.srhSourceKind||''),width,height,currentTime:Number((Number(video.currentTime)||0).toFixed(2)),readyState:video.readyState,networkState:video.networkState,bufferAhead:Number(bufferAhead.toFixed(2)),decoded:q.decoded,dropped:q.dropped,corrupted:q.corrupted,decodedDelta,droppedDelta,dropPct:Number(dropPct.toFixed(2)),decodedFps:Number((decodedDelta/elapsed).toFixed(1)),bitrate:Number(pipeline.bitrate)||0,bandwidthEstimate:Number(pipeline.bandwidthEstimate)||0,level:Number.isFinite(Number(pipeline.level))?Number(pipeline.level):-1,codec:String(pipeline.videoCodec||''),manifestFps:Number(pipeline.frameRate)||0,fragmentLoadMs:Number(pipeline.fragmentLoadMs)||0,appendBufferMs:Number(pipeline.appendBufferMs)||0,heapUsedMB:heap?Math.round(heap/104857.6)/10:0,heapDropMB,gcHint:heapDropMB>=12};
+    standardMediaDiagnostics.samples.set(video,{at:nowMs,decoded:q.decoded,dropped:q.dropped,heap});
+    const p=get('performance.media4k')||{},samples=(Number(p.samples)||0)+1,worst=Math.max(Number(p.worstDropPct)||0,sample.dropPct),maxDrop=Math.max(Number(p.maxDroppedDelta)||0,droppedDelta),minBuffer=p.minBufferAhead==null?sample.bufferAhead:Math.min(Number(p.minBufferAhead)||0,sample.bufferAhead);
+    patch('performance',{media4k:{...p,enabled:true,samples,worstDropPct:worst,maxDroppedDelta:maxDrop,minBufferAhead:minBuffer,latest:sample}});
+    log(droppedDelta||bufferAhead<1.2?'warn':'info','media.4k_sample',sample);
+    if(droppedDelta>=5||dropPct>=3)noteSlow({kind:'media.frames',layer:'media',mediaId,origin:(()=>{try{return new URL(video.currentSrc||video.src||'',location.href).origin}catch{return'media'}})(),ms:Math.round(elapsed*1000),message:'Frames descartados durante reprodução 4K',details:sample})
+  },4000)
+}
 function observeVideos(){
   const traces=new WeakMap();
   const trace=m=>{let x=traces.get(m);if(!x){x={loadAt:0,metadataMs:0,metadataReady:false,preMetadataWaitMs:0,firstPlaying:false,waitingAt:0,startupBufferMs:0,stallTimer:0,origin:'',mediaId:'',sourceKind:'',retrying:false};traces.set(m,x)}return x};
@@ -765,6 +808,19 @@ function shortsPerformanceExport(){
   const summary=sanitize(get('performance.shorts')||{});
   return{...summary,recentInteractions:shortsPerfRuntime.samples.slice(-12).map(x=>sanitize(x))}
 }
+function standardPerformanceExport(){
+  const p=get('performance')||{};
+  return{
+    enabled:true,
+    interactionCount:0,slowInteractions:0,worstInteractionMs:0,
+    renderMutations:0,renderBatches:0,largestMutationBatch:0,
+    scrollBursts:0,jankBursts:0,worstFrameMs:0,missedFrames:0,layoutShifts:0,maxLayoutShift:0,recentInteractions:[],
+    longTasks:Number(p.longTasks)||0,longestMainThreadMs:Number(p.longestMs)||0,slowResources:Number(p.slowResources)||0,
+    mainThreadAttribution:sanitize(p.mainThreadAttribution||{}),
+    media4k:sanitize(p.media4k||{})
+  }
+}
+function debugPerformanceExport(){return shortsPerfMode()?shortsPerformanceExport():standardPerformanceExport()}
 function frameProbe(ms=1200){
   if(!shortsPerfMode()||typeof requestAnimationFrame!=='function')return;
   const now=perfClock();shortsPerfRuntime.frameUntil=Math.max(shortsPerfRuntime.frameUntil,now+ms);
@@ -895,6 +951,28 @@ function installPerformanceTracing(){
     longObserver.observe({entryTypes:['longtask']})
   }catch{}
   try{
+    const supported=Array.isArray(PerformanceObserver.supportedEntryTypes)&&PerformanceObserver.supportedEntryTypes.includes('long-animation-frame');
+    patch('performance',{mainThreadAttribution:{supported,samples:[]}});
+    if(supported){
+      const loafObserver=new PerformanceObserver(list=>{for(const e of list.getEntries()){
+        if(overlapsDebugUiWork(e.startTime,e.duration)||Number(e.duration)<100)continue;
+        const scripts=Array.from(e.scripts||[]).map(x=>({
+          duration:Math.round(Number(x.duration)||0),
+          forcedStyleAndLayoutMs:Math.round(Number(x.forcedStyleAndLayoutDuration)||0),
+          pauseMs:Math.round(Number(x.pauseDuration)||0),
+          functionName:safeText(x.sourceFunctionName||x.invoker||'').slice(0,120),
+          source:safeUrl(x.sourceURL||'')
+        })).sort((a,b)=>b.duration-a.duration).slice(0,5);
+        const sample={time:now(),start:Math.round(Number(e.startTime)||0),duration:Math.round(Number(e.duration)||0),blockingDuration:Math.round(Number(e.blockingDuration)||0),scripts};
+        const current=get('performance.mainThreadAttribution')||{},samples=Array.isArray(current.samples)?current.samples.slice(-7):[];samples.push(sample);
+        patch('performance',{mainThreadAttribution:{supported:true,samples}});
+        log('info','performance.main_thread_attribution',sample);
+        if(sample.duration>=180)noteSlow({kind:'main-thread.attribution',layer:'performance',origin:'page',ms:sample.duration,message:'Bloqueio da main thread com atribuição de script',details:sample})
+      }});
+      loafObserver.observe({type:'long-animation-frame',buffered:true})
+    }
+  }catch{}
+  try{
     const resourceObserver=new PerformanceObserver(list=>{for(const e of list.getEntries()){if(e.duration<2500)continue;const meta=requestMeta(e.name),initiator=String(e.initiatorType||'').toLowerCase();if(meta.kind.startsWith('catalog.')||meta.kind==='xtream.api'||meta.kind==='proxy'||meta.kind==='media'||initiator==='video'||initiator==='audio'||initiator==='img')continue;state.performance.slowResources++;patch('performance',{slowResources:state.performance.slowResources});noteSlow({...meta,layer:'resource',ms:Math.round(e.duration),message:'Recurso demorou para carregar',details:{initiatorType:e.initiatorType,transferSize:e.transferSize||0,source:meta.url,path:meta.path,action:meta.action||''}})}});
     resourceObserver.observe({entryTypes:['resource']})
   }catch{}
@@ -933,6 +1011,7 @@ function init(){
   storage.migrate();
   navigation.begin('initial');
   observeVideos();
+  installMediaPipelineDiagnostics();
   panel();
   regression.installGeneratorGuard();
   healthCheck();
