@@ -561,7 +561,26 @@ el.search.oninput=()=>{
   const token=++state.renderToken;
   state.searchTimer=setTimeout(()=>{if(token===state.renderToken)runSearch()},220);
 };
-function toggleSearch(){const opening=!el.searchWrap.classList.contains('is-open');el.searchWrap.classList.toggle('is-open',opening);el.searchButton.classList.toggle('is-active',opening);if(opening){el.search.placeholder='Buscar em '+TYPE[state.activeType].label.toLocaleLowerCase('pt-BR')+'…';setTimeout(()=>el.search.focus(),20)}else{el.search.value='';state.searchDataset=null;state.searchType=null;renderActiveType()}}
+function currentPageScroll(){return Math.max(0,Number(window.scrollY||document.scrollingElement?.scrollTop||document.documentElement.scrollTop||document.body.scrollTop||0))}
+function restorePageScroll(top){const y=Math.max(0,Number(top)||0);const apply=()=>{try{window.scrollTo({top:y,left:0,behavior:'auto'})}catch{window.scrollTo(0,y)}if(document.scrollingElement)document.scrollingElement.scrollTop=y;document.documentElement.scrollTop=y;document.body.scrollTop=y};requestAnimationFrame(()=>{apply();setTimeout(apply,0)})}
+function focusSearchWithoutScroll(){try{el.search.focus({preventScroll:true})}catch{try{el.search.focus()}catch{}}}
+function toggleSearch(){
+  const opening=!el.searchWrap.classList.contains('is-open');
+  el.searchWrap.classList.toggle('is-open',opening);
+  el.searchButton.classList.toggle('is-active',opening);
+  if(opening){
+    state.searchOriginScrollY=currentPageScroll();
+    state.searchOriginType=state.activeType;
+    el.search.placeholder='Buscar em '+TYPE[state.activeType].label.toLocaleLowerCase('pt-BR')+'…';
+    setTimeout(focusSearchWithoutScroll,20);
+    return
+  }
+  const restoreY=Number(state.searchOriginScrollY)||0,hadSearch=document.body.classList.contains('srh-searching')||!!normalizeSearch(el.search.value);
+  el.search.value='';state.searchDataset=null;state.searchType=null;
+  if(hadSearch){renderActiveType();restorePageScroll(restoreY)}
+  else restorePageScroll(restoreY);
+  state.searchOriginScrollY=null;state.searchOriginType=null
+}
 el.searchButton.onclick=toggleSearch;
 const HLS_CDN='https://cdn.jsdelivr.net/npm/hls.js@1.7.3/dist/hls.min.js';
 const MPEGTS_CDN='https://cdn.jsdelivr.net/npm/mpegts.js@1.8.2/dist/mpegts.min.js';
