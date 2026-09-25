@@ -135,6 +135,42 @@ function isBrandingImage(img){return !!img?.matches?.('.stream-hero__logo,.srh-p
 function isLiveLogoImage(img){return !!img?.matches?.('[data-srh-live-logo],.live-channel-logo,.channel-logo')}
 const LIVE_LOGO_PLACEHOLDER='data:image/svg+xml;charset=utf-8,'+encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180"><rect width="320" height="180" rx="18" fill="#11151a"/><rect x="83" y="46" width="154" height="88" rx="12" fill="none" stroke="#8d96a1" stroke-width="7"/><path d="M132 151h56M142 134l-8 17M178 134l8 17" stroke="#8d96a1" stroke-width="7" stroke-linecap="round"/><circle cx="160" cy="90" r="18" fill="none" stroke="#aab2bc" stroke-width="7"/></svg>');
 const liveLogoProbeSeen=new Set();
+const liveLogoDiagnosticCache=new Map(),liveLogoDiagnosticInflight=new Map();
+function liveLogoUrlMeta(src){
+  try{const u=new URL(String(src||''),location.href),ext=(u.pathname.match(/\.([a-z0-9]{2,8})$/i)||[])[1]?.toLowerCase()||'';return{valid:true,ext,origin:u.origin,path:u.pathname,hasQuery:!!u.search}}catch{return{valid:false,ext:'',origin:'',path:'',hasQuery:false}}
+}
+async function decodeLiveLogoBlob(blob){
+  if(!blob||!blob.size)return{ok:false,decoder:'blob',reason:'empty-body'};
+  if(typeof createImageBitmap==='function'){
+    try{const bitmap=await createImageBitmap(blob),out={ok:bitmap.width>0&&bitmap.height>0,decoder:'createImageBitmap',width:bitmap.width||0,height:bitmap.height||0};bitmap.close?.();return out}catch(e){return{ok:false,decoder:'createImageBitmap',reason:e?.message||String(e)}}
+  }
+  const url=URL.createObjectURL(blob);
+  try{
+    const img=new Image();img.decoding='async';
+    const ok=await new Promise(resolve=>{const timer=setTimeout(()=>resolve(false),1800);img.onload=()=>{clearTimeout(timer);resolve(img.naturalWidth>0&&img.naturalHeight>0)};img.onerror=()=>{clearTimeout(timer);resolve(false)};img.src=url});
+    return{ok,decoder:'object-url-image',width:img.naturalWidth||0,height:img.naturalHeight||0}
+  }finally{URL.revokeObjectURL(url)}
+}
+async function diagnoseLiveLogoUrl(src,timeout=3400){
+  const raw=String(src||'').trim(),meta=liveLogoUrlMeta(raw);
+  if(!meta.valid)return{ok:false,stage:'url',reason:'url-invalida',...meta};
+  if(liveLogoDiagnosticCache.has(raw))return liveLogoDiagnosticCache.get(raw);
+  if(liveLogoDiagnosticInflight.has(raw))return liveLogoDiagnosticInflight.get(raw);
+  const job=(async()=>{
+    const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),timeout),started=performance.now();
+    try{
+      const response=await fetch(raw,{cache:'force-cache',redirect:'follow',signal:ctrl.signal,srhProbe:true});
+      const contentType=String(response.headers.get('content-type')||'').toLowerCase(),contentLength=Number(response.headers.get('content-length')||0),finalUrl=String(response.url||raw),redirected=!!response.redirected||finalUrl!==raw;
+      const base={stage:'response',status:Number(response.status)||0,okHttp:response.ok,contentType,contentLength,redirected,finalUrl,ext:meta.ext,hasQuery:meta.hasQuery,ms:Math.round(performance.now()-started)};
+      if(!response.ok)return{ok:false,reason:'http-error',...base};
+      if(contentType&&!/^image\//i.test(contentType)&&!/(svg|octet-stream)/i.test(contentType))return{ok:false,reason:'mime-incompativel',...base};
+      const blob=await response.blob(),decoded=await decodeLiveLogoBlob(blob);
+      return{ok:!!decoded.ok,reason:decoded.ok?'decoded':'decode-error',...base,blobType:String(blob.type||''),blobSize:blob.size||0,decoder:decoded.decoder||'',decodedWidth:decoded.width||0,decodedHeight:decoded.height||0,decodeReason:decoded.reason||''}
+    }catch(e){return{ok:false,stage:'request',reason:e?.name==='AbortError'?'timeout':'cors-ou-rede',name:e?.name||'',message:e?.message||String(e),ext:meta.ext,hasQuery:meta.hasQuery,ms:Math.round(performance.now()-started)}}
+    finally{clearTimeout(timer)}
+  })().then(result=>{liveLogoDiagnosticCache.set(raw,result);if(liveLogoDiagnosticCache.size>80)liveLogoDiagnosticCache.delete(liveLogoDiagnosticCache.keys().next().value);return result}).finally(()=>liveLogoDiagnosticInflight.delete(raw));
+  liveLogoDiagnosticInflight.set(raw,job);return job
+}
 function liveLogoHttpStatus(img){try{const src=img.currentSrc||img.src||'',rows=performance.getEntriesByName?.(src)||[],row=rows[rows.length-1];return Number(row?.responseStatus||0)||0}catch{return 0}}
 function liveLogoFallback(img,reason,details={}){
   if(!img||img.dataset.srhLiveLogoFallback==='1')return;
@@ -143,6 +179,15 @@ function liveLogoFallback(img,reason,details={}){
   playbackDebug('live-logo-failure',{reason,status,source:src,naturalWidth:img.naturalWidth||0,naturalHeight:img.naturalHeight||0,...details});
   img.src=LIVE_LOGO_PLACEHOLDER;
   playbackDebug('live-logo-fallback',{reason,status})
+}
+async function diagnoseAndFallbackLiveLogo(img,baseReason){
+  if(!img||img.dataset.srhLiveLogoFallback==='1'||img.dataset.srhLiveLogoDiagnosing==='1')return;
+  img.dataset.srhLiveLogoDiagnosing='1';
+  const src=String(img.currentSrc||img.src||''),diagnostic=await diagnoseLiveLogoUrl(src).catch(e=>({ok:false,reason:'diagnostic-error',message:e?.message||String(e)}));
+  delete img.dataset.srhLiveLogoDiagnosing;
+  playbackDebug('live-logo-diagnostic',{source:src,baseReason,...diagnostic});
+  if(!img.isConnected||img.dataset.srhLiveLogoFallback==='1')return;
+  liveLogoFallback(img,diagnostic.reason||baseReason,{diagnostic})
 }
 function inspectLiveLogoPixels(img){
   if(!img?.isConnected||img.dataset.srhLiveLogoFallback==='1'||!img.naturalWidth||!img.naturalHeight)return;
@@ -154,16 +199,17 @@ function inspectLiveLogoPixels(img){
     const d=cx.getImageData(0,0,20,12).data;let visible=0;
     for(let i=3;i<d.length;i+=4)if(d[i]>8)visible++;
     if(visible<=2)liveLogoFallback(img,'imagem-vazia-transparente',{visiblePixels:visible,sampledPixels:d.length/4})
-  }catch{}};
+  }catch(e){playbackDebug('live-logo-pixel-inspection-skipped',{source:src,reason:'cors-or-canvas',message:e?.message||String(e)})}};
   if(typeof requestIdleCallback==='function')requestIdleCallback(run,{timeout:1400});else setTimeout(run,120)
 }
 function installLiveLogoPipeline(){
   if(window.__srhLiveLogoPipelineV1)return;window.__srhLiveLogoPipelineV1=true;
   document.addEventListener('load',e=>{
     const img=e.target;if(!(img instanceof HTMLImageElement)||!isLiveLogoImage(img)||img.dataset.srhLiveLogoFallback==='1')return;
-    if(!img.naturalWidth||!img.naturalHeight){liveLogoFallback(img,'dimensoes-invalidas');return}
-    img.dataset.srhLiveLogoRatio=String(Math.round((img.naturalWidth/img.naturalHeight)*1000)/1000);
-    requestAnimationFrame(()=>{if(!img.isConnected)return;const r=img.getBoundingClientRect();if(r.width<2||r.height<2)liveLogoFallback(img,'erro-renderizacao',{boxWidth:Math.round(r.width),boxHeight:Math.round(r.height)})});
+    if(!img.naturalWidth||!img.naturalHeight){void diagnoseAndFallbackLiveLogo(img,'dimensoes-invalidas');return}
+    const ratio=Math.round((img.naturalWidth/img.naturalHeight)*1000)/1000,meta=liveLogoUrlMeta(img.currentSrc||img.src);img.dataset.srhLiveLogoRatio=String(ratio);
+    const decodeStarted=performance.now();Promise.resolve(img.decode?.()).then(()=>playbackDebug('live-logo-ready',{source:String(img.currentSrc||img.src||''),ext:meta.ext,naturalWidth:img.naturalWidth,naturalHeight:img.naturalHeight,ratio,sizeClass:img.naturalWidth<24||img.naturalHeight<24?'tiny':img.naturalWidth>4096||img.naturalHeight>4096?'large':'normal',decodeMs:Math.round(performance.now()-decodeStarted)})).catch(e=>playbackDebug('live-logo-decode-warning',{source:String(img.currentSrc||img.src||''),ext:meta.ext,message:e?.message||String(e)}));
+    requestAnimationFrame(()=>{if(!img.isConnected)return;const r=img.getBoundingClientRect();if(r.width<2||r.height<2)void diagnoseAndFallbackLiveLogo(img,'erro-renderizacao')});
     inspectLiveLogoPixels(img)
   },true);
   document.addEventListener('error',e=>{
@@ -171,7 +217,7 @@ function installLiveLogoPipeline(){
     const raw=String(img.currentSrc||img.src||''),status=liveLogoHttpStatus(img);let reason='decode-ou-formato-incompativel';
     try{new URL(raw,location.href)}catch{reason='url-invalida'}
     if(status>=400)reason='http-error';else if(!status&&reason!=='url-invalida')reason='rede-cors-ou-decode';
-    liveLogoFallback(img,reason,{status})
+    void diagnoseAndFallbackLiveLogo(img,reason)
   },true)
 }
 function installR104VisualOverrides(){
@@ -1426,10 +1472,10 @@ function modalImageValue(...values){
 function preloadModalAsset(url,timeout=5200){
   const src=String(url||'').trim();if(!src)return Promise.resolve(false);
   return new Promise(resolve=>{
-    const img=new Image();let done=false;
+    const img=new Image();let done=false;img.decoding='async';
     const finish=ok=>{if(done)return;done=true;clearTimeout(timer);img.onload=null;img.onerror=null;resolve(!!ok)};
     const timer=setTimeout(()=>finish(false),timeout);
-    img.onload=()=>finish(true);img.onerror=()=>finish(false);img.src=src;
+    img.onload=()=>{const complete=()=>finish(img.naturalWidth>0&&img.naturalHeight>0);try{const decoded=img.decode?.();if(decoded&&typeof decoded.then==='function'){decoded.then(()=>requestAnimationFrame(complete)).catch(()=>requestAnimationFrame(complete));return}}catch{}requestAnimationFrame(complete)};img.onerror=()=>finish(false);img.src=src;
     if(img.complete)finish(img.naturalWidth>0)
   })
 }
@@ -1448,7 +1494,7 @@ function applyManagedImageChain(img,candidates,{label='image',eager=false,onExha
   if(!(img instanceof HTMLImageElement))return false;
   const list=managedImageCandidates(candidates);
   img.dataset.srhImageChain='1';delete img.dataset.fallback;img.classList.remove('image-fallback');
-  if(eager){try{img.loading='eager';img.fetchPriority='high'}catch{}}
+  try{img.decoding='async'}catch{}if(eager){try{img.loading='eager';img.fetchPriority='high'}catch{}}
   let index=0;
   const next=()=>{
     if(index>=list.length){
