@@ -582,7 +582,7 @@ function onDemandHlsSuppressed(url,type){if(type==='live')return false;const row
 function rememberOnDemandHlsSuccess(url,type){if(type==='live')return;const key=onDemandPreferenceKey(url,type);if(onDemandHlsHealth.has(key)){onDemandHlsHealth.delete(key);playbackDebug('ondemand-hls-recovered',{type,host:mediaHost(url)})}}
 function preferOnDemandSources(values,type,pinned='',pinnedStartupMs=0){const list=uniqueMediaUrls(Array.isArray(values)?values:[values]);if(type==='live'||list.length<2)return list;const pin=String(pinned||'').trim(),base=pin?list.filter(x=>x!==pin):list.slice(),probe=base[0]||pin,pref=probe?onDemandFormatPreference.get(onDemandPreferenceKey(probe,type)):'',slowPin=!!pin&&Number(pinnedStartupMs)>6500;if(pref&&pref!=='m3u8')base.sort((a,b)=>(mediaExtension(b)===pref?1:0)-(mediaExtension(a)===pref?1:0));base.sort((a,b)=>(mediaExtension(a)==='m3u8'?1:0)-(mediaExtension(b)==='m3u8'?1:0));if(slowPin)playbackDebug('slow-source-demoted',{type,host:mediaHost(pin),extension:mediaExtension(pin),lastStartupMs:Math.round(Number(pinnedStartupMs)||0),alternatives:base.length});return uniqueMediaUrls(slowPin?[...base,pin]:[pin,...base])}
 function applySavedPosition(video,position,kind='native'){const target=Math.max(0,Number(position)||0);if(target<=1||!Number.isFinite(video?.duration)||video.duration<=0||target>=video.duration-3)return false;const current=Number(video.currentTime)||0;if(Math.abs(current-target)<=1.1)return false;try{video.currentTime=target;playbackDebug('resume-position',{position:Math.round(target*1000)/1000,kind});return true}catch{return false}}
-function ensureHls(){if(window.Hls?.isSupported)return Promise.resolve(window.Hls);if(hlsLoader)return hlsLoader;hlsLoader=new Promise((resolve,reject)=>{const found=document.querySelector('script[data-srh-hls]');if(found){if(window.Hls?.isSupported){resolve(window.Hls);return}found.addEventListener('load',()=>window.Hls?.isSupported?resolve(window.Hls):reject(Error('Hls.js inválido')),{once:true});found.addEventListener('error',()=>reject(Error('Hls.js indisponível')),{once:true});return}const s=document.createElement('script'),timer=setTimeout(()=>{s.remove();reject(Error('Hls.js timeout'))},9000);s.src=HLS_CDN;s.async=true;s.dataset.srhHls='1';s.onload=()=>{clearTimeout(timer);window.Hls?.isSupported?resolve(window.Hls):reject(Error('Hls.js inválido'))};s.onerror=()=>{clearTimeout(timer);reject(Error('Hls.js indisponível'))};document.head.appendChild(s)}).catch(e=>{hlsLoader=null;throw e});return hlsLoader}
+function ensureHls(){if(window.Hls?.isSupported){if(String(window.Hls?.version||'')&&String(window.Hls.version)!=='1.7.3')playbackDebug('hlsjs-existing-version',{existing:String(window.Hls.version),requested:'1.7.3',policy:'preserve-baseline'});return Promise.resolve(window.Hls);}if(hlsLoader)return hlsLoader;hlsLoader=new Promise((resolve,reject)=>{const found=document.querySelector('script[data-srh-hls]');if(found){if(window.Hls?.isSupported){resolve(window.Hls);return}found.addEventListener('load',()=>window.Hls?.isSupported?resolve(window.Hls):reject(Error('Hls.js inválido')),{once:true});found.addEventListener('error',()=>reject(Error('Hls.js indisponível')),{once:true});return}const s=document.createElement('script'),timer=setTimeout(()=>{s.remove();reject(Error('Hls.js timeout'))},9000);s.src=HLS_CDN;s.async=true;s.dataset.srhHls='1';s.onload=()=>{clearTimeout(timer);window.Hls?.isSupported?resolve(window.Hls):reject(Error('Hls.js inválido'))};s.onerror=()=>{clearTimeout(timer);reject(Error('Hls.js indisponível'))};document.head.appendChild(s)}).catch(e=>{hlsLoader=null;throw e});return hlsLoader}
 function ensureMpegTs(){if(window.mpegts?.createPlayer)return Promise.resolve(window.mpegts);if(mpegTsLoader)return mpegTsLoader;mpegTsLoader=new Promise((resolve,reject)=>{const found=document.querySelector('script[data-srh-mpegts]');if(found){found.addEventListener('load',()=>resolve(window.mpegts),{once:true});found.addEventListener('error',()=>reject(Error('mpegts indisponível')),{once:true});return}const s=document.createElement('script'),timer=setTimeout(()=>{s.remove();reject(Error('mpegts timeout'))},9000);s.src=MPEGTS_CDN;s.async=true;s.dataset.srhMpegts='1';s.onload=()=>{clearTimeout(timer);window.mpegts?.createPlayer?resolve(window.mpegts):reject(Error('mpegts inválido'))};s.onerror=()=>{clearTimeout(timer);reject(Error('mpegts indisponível'))};document.head.appendChild(s)}).catch(e=>{mpegTsLoader=null;throw e});return mpegTsLoader}
 function mediaKind(url){const s=String(url||'');if(/\.m3u8(?:$|\?)/i.test(s))return'hls';if(/\.m2ts(?:$|\?)/i.test(s))return'm2ts';if(/\.ts(?:$|\?)/i.test(s))return'mpegts';return'native'}
 function mediaExtension(url){try{return(new URL(String(url||''),location.href).pathname.match(/\.([a-z0-9]{2,5})$/i)||[])[1]?.toLowerCase()||''}catch{return''}}
@@ -2005,14 +2005,15 @@ async function closeDetail(){
   function detailSkeleton(type){
     const title='<span class="srh-shimmer-line srh-shimmer-line--title"></span>';
     const synopsis='<div class="synopsis srh-skeleton-synopsis"><span class="srh-shimmer-line"></span><span class="srh-shimmer-line"></span><span class="srh-shimmer-line"></span></div>';
-    const actions='<div class="srh-skeleton-actions"><span class="srh-shimmer-button"></span><span class="srh-shimmer-button"></span><span class="srh-shimmer-button srh-shimmer-button--wide"></span></div>';
+    const episode='<article class="episode srh-episode-skeleton" aria-hidden="true"><span class="episode__thumb srh-shimmer-block"></span><div class="srh-episode-skeleton__body"><span class="srh-shimmer-line"></span><span class="srh-shimmer-line"></span><span class="episode__progress"></span></div><span class="episode__play srh-shimmer-button"></span></article>';
     if(type==='live'){
-      return '<div class="detail-content srh-modal-loading"><div class="detail-art srh-shimmer-block"></div><div class="detail-title-row">'+title+'</div><div class="quality-list srh-skeleton-quality"><span class="srh-shimmer-row"></span><span class="srh-shimmer-row"></span><span class="srh-shimmer-row"></span></div></div>';
+      const quality='<button class="quality-row srh-shimmer-row" type="button" disabled></button>';
+      return '<div class="detail-content srh-modal-loading"><div class="detail-art srh-shimmer-block"></div><div class="detail-title-row">'+title+'</div><div class="quality-list srh-skeleton-quality">'+quality+quality+quality+'</div></div>';
     }
     if(type==='series'){
-      return '<div class="detail-content srh-modal-loading"><div class="series-static"><div class="detail-art srh-shimmer-block"></div><div class="detail-title-row">'+title+'<div class="srh-lite-actions"><span class="srh-shimmer-button"></span><span class="srh-shimmer-button"></span></div></div>'+synopsis+'<div class="season-box"><span class="season-trigger srh-shimmer-row"></span></div></div><div class="episode-container"><div class="episode-list srh-skeleton-episodes"><span class="srh-shimmer-row"></span><span class="srh-shimmer-row"></span><span class="srh-shimmer-row"></span></div></div></div>';
+      return '<div class="detail-content srh-modal-loading"><div class="series-static"><div class="detail-art srh-shimmer-block"></div><div class="detail-title-row">'+title+'<div class="srh-lite-actions"><span class="srh-lite-action srh-shimmer-button"></span><span class="srh-lite-action srh-shimmer-button"></span></div></div>'+synopsis+'<div class="season-box"><button class="season-trigger srh-shimmer-row" type="button" disabled></button></div></div><div class="episode-container"><div class="episode-list srh-skeleton-episodes">'+episode+episode+episode+'</div></div></div>';
     }
-    return '<div class="detail-content srh-modal-loading"><div class="detail-art srh-shimmer-block"></div><div class="detail-title-row">'+title+'</div>'+synopsis+actions+'</div>';
+    return '<div class="detail-content srh-modal-loading"><div class="detail-art srh-shimmer-block"></div><div class="detail-title-row">'+title+'</div>'+synopsis+'<div class="srh-lite-film-actions"><div class="srh-lite-actions"><span class="srh-lite-action srh-shimmer-button"></span><span class="srh-lite-action srh-shimmer-button"></span></div><span class="watch-button srh-shimmer-button srh-shimmer-button--wide"></span></div></div>';
   }
 
   const baseOpenDetail=openDetail;
@@ -4653,10 +4654,21 @@ async function closeDetail(){
     const logo=node.querySelector('.stream-hero__logo'),fallback=node.querySelector('.stream-hero__brand-fallback'),box=node.querySelector('.stream-hero__brand');
     if(logo){logo.onload=null;logo.onerror=null;hideHeroLogo(logo);logo.removeAttribute('src');logo.removeAttribute('data-srh-normalized')}
     fallback?.classList.add('is-hidden');if(fallback)fallback.textContent='';
-    box?.classList.remove('srh-logo-flare-light','srh-logo-flare-dark','has-logo','has-fallback','is-ready');
+    box?.classList.remove('srh-logo-flare-light','srh-logo-flare-dark','has-logo','has-fallback','is-ready','is-leaving');
     const meta=node.querySelector('.stream-hero__meta'),plot=node.querySelector('.stream-hero__plot'),dots=node.querySelector('.stream-hero__dots');
     if(meta)meta.textContent='';if(plot)plot.textContent='';if(dots)dots.innerHTML='';
+    node.dataset.srhHeroKey='';
     node.querySelector('.stream-hero__skeleton')?.classList.remove('is-hidden')
+  }
+
+  async function exitHeroVisual(node,local){
+    if(!node||local!==heroToken||node.dataset.srhPainted!=='1')return;
+    const box=node.querySelector('.stream-hero__brand'),current=node.querySelector('.stream-hero__bg.is-active');
+    box?.classList.add('is-leaving');current?.classList.add('is-leaving');
+    const reduced=typeof matchMedia==='function'&&matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if(!reduced)await new Promise(resolve=>setTimeout(resolve,470));
+    if(local!==heroToken)return;
+    box?.classList.remove('is-ready')
   }
 
   async function paintHeroBackground(node,url,isLive,local){
@@ -4665,6 +4677,7 @@ async function closeDetail(){
     if(!src||layers.length<2){if(local===heroToken&&heroViewToken===state.renderToken)clearHeroBackground(node,isLive);return false}
     let current=layers.find(x=>x.classList.contains('is-active'))||layers[0];
     if(current.dataset.srhUrl===src){
+      current.classList.remove('is-leaving');
       current.classList.toggle('is-live',!!isLive);
       current.style.backgroundSize='cover';
       current.style.backgroundPosition='center center';
@@ -4675,7 +4688,7 @@ async function closeDetail(){
     const ready=await preloadHeroImage(src);
     if(!ready||local!==heroToken||heroViewToken!==state.renderToken){if(!ready&&local===heroToken&&heroViewToken===state.renderToken)clearHeroBackground(node,isLive);return false}
     let next=layers.find(x=>x!==current);
-    next.classList.remove('is-active');
+    next.classList.remove('is-active','is-leaving');
     next.classList.toggle('is-live',!!isLive);
     next.style.backgroundImage='url("'+src.replace(/"/g,'%22')+'")';
     next.style.backgroundSize='cover';
@@ -4691,7 +4704,7 @@ async function closeDetail(){
       if(!current.classList.contains('is-active')){
         current.style.backgroundImage='none';
         current.dataset.srhUrl='';
-        current.classList.remove('is-live');
+        current.classList.remove('is-live','is-leaving');
       }
     },920);
     return true;
@@ -4710,7 +4723,7 @@ async function closeDetail(){
   function holdHeroBrand(node,title=''){
     const box=node.querySelector('.stream-hero__brand'),logo=node.querySelector('.stream-hero__logo'),fallback=node.querySelector('.stream-hero__brand-fallback');
     if(!box||!logo||!fallback)return;
-    box.classList.remove('srh-logo-flare-light','srh-logo-flare-dark','has-logo','has-fallback','is-ready');
+    box.classList.remove('srh-logo-flare-light','srh-logo-flare-dark','has-logo','has-fallback','is-ready','is-leaving');
     logo.onload=null;logo.onerror=null;hideHeroLogo(logo);logo.removeAttribute('src');logo.removeAttribute('data-srh-normalized');
     fallback.classList.add('is-hidden');fallback.textContent='';
     box.setAttribute('aria-label',String(title||'').trim())
@@ -4723,7 +4736,7 @@ async function closeDetail(){
     const logo=node.querySelector('.stream-hero__logo');
     const fallback=node.querySelector('.stream-hero__brand-fallback');
     if(!box||!logo||!fallback)return;
-    box.classList.remove('srh-logo-flare-light','srh-logo-flare-dark','has-logo','has-fallback','is-ready');
+    box.classList.remove('srh-logo-flare-light','srh-logo-flare-dark','has-logo','has-fallback','is-ready','is-leaving');
     logo.onload=null;logo.onerror=null;
     hideHeroLogo(logo);
     logo.removeAttribute('src');
@@ -4822,8 +4835,10 @@ async function closeDetail(){
   async function showHero(index,user=false){
     clearTimeout(heroTimer);
     if(!heroItems.length||heroViewToken!==state.renderToken)return;
-    heroIndex=((index%heroItems.length)+heroItems.length)%heroItems.length;
-    const local=++heroToken,item=heroItems[heroIndex],type=state.activeType,node=heroHost();
+    const nextIndex=((index%heroItems.length)+heroItems.length)%heroItems.length,item=heroItems[nextIndex],type=state.activeType,node=heroHost(),heroKey=type+':'+String(itemId(item,type)||item?.baseName||itemTitle(item));
+    const local=++heroToken,changing=node.dataset.srhPainted==='1'&&!!node.dataset.srhHeroKey&&node.dataset.srhHeroKey!==heroKey;
+    heroIndex=nextIndex;
+    if(changing){await exitHeroVisual(node,local);if(local!==heroToken||heroViewToken!==state.renderToken||state.activeType!==type)return}
     const plot=node.querySelector('.stream-hero__plot'),metaNode=node.querySelector('.stream-hero__meta'),skeleton=node.querySelector('.stream-hero__skeleton');
     if(node.dataset.srhPainted!=='1')skeleton?.classList.remove('is-hidden');
     node.querySelector('[data-stream-open]').onclick=()=>openItem(item,type);
@@ -4913,6 +4928,7 @@ async function closeDetail(){
     }
 
     setHeroBrand(node,title,brandData,local,type==='live');
+    node.dataset.srhHeroKey=heroKey;
     plot.textContent=type==='live'?'':heroSynopsis(heroOverview,200);
     metaNode.innerHTML=heroMetaMarkup(type,heroData);
     skeleton?.classList.add('is-hidden');
