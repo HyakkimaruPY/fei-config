@@ -627,6 +627,13 @@ function openSearchMode(){
 function toggleSearch(){document.body.classList.contains('srh-search-mode')?closeSearchMode():openSearchMode()}
 el.search.oninput=()=>{clearTimeout(state.searchTimer);state.searchTimer=setTimeout(()=>void runSearch(),220)};
 el.search.onsearch=()=>{if(!el.search.value&&document.body.classList.contains('srh-search-mode'))closeSearchMode();else void runSearch()};
+document.addEventListener('click',e=>{
+  if(!document.body.classList.contains('srh-search-mode')||normalizeSearch(el.search.value))return;
+  const target=e.target;
+  if(el.searchWrap.contains(target)||el.searchButton===target||el.searchButton.contains?.(target))return;
+  playbackDebug('search-empty-outside-close',{type:state.activeType});
+  closeSearchMode()
+},true);
 el.searchButton.onclick=toggleSearch;
 const HLS_CDN='https://cdn.jsdelivr.net/npm/hls.js@1.7.3/dist/hls.min.js';
 const MPEGTS_CDN='https://cdn.jsdelivr.net/npm/mpegts.js@1.8.2/dist/mpegts.min.js';
