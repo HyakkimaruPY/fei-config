@@ -702,3 +702,129 @@ body.srh-main-stream-style .rail-skeleton-row{
 body.srh-main-stream-style .srh-modal-loading{
   contain:layout paint style!important;
 }
+
+
+/* SRHELL DEBUG STANDARD R105 — structural modal geometry, symmetric Hero exit, Porcelain hierarchy */
+body.srh-main-stream-style .stream-hero__brand.is-leaving{
+  opacity:0!important;
+  transform:translate3d(0,14px,0)!important;
+  transition:opacity .46s ease,transform .46s cubic-bezier(.4,0,.6,1)!important;
+}
+body.srh-main-stream-style .stream-hero__bg.is-active.is-leaving{
+  opacity:0!important;
+  transform:scale(1.018)!important;
+  transition:opacity .46s ease,transform .46s ease!important;
+}
+body.srh-main-stream-style .srh-modal-loading .srh-skeleton-brand{
+  background:transparent!important;
+  border:0!important;
+  box-shadow:none!important;
+}
+body.srh-main-stream-style .srh-modal-loading .srh-shimmer-brand{
+  display:block!important;
+  width:min(230px,84%)!important;
+  height:48px!important;
+  margin:0 0 1px!important;
+  border-radius:10px!important;
+}
+body.srh-main-stream-style .srh-modal-loading .season-box.srh-season-actions{
+  display:grid!important;
+  grid-template-columns:minmax(0,1fr) auto!important;
+  align-items:center!important;
+  gap:8px!important;
+}
+body.srh-main-stream-style .srh-modal-loading .season-box.srh-season-actions>.season-trigger{
+  grid-column:1!important;
+  margin:0!important;
+}
+body.srh-main-stream-style .srh-modal-loading .srh-series-season-actions{
+  grid-column:2!important;
+  display:flex!important;
+  align-items:center!important;
+  gap:7px!important;
+}
+body.srh-main-stream-style .srh-modal-loading .srh-series-season-actions .srh-lite-action{
+  margin:0!important;
+}
+body.srh-main-stream-style .srh-episode-skeleton{
+  cursor:default!important;
+  pointer-events:none!important;
+}
+body.srh-main-stream-style .srh-episode-skeleton .episode__thumb{
+  display:block!important;
+  height:auto!important;
+  padding:0!important;
+}
+body.srh-main-stream-style .srh-episode-skeleton__body{
+  min-width:0!important;
+  display:grid!important;
+  align-content:center!important;
+  gap:6px!important;
+}
+body.srh-main-stream-style .srh-episode-skeleton__body .srh-shimmer-line{
+  height:11px!important;
+  border-radius:5px!important;
+}
+body.srh-main-stream-style .srh-episode-skeleton__body .srh-shimmer-line:first-child{width:72%!important}
+body.srh-main-stream-style .srh-episode-skeleton__body .srh-shimmer-line:nth-child(2){width:46%!important}
+body.srh-main-stream-style .srh-episode-skeleton .episode__progress{
+  width:82%!important;
+  margin-top:0!important;
+}
+body.srh-main-stream-style .srh-episode-skeleton .episode__play{
+  width:32px!important;
+  height:32px!important;
+  border-radius:8px!important;
+}
+body.srh-main-stream-style .srh-series-episodes-loading,
+body.srh-main-stream-style .srh-skeleton-episodes{
+  margin-top:0!important;
+}
+body.srh-main-stream-style .srh-series-metadata-ready .episode-container{
+  min-height:112px!important;
+}
+@media(max-width:680px){
+  body.srh-main-stream-style .srh-modal-loading .srh-shimmer-brand{
+    width:min(190px,86%)!important;
+    height:42px!important;
+  }
+  body.srh-main-stream-style .srh-modal-loading .season-box.srh-season-actions{gap:6px!important}
+  body.srh-main-stream-style .srh-modal-loading .srh-series-season-actions{gap:5px!important}
+  body.srh-main-stream-style .srh-episode-skeleton .episode__play{width:30px!important;height:30px!important}
+}
+@media(prefers-reduced-motion:reduce){
+  body.srh-main-stream-style .stream-hero__brand.is-leaving,
+  body.srh-main-stream-style .stream-hero__bg.is-active.is-leaving{transition:none!important}
+}
+
+body[data-theme="porcelain"]{
+  --bg:#ebe8e2;
+  --bg-2:#e3dfd7;
+  --bg-elev:#f7f5f0;
+  --surface:#f3f0ea;
+  --surface-2:#e9e5de;
+  --surface-3:#dbd6cd;
+  --surface-raised:#f8f6f2;
+  --surface-secondary:#e7e3db;
+  --line:rgba(91,84,75,.24);
+  --line-strong:rgba(74,69,62,.36);
+  --banner-border:#aaa399;
+  --text:#292722;
+  --muted:#6f6a62;
+  --accent:#596b8c;
+  --accent-2:#42516e;
+  --success:#4b806b;
+  --danger:#a9565e;
+  --glass-bg:rgba(244,241,235,.88);
+  --glass-line:rgba(82,76,69,.19);
+  --shadow:0 17px 42px rgba(69,62,51,.12);
+  --card-shadow:0 8px 22px rgba(69,62,51,.09);
+  --state-hover:#eeeae3;
+  --state-active:#e2ddd4;
+  --state-disabled:#d6d1c8;
+  --disabled-opacity:.46;
+  --loader-metal:#747980;
+  --loader-track:rgba(67,65,61,.16);
+  --loader-glow:rgba(78,82,88,.10);
+  --texture:radial-gradient(circle at 50% -12%,rgba(83,96,120,.085),transparent 31%),linear-gradient(180deg,#f1eee8 0%,#ebe8e2 72%);
+}
