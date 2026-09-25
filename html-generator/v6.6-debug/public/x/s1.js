@@ -453,7 +453,7 @@ function attachVideo(video,url,onReady,onError){
           window.SRHDebug?.noteRecovery?.({kind:'player.error',mediaId,...recovery});
           window.SRHDebug?.noteRecovery?.({kind:'player.error',mediaId:'',...recovery});
           window.SRHDebug?.noteRecovery?.({kind:'player.stall',mediaId,...recovery});
-          window.SRHDebug?.noteRecovery?.({kind:'playlist',layer:'fetch',origin,status:200,message:'Fonte alternativa iniciou a reprodução',details:{fallbackCount,sourceKind,winningOrigin:mediaOrigin(current)}})
+          window.SRHDebug?.noteRecovery?.({kind:'playlist',layer:'fetch',mediaId,origin,status:200,message:'Fonte alternativa iniciou a reprodução',details:{fallbackCount,sourceKind,winningOrigin:mediaOrigin(current)}})
         }catch{}
       }
       playbackDebug('recovered',{mediaId,mediaType,sourceKind,fallbackCount,failedOrigins:[...failedOrigins],winningOrigin:mediaOrigin(current)});
