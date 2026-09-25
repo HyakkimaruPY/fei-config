@@ -2140,9 +2140,10 @@ async function closeDetail(){
   }
 
   const baseOpenDetail=openDetail;
-  openDetail=function(title){
-    const r=baseOpenDetail(title);
+  openDetail=async function(title){
     const type=state.srhPendingDetailType||'';
+    const r=await baseOpenDetail(title);
+    if(r===false)return false;
     const modal=detailModal();
     modal?.classList.remove('is-vod','is-series','is-live');
     if(type){
