@@ -3502,23 +3502,27 @@ async function closeDetail(){
     const token=state.detailToken,art=el.detailBody.querySelector('.detail-art');
     const img=type==='series'?el.detailBody.querySelector('#seriesImage'):art?.querySelector(':scope > img');
     if(!art||!img)return;
-    const probe=new Image();
+    const probe=new Image();probe.decoding='async';
     probe.onload=()=>{
-      if(!isDetailCurrent(token)||!img.isConnected)return;
-      if(type==='series'){
-        applyManagedImageChain(img,[src,state.currentSeries?.tmdbPoster,state.currentSeries?.providerBackdrop,state.currentSeries?.providerCover,state.currentSeries?.backdrop],{label:'series-tmdb-backdrop',eager:true});
-        if(state.currentSeries){state.currentSeries.backdrop=src;state.currentSeries.tmdbBackdrop=src}
-      }else{
-        const snap=state.currentDetail?.entry?.itemSnapshot||{};
-        applyManagedImageChain(img,[src,data?.poster,snap.backdrop_path,snap.movie_image,snap.cover_big,snap.cover,snap.stream_icon,state.currentDetail?.entry?.image],{label:'vod-tmdb-backdrop',eager:true});
-        if(state.currentDetail?.entry){
-          state.currentDetail.entry.image=src;
-          if(state.currentDetail.entry.itemSnapshot)state.currentDetail.entry.itemSnapshot.backdrop_path=[src]
+      const commit=()=>{
+        if(!isDetailCurrent(token)||!img.isConnected)return;
+        if(type==='series'){
+          applyManagedImageChain(img,[src,state.currentSeries?.tmdbPoster,state.currentSeries?.providerBackdrop,state.currentSeries?.providerCover,state.currentSeries?.backdrop],{label:'series-tmdb-backdrop',eager:true});
+          if(state.currentSeries){state.currentSeries.backdrop=src;state.currentSeries.tmdbBackdrop=src}
+        }else{
+          const snap=state.currentDetail?.entry?.itemSnapshot||{};
+          applyManagedImageChain(img,[src,data?.poster,snap.backdrop_path,snap.movie_image,snap.cover_big,snap.cover,snap.stream_icon,state.currentDetail?.entry?.image],{label:'vod-tmdb-backdrop',eager:true});
+          if(state.currentDetail?.entry){
+            state.currentDetail.entry.image=src;
+            if(state.currentDetail.entry.itemSnapshot)state.currentDetail.entry.itemSnapshot.backdrop_path=[src]
+          }
         }
-      }
-      img.classList.add('srh-tmdb-backdrop');
-      art.classList.remove('srh-poster-hero-fallback');
-      playbackDebug('tmdb-backdrop-applied',{type,mediaId:String(type==='series'?(state.currentSeries?.item?.series_id||''):(state.currentDetail?.entry?.itemSnapshot?.stream_id||''))})
+        img.classList.add('srh-tmdb-backdrop');
+        art.classList.remove('srh-poster-hero-fallback');
+        playbackDebug('tmdb-backdrop-applied',{type,mediaId:String(type==='series'?(state.currentSeries?.item?.series_id||''):(state.currentDetail?.entry?.itemSnapshot?.stream_id||''))})
+      };
+      try{const decoded=probe.decode?.();if(decoded&&typeof decoded.then==='function'){decoded.then(()=>requestAnimationFrame(commit)).catch(()=>requestAnimationFrame(commit));return}}catch{}
+      requestAnimationFrame(commit)
     };
     probe.onerror=()=>playbackDebug('tmdb-backdrop-fallback',{type});
     probe.src=src
