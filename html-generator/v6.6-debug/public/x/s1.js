@@ -1084,7 +1084,7 @@ async function leaveFullscreenPortrait(){
   if(isMobile()){try{await screen.orientation?.lock?.('portrait')}catch{}}
 }
 async function toggleFullscreen(node){if(srhFullscreenElement()){await leaveFullscreenPortrait()}else await enterFullscreen(node)}
-async function closePlayer(restoreFreeze=true){if(!state.playerActive)return;const media=state.currentMedia;setPlaybackLifecycle('destroying',{mediaId:media?.key||'',type:media?.type||'',reason:'overlay-close'});el.video.onpause=null;playbackDebug('playback-overlay-teardown-begin',{mediaId:String(media?.key||''),video:playbackVideoSnapshot(el.video)});await persistProgress(el.video,{frame:true});destroyHls('overlay-close');resetPlaybackVideo(el.video);el.playerLayer.classList.add('is-hidden');state.currentMedia=null;state.playerActive=false;setPlaybackLifecycle('idle',{mediaId:media?.key||'',type:media?.type||'',reason:'overlay-closed'});playbackDebug('playback-overlay-teardown-end',{mediaId:String(media?.key||''),video:playbackVideoSnapshot(el.video)});if(restoreFreeze)freezePage(!el.detailLayer.classList.contains('is-hidden')||!el.collectionView.classList.contains('is-hidden'));await leaveFullscreenPortrait()}
+async function closePlayer(restoreFreeze=true){if(!state.playerActive)return;const media=state.currentMedia;setPlaybackLifecycle('destroying',{mediaId:media?.key||'',type:media?.type||'',reason:'overlay-close'});el.video.onpause=null;playbackDebug('playback-overlay-teardown-begin',{mediaId:String(media?.key||''),video:playbackVideoSnapshot(el.video)});await persistProgress(el.video,{frame:true});destroyHls('overlay-close');resetPlaybackVideo(el.video);el.playerLayer.classList.add('is-hidden');state.currentMedia=null;state.playerActive=false;setPlaybackLifecycle('idle',{mediaId:media?.key||'',type:media?.type||'',reason:'overlay-closed'});playbackDebug('playback-overlay-teardown-end',{mediaId:String(media?.key||''),video:playbackVideoSnapshot(el.video)});queueMicrotask(()=>window.__srhFlushContinueRender?.());if(restoreFreeze)freezePage(!el.detailLayer.classList.contains('is-hidden')||!el.collectionView.classList.contains('is-hidden'));await leaveFullscreenPortrait()}
 el.playerClose.onclick=()=>{void closePlayer(true).catch(e=>playbackDebug('ui-close-player-failed',{message:e?.message||String(e)}))};el.playerExpand.onclick=()=>{void toggleFullscreen(el.playerWrap).catch(e=>playbackDebug('ui-fullscreen-failed',{message:e?.message||String(e)}))};
 function synopsisMarkup(text,expanded=false){const full=String(text||'Sem sinopse disponível.').trim(),cut=!expanded&&full.length>200,value=cut?full.slice(0,200).trimEnd()+'…':full;return escapeHtml(value)+(cut?' <span class="synopsis__hint">mais</span>':'')}
 function detailModal(){return el.detailLayer.querySelector('.detail-modal')}
@@ -1719,6 +1719,7 @@ async function closeDetail(){
     state.currentMedia=null;
   }
   el.detailLayer.classList.add('is-hidden');
+  queueMicrotask(()=>window.__srhFlushContinueRender?.());
   detailModal()?.classList.remove('is-series');
   state.currentDetail=null;
   state.currentSeries=null;
@@ -2049,7 +2050,6 @@ async function closeDetail(){
          persist it again after deletion. */
       detachRemovedCurrentMedia('vod',started,item);
       ok=removeHistory(started.key,'vod');
-      if(ok)renderContinue();
       toast(ok?'Filme removido de Continuar assistindo.':'Não foi possível remover o filme.');
       return ok;
     }
@@ -3008,10 +3008,22 @@ async function closeDetail(){
     playbackDebug('search-continue-filter',{type,queryChars:Array.from(q).length,matches:list.length,total:eligibleContinueEntries(type).length});
     return renderContinueCardsInto(section,row,type,list,{onBeforeOpen})
   };
-  renderContinue=function(){
+  const renderContinueNow=()=>{
     purgeContinueFrameWorkers();
     releaseContinueCardResources();
+    state.continueRenderDirty=false;
     return renderContinueCardsInto(el.continueSection,el.continueRow,state.activeType,eligibleContinueEntries(state.activeType))
+  };
+  renderContinue=function(){
+    const hiddenByPlayback=state.playerActive||!!state.detailInlineVideo||!!state.seriesVideo||!el.detailLayer.classList.contains('is-hidden');
+    if(hiddenByPlayback){state.continueRenderDirty=true;return false}
+    return renderContinueNow()
+  };
+  window.__srhFlushContinueRender=()=>{
+    if(!state.continueRenderDirty)return false;
+    if(state.playerActive||state.detailInlineVideo||state.seriesVideo||!el.detailLayer.classList.contains('is-hidden'))return false;
+    playbackDebug('continue-render-flush',{type:state.activeType});
+    return renderContinueNow()
   };
 
 })();
