@@ -3803,7 +3803,8 @@ async function closeDetail(){
     installWatchedStatus(type,item,data);
 
     const video=art.querySelector('video');
-    if(video){
+    if(video&&video.dataset.srhBrandingMediaBound!=='1'){
+      video.dataset.srhBrandingMediaBound='1';
       const active=()=>art.classList.add('srh-media-active');
       video.addEventListener('playing',active,{passive:true});
       video.addEventListener('loadeddata',()=>{if(!video.classList.contains('is-hidden'))active()},{passive:true});
@@ -4360,6 +4361,11 @@ async function closeDetail(){
     panel.querySelector('.srh-similar-close').onclick=e=>{e.stopPropagation();closeSimilar()};
     renderSimilarRows(panel,rows,type)
   }
+  function bindSimilarCloseOnce(node){
+    if(!node||node.dataset.srhSimilarCloseBound==='1')return;
+    node.dataset.srhSimilarCloseBound='1';
+    node.addEventListener('click',closeSimilar,{capture:true})
+  }
   function installSimilarButton(type,item,rows){
     if(!['vod','series'].includes(type)||!Array.isArray(rows)||rows.length<3)return null;
     const group=type==='series'?el.detailBody.querySelector('.srh-series-season-actions'):el.detailBody.querySelector('.srh-lite-film-actions .srh-lite-actions');
@@ -4371,9 +4377,9 @@ async function closeDetail(){
       if(fav)group.insertBefore(b,fav);else group.appendChild(b);
       if(type==='series'&&trash)group.appendChild(trash);
       b.onclick=e=>{e.stopPropagation();toggleSimilar(type,item,b)};
-      fav?.addEventListener('click',closeSimilar,{capture:true});
-      trash?.addEventListener('click',closeSimilar,{capture:true});
-      el.detailBody.querySelector('#seasonTrigger')?.addEventListener('click',closeSimilar,{capture:true})
+      bindSimilarCloseOnce(fav);
+      bindSimilarCloseOnce(trash);
+      bindSimilarCloseOnce(el.detailBody.querySelector('#seasonTrigger'))
     }
     b._srhRows=completeSimilarRows(rows);
     if(!b._srhRows.length){b.remove();closeSimilar();return null}
