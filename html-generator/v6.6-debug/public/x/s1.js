@@ -2148,13 +2148,8 @@ async function closeDetail(){
         video.pause();video.removeAttribute('src');video.load();
         if(kind==='hls'){
           const native=!!(video.canPlayType?.('application/vnd.apple.mpegurl')||video.canPlayType?.('application/x-mpegURL'));
-          if(native){video.src=src;video.load()}
-          else{
-            const H=await ensureHls();
-            if(!H?.isSupported?.())continue;
-            hls=new H({enableWorker:true,lowLatencyMode:false,startLevel:-1,maxBufferLength:8,backBufferLength:4});
-            hls.loadSource(src);hls.attachMedia(video)
-          }
+          if(!native){playbackDebug('background-hls-skip',{reason:'native-hls-unavailable',origin:mediaOrigin(src)});continue}
+          video.src=src;video.load()
         }else{video.src=src;video.load()}
         const ok=await seekPreviewFrame(video,position,timeout);
         if(ok){try{hls?.stopLoad?.()}catch{}return{ok:true,hls,src}}
