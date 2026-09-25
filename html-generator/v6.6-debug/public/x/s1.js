@@ -3323,17 +3323,6 @@ async function closeDetail(){
     }
     return data;
   };
-  const providerDetailRequest=requestDetail;
-  requestDetail=async function(params={},cfg=CONFIG){
-    const data=await providerDetailRequest(params,cfg);
-    if(cfg!==CONFIG)return data;
-    const action=params?.action;
-    if(action==='get_vod_info'||action==='get_series_info'){
-      return tmdbFirstProviderResponse(action,params,data,{waitForTmdb:true});
-    }
-    return data;
-  };
-
   const providerHeroArtCache=new Map();
   let heroProviderDetailBlockedUntil=0;
   function providerImageValue(...values){
