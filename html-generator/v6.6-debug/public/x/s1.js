@@ -69,7 +69,6 @@ function markStandardTitleCompleted(entry,duration){
   const key=completedTitleKey(entry.type,entry.tmdbId||entry.itemSnapshot?.tmdb_id,providerId);
   return persistCompletedRow(key,{scope:'title',type:entry.type,tmdbId:entry.tmdbId||entry.itemSnapshot?.tmdb_id||null,providerId:String(providerId||''),seriesId:entry.seriesId,title:String(entry.title||'').replace(/\s+[—-]\s+Epis[oó]dio\s+\d+.*$/i,''),image:entry.image||'',itemSnapshot:entry.itemSnapshot||null,duration:Number(duration)||Number(entry.duration)||0,position:Number(duration)||Number(entry.duration)||0})
 }
-function markStandardCompleted(entry,duration){return entry?.type==='series'?markStandardEpisodeCompleted(entry,duration):markStandardTitleCompleted(entry,duration)}
 window.__SRH_STANDARD_STORAGE__={backend:'indexeddb',db:STANDARD_DB,stats:()=>({queuedWrites:Math.max(0,standardWritesQueued-standardWritesDone),writesQueued:standardWritesQueued,writesDone:standardWritesDone,webLocks:!!navigator.locks?.request,...standardStoragePerf})};
 const state={activeType:null,categoryMaps:new Map(),railInstances:[],gridInstance:null,categoryObserver:null,retentionObserver:null,renderToken:0,detailToken:0,seriesPlayToken:0,hls:null,currentMedia:null,currentDetail:null,currentSeries:null,seriesVideo:null,saveTick:0,playerActive:false,playbackLifecycle:'idle',playbackLifecycleAt:0,playbackLifecycleSeq:0,updateCandidate:null,updateCategories:[],updateSelected:new Set(),searchTimer:0,searchDataset:null,searchType:null,synopsisExpanded:false,synopsisText:'',synopsisNode:null,collectionOpen:false};
 let resolveCatalogMetadata=null,normalizeCatalogLogo=null,tuneCatalogLogoContrast=null;
@@ -640,7 +639,6 @@ const onDemandFormatPreference=new Map(),onDemandHlsHealth=new Map();
 function onDemandPreferenceKey(url,type){return mediaHost(url)+'|'+String(type||'vod')}
 function rememberOnDemandFormat(url,type){const ext=mediaExtension(url),key=onDemandPreferenceKey(url,type);if(!key.startsWith('|')&&ext){const prior=onDemandFormatPreference.get(key)||'';onDemandFormatPreference.set(key,ext);if(prior!==ext)playbackDebug('ondemand-format-learn',{type,host:mediaHost(url),extension:ext,previous:prior||'none'})}}
 function noteOnDemandHlsFailure(url,type,details=''){if(type==='live')return;const key=onDemandPreferenceKey(url,type),now=Date.now(),prior=onDemandHlsHealth.get(key),fresh=prior&&now-prior.lastAt<15*60*1000,row={count:fresh?prior.count+1:1,lastAt:now};onDemandHlsHealth.set(key,row);playbackDebug('ondemand-hls-failure',{type,host:mediaHost(url),count:row.count,cooldown:row.count>=3,details:String(details||'').slice(0,120)})}
-function onDemandHlsSuppressed(url,type){if(type==='live')return false;const row=onDemandHlsHealth.get(onDemandPreferenceKey(url,type));return !!row&&row.count>=3&&Date.now()-row.lastAt<15*60*1000}
 function rememberOnDemandHlsSuccess(url,type){if(type==='live')return;const key=onDemandPreferenceKey(url,type);if(onDemandHlsHealth.has(key)){onDemandHlsHealth.delete(key);playbackDebug('ondemand-hls-recovered',{type,host:mediaHost(url)})}}
 function preferOnDemandSources(values,type,pinned='',pinnedStartupMs=0){const list=uniqueMediaUrls(Array.isArray(values)?values:[values]);if(type==='live'||list.length<2)return list;const pin=String(pinned||'').trim(),base=pin?list.filter(x=>x!==pin):list.slice(),probe=base[0]||pin,pref=probe?onDemandFormatPreference.get(onDemandPreferenceKey(probe,type)):'',slowPin=!!pin&&Number(pinnedStartupMs)>6500;if(pref&&pref!=='m3u8')base.sort((a,b)=>(mediaExtension(b)===pref?1:0)-(mediaExtension(a)===pref?1:0));base.sort((a,b)=>(mediaExtension(a)==='m3u8'?1:0)-(mediaExtension(b)==='m3u8'?1:0));if(slowPin)playbackDebug('slow-source-demoted',{type,host:mediaHost(pin),extension:mediaExtension(pin),lastStartupMs:Math.round(Number(pinnedStartupMs)||0),alternatives:base.length});return uniqueMediaUrls(slowPin?[...base,pin]:[pin,...base])}
 function resolvePlaybackSources(url,entry=null){
@@ -1778,14 +1776,6 @@ async function closeDetail(){
 
   const FAVORITES_MEMORY_KEY='__srhFavorites_'+APP_NS;
   function readFavorites(){return Array.isArray(window[FAVORITES_MEMORY_KEY])?window[FAVORITES_MEMORY_KEY].slice():[]}
-  function clearDisposableStorage(){
-    try{
-      for(let i=localStorage.length-1;i>=0;i--){
-        const k=localStorage.key(i)||'';
-        if(/^srhell:tmdb:cache:/i.test(k))localStorage.removeItem(k);
-      }
-    }catch{}
-  }
   function writeFavorites(list){const compact=(Array.isArray(list)?list:[]).slice(0,160);window[FAVORITES_MEMORY_KEY]=compact;void standardStateSet(FAVORITES_KEY,compact);return true}
   function favoriteKey(type,item){
     if(type==='live'){
@@ -2546,58 +2536,6 @@ async function closeDetail(){
      no image/video frame bytes are stored in localStorage. */
   function historyVodItem(entry){const raw=String(entry?.key||'').split(':')[1]||'',snap=entry?.itemSnapshot&&typeof entry.itemSnapshot==='object'?entry.itemSnapshot:{},ext=String(entry?.containerExtension||snap.container_extension||'mp4').toLowerCase();return{...snap,stream_id:raw,name:entry?.title||snap.name||'Filme',stream_icon:entry?.image||snap.stream_icon||snap.movie_image||'',container_extension:ext}}
   function historySeriesItem(entry){const snap=entry?.itemSnapshot&&typeof entry.itemSnapshot==='object'?entry.itemSnapshot:{},name=String(entry?.title||snap.name||'Série').replace(/\s+[—-]\s+Epis[oó]dio\s+\d+.*$/i,'').trim()||'Série';return{...snap,series_id:entry?.seriesId||snap.series_id,name,cover:entry?.image||snap.cover||snap.movie_image||''}}
-  function beginResumeGate(){
-    const modal=detailModal();
-    if(!modal)return()=>{};
-    modal.querySelector('.srh-resume-gate')?.remove();
-    const gate=document.createElement('div');
-    gate.className='srh-resume-gate';
-    gate.innerHTML='<div class="srh-resume-gate__art"></div><div class="srh-resume-gate__line"></div><div class="srh-resume-gate__line"></div><div class="srh-resume-gate__line"></div><div class="srh-resume-gate__actions"><span class="srh-resume-gate__button"></span><span class="srh-resume-gate__button"></span><span class="srh-resume-gate__button"></span></div>';
-    modal.appendChild(gate);
-    let done=false;
-    const release=()=>{if(done)return;done=true;gate.remove()};
-    setTimeout(release,8500);
-    return release;
-  }
-
-  function waitForSavedFrame(video,position,onDone){
-    return new Promise(resolve=>{
-      if(!video||!(Number(position)>0)){onDone?.();resolve();return}
-      const target=Math.max(0,Number(position)||0);
-      let finished=false,timer=0;
-      const finish=()=>{
-        if(finished)return;
-        finished=true;
-        clearTimeout(timer);
-        try{video.pause()}catch{}
-        try{video.muted=false}catch{}
-        const final=()=>{onDone?.();resolve()};
-        if(typeof video.requestVideoFrameCallback==='function'){
-          let fired=false;
-          try{
-            video.requestVideoFrameCallback(()=>{if(fired)return;fired=true;final()});
-            setTimeout(()=>{if(fired)return;fired=true;final()},260);
-            return;
-          }catch{}
-        }
-        requestAnimationFrame(()=>requestAnimationFrame(final));
-      };
-      const seek=()=>{
-        try{
-          const end=Number.isFinite(video.duration)&&video.duration>0?Math.max(0,video.duration-.35):target;
-          const at=Math.min(target,end);
-          if(Math.abs((video.currentTime||0)-at)<.65&&video.readyState>=2){finish();return}
-          video.currentTime=at;
-        }catch{}
-      };
-      try{video.muted=true}catch{}
-      video.addEventListener('loadedmetadata',seek,{once:true});
-      video.addEventListener('seeked',finish,{once:true});
-      timer=setTimeout(()=>{seek();setTimeout(finish,350)},6200);
-      if(video.readyState>=1)seek();
-    });
-  }
-
   function seekPreviewFrame(video,position,timeout=5200){
     return new Promise(resolve=>{
       let done=false,timer=0;
