@@ -529,7 +529,8 @@ async function runSearch(){
   const q=normalizeSearch(el.search.value),type=state.activeType,token=++state.renderToken;
   destroyVirtualizers();
   if(type==='series'&&seriesProviderGuardBlocked()){renderSeriesProviderGuardBlocked();return}
-  if(!q){renderActiveType();return}
+  if(!q){const restoreY=Number(state.searchOriginScrollY)||0,changed=!!state.searchSessionReplacedContent;renderActiveType();state.searchSessionReplacedContent=false;if(changed)restorePageScroll(restoreY);return}
+  state.searchSessionReplacedContent=true;
   document.body.classList.add('srh-searching');
   el.homeStatus.textContent='Buscando em '+TYPE[type].label+'…';
   el.content.innerHTML=mediaLoaderMarkup('Buscando conteúdo');
@@ -571,15 +572,15 @@ function toggleSearch(){
   if(opening){
     state.searchOriginScrollY=currentPageScroll();
     state.searchOriginType=state.activeType;
+    state.searchSessionReplacedContent=false;
     el.search.placeholder='Buscar em '+TYPE[state.activeType].label.toLocaleLowerCase('pt-BR')+'…';
     setTimeout(focusSearchWithoutScroll,20);
     return
   }
-  const restoreY=Number(state.searchOriginScrollY)||0,hadSearch=document.body.classList.contains('srh-searching')||!!normalizeSearch(el.search.value);
+  const restoreY=Number(state.searchOriginScrollY)||0,changed=!!state.searchSessionReplacedContent;
   el.search.value='';state.searchDataset=null;state.searchType=null;
-  if(hadSearch){renderActiveType();restorePageScroll(restoreY)}
-  else restorePageScroll(restoreY);
-  state.searchOriginScrollY=null;state.searchOriginType=null
+  if(changed){renderActiveType();restorePageScroll(restoreY)}
+  state.searchOriginScrollY=null;state.searchOriginType=null;state.searchSessionReplacedContent=false
 }
 el.searchButton.onclick=toggleSearch;
 const HLS_CDN='https://cdn.jsdelivr.net/npm/hls.js@1.7.3/dist/hls.min.js';
