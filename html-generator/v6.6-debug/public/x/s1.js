@@ -5229,7 +5229,6 @@ async function closeDetail(){
   const baseMainStreamCardDataName=cardDataName;
   cardDataName=function(item,type){const name=baseMainStreamCardDataName(item,type);return type==='live'?compactChannelTitle(name):name};
 
-  const baseRailMetrics=RailVirtualizer.prototype.metrics;
   RailVirtualizer.prototype.metrics=function(){
     const live=this.type==='live';
     const w=innerWidth<680?(live?124:116):(live?178:168);
@@ -5237,7 +5236,6 @@ async function closeDetail(){
     return{w,gap,slot,visible};
   };
 
-  const baseGridMetrics=GridVirtualizer.prototype.metrics;
   GridVirtualizer.prototype.metrics=function(){
     const cs=getComputedStyle(this.scroller),pad=parseFloat(cs.paddingLeft||0)+parseFloat(cs.paddingRight||0),available=Math.max(1,this.scroller.clientWidth-pad),gap=innerWidth<680?8:12,live=this.type==='live',base=live?150:142;
     const cols=innerWidth<680?3:Math.max(4,Math.floor((available+gap)/(base+gap)));
