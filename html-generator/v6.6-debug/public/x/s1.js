@@ -1849,7 +1849,6 @@ async function closeDetail(){
 
   const CONT_MEMORY_KEY='__srhContinue_'+APP_NS;
   const contMemory=window[CONT_MEMORY_KEY]||(window[CONT_MEMORY_KEY]={vod:[],series:[]});
-  const continueCardResources=new Set();
   const continueFrameUrlCache=new Map();
   const continueFrameUpgradeInflight=new Map();
   const continueArtMemory=new Map();
@@ -1945,15 +1944,6 @@ async function closeDetail(){
     return stopped
   }
   window.__srhPurgeContinueFrameWorkers=purgeContinueFrameWorkers;
-
-  function releaseContinueCardResources(){
-    for(const r of continueCardResources){
-      try{r.hls?.destroy?.()}catch{}
-      try{r.video?.pause?.();r.video?.removeAttribute?.('src');r.video?.load?.()}catch{}
-      try{if(r.url)URL.revokeObjectURL(r.url)}catch{}
-    }
-    continueCardResources.clear()
-  }
 
   function writeHistoryBucket(type,list){
     const bucket=type==='series'?'series':'vod',prev=Array.isArray(contMemory[bucket])?contMemory[bucket]:[],compact=(Array.isArray(list)?list:[]).slice(0,60);
@@ -2981,7 +2971,6 @@ async function closeDetail(){
   async function openContinueEntry(entry,type){
     if(!entry||state.srhContinueOpening)return;
     purgeContinueFrameWorkers('continue-open');
-    releaseContinueCardResources();
     const seq=++continueOpenSeq;
     state.srhContinueOpening=true;
     state.srhOpeningContinue=true;
@@ -3028,7 +3017,6 @@ async function closeDetail(){
   };
   const renderContinueNow=()=>{
     purgeContinueFrameWorkers();
-    releaseContinueCardResources();
     state.continueRenderDirty=false;
     return renderContinueCardsInto(el.continueSection,el.continueRow,state.activeType,eligibleContinueEntries(state.activeType))
   };
