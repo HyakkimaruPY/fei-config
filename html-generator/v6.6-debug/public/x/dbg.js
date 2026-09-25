@@ -81,7 +81,7 @@ function requestMeta(value){
     else if(/player_api\.php/i.test(path)&&/^(?:get_vod_info|get_series_info)$/.test(action))kind='xtream.detail';
     else if(/player_api\.php/i.test(path))kind='xtream.api';
     else if(/get\.php/i.test(path)||/\.(?:m3u|m3u8)(?:$|\?)/i.test(path))kind='playlist';
-    else if(/\/(?:movie|series|live)\//i.test(path)||/\.(?:ts|mp4|mkv|webm|aac|mp3)(?:$|\?)/i.test(path))kind='media';
+    else if(/\/(?:movie|series|live|hls|auth)\//i.test(path)||/\.(?:ts|mp4|mkv|webm|aac|mp3)(?:$|\?)/i.test(path))kind='media';
     else if(/themoviedb/i.test(host))kind='tmdb';
     else if(/raw\.githubusercontent\.com|githubusercontent/i.test(host))kind='asset';
     return{kind,origin:u.origin,path,action,categoryId,url:safeUrl(u.href)}
