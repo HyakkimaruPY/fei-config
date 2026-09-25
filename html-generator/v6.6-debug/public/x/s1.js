@@ -1035,7 +1035,7 @@ async function requestSeriesEpisodesBounded(item,{force=false,budgetMs=10500}={}
   const discovery=xuiRouteState.bases.length?Promise.resolve([]):ensureXuiRouteDiscovery(CONFIG,1800).catch(()=>[]);
   const startedAll=performance.now(),deadline=startedAll+Math.max(4500,Number(budgetMs)||10500);let last=null,index=0;
   while(performance.now()<deadline){
-    if(index>=routes.length){await discovery;for(const base of xuiRouteState.bases.slice(0,4)){add(base,'player_api.php','discovered-direct',false);if(CONFIG.corsProxy)add(base,'player_api.php','discovered-proxy',true)}if(index>=routes.length)break}
+    if(index>=routes.length){await discovery;for(const candidate of seriesXuiCandidates(params,CONFIG,seen))routes.push(candidate);if(index>=routes.length)break}
     const candidate=routes[index++],remaining=deadline-performance.now();if(remaining<900)break;
     const preferredRoute=candidate.kind==='preferred'||candidate.kind==='discovered-direct',timeout=Math.max(900,Math.min(preferredRoute?5400:3800,remaining)),started=performance.now();
     try{
