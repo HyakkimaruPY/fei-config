@@ -1710,6 +1710,12 @@ async function closeDetail(){
   state.detailToken++;
   state.seriesPlayToken++;
   state.srhTmdbSeriesId=null;
+  state.srhContinueOpening=false;
+  state.srhOpeningContinue=false;
+  state.srhContinueFramePromise=null;
+  state.srhContinueFrameUrl='';
+  el.detailLayer.style.removeProperty('visibility');
+  el.detailLayer.style.removeProperty('pointer-events');
   await serializePlaybackNavigation('close-detail',()=>destroyCurrentPlayback('close-detail'));
   el.detailLayer.classList.add('is-hidden');
   queueMicrotask(()=>window.__srhFlushContinueRender?.());
@@ -2592,29 +2598,6 @@ async function closeDetail(){
     });
   }
 
-  function clearResumePreview(){
-    const p=state.srhResumePreview;
-    if(!p)return;
-    state.srhResumePreview=null;
-    try{p.hls?.destroy?.()}catch{}
-    try{p.video?.pause?.();p.video?.removeAttribute?.('src');p.video?.load?.()}catch{}
-    try{if(p.url)URL.revokeObjectURL(p.url)}catch{}
-    try{if(p.owned)p.video?.remove?.()}catch{}
-  }
-  const resumeBaseOpenDetail=openDetail;
-  openDetail=function(title){clearResumePreview();return resumeBaseOpenDetail(title)};
-  const resumeBaseCloseDetail=closeDetail;
-  closeDetail=async function(){
-    clearResumePreview();
-    state.srhContinueOpening=false;
-    state.srhOpeningContinue=false;
-    state.srhContinueFramePromise=null;
-    state.srhContinueFrameUrl='';
-    el.detailLayer.style.removeProperty('visibility');
-    el.detailLayer.style.removeProperty('pointer-events');
-    return resumeBaseCloseDetail.apply(this,arguments)
-  };
-
   function seekPreviewFrame(video,position,timeout=5200){
     return new Promise(resolve=>{
       let done=false,timer=0;
@@ -2876,7 +2859,6 @@ async function closeDetail(){
   async function openContinueMovie(entry){
     const item=historyVodItem(entry);
     if(!item.stream_id)return;
-    clearResumePreview();
     const framePromise=readContinueFrame(entry).catch(()=>null).then(frame=>{
       const exact=isExactFramePayload(frame)?frame:null;
       state.srhContinueFrameUrl=exact?storedFrameUrl({...entry,type:'vod'},exact):'';
@@ -2893,7 +2875,7 @@ async function closeDetail(){
       const exact=useStoredFrameImage(image,{...entry,type:'vod'},frame);
       playbackDebug('continue-frame-gate',{type:'vod',key:entry.key,exact,source:exact?'indexeddb':'catalog-fallback',modalSkeleton:true,fastRead:true});
       void refreshModalFrame(entry,'vod',token,image);
-      if(watch)watch.addEventListener('click',()=>{clearResumePreview();art.classList.remove('srh-resume-previewing')},{once:true,capture:true})
+      if(watch)watch.addEventListener('click',()=>{art.classList.remove('srh-resume-previewing')},{once:true,capture:true})
     }finally{
       if(state.srhContinueFramePromise===framePromise){state.srhContinueFramePromise=null;state.srhContinueFrameUrl=''}
     }
@@ -2902,7 +2884,6 @@ async function closeDetail(){
   async function openContinueSeries(entry){
     const item=historySeriesItem(entry);
     if(!item.series_id)return;
-    clearResumePreview();
     const framePromise=readContinueFrame(entry).catch(()=>null).then(frame=>{
       const exact=isExactFramePayload(frame)?frame:null;
       state.srhContinueFrameUrl=exact?storedFrameUrl({...entry,type:'series'},exact):'';
