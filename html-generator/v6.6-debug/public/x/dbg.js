@@ -2,7 +2,7 @@
 'use strict';
 if(window.SRHDebug)return;
 
-const VERSION='debug-supervisor-7';
+const VERSION='debug-supervisor-8';
 const STORAGE_SCHEMA=3;
 const HISTORY_SCHEMA=3;
 const CACHE_SCHEMA=2;
@@ -190,7 +190,11 @@ function issueExport(){
     severity:x.status==='active'?'error':x.type==='slow'?'slow':'recovered',details:sanitize(x.details||{})
   }));
   const recommendation=sanitize(get('recommendation')||{}),performance=debugPerformanceExport();
-  return{sessionId:SESSION_ID,build:clone(window.__SRH_DEBUG_BUILD__||{}),recommendation,performance,count:rows.length,summary:{active:rows.filter(x=>x.severity==='error').length,slow:rows.filter(x=>x.severity==='slow').length,recovered:rows.filter(x=>x.severity==='recovered').length},issues:rows}
+  const playbackTrace=logs.filter(x=>String(x?.event||'').startsWith('standard.playback.')).slice(-80).map(x=>({time:x.time,event:x.event.replace(/^standard\.playback\./,''),data:sanitize(x.data||{})}));
+  const storageTrace=logs.filter(x=>x?.event==='standard.storage.slow').slice(-20).map(x=>({time:x.time,event:'slow',data:sanitize(x.data||{})}));
+  const player={state:sanitize(get('player')||{}),trace:playbackTrace};
+  const storageRuntime={state:sanitize(get('storage')||{}),trace:storageTrace};
+  return{sessionId:SESSION_ID,build:clone(window.__SRH_DEBUG_BUILD__||{}),recommendation,performance,player,storageRuntime,count:rows.length,summary:{active:rows.filter(x=>x.severity==='error').length,slow:rows.filter(x=>x.severity==='slow').length,recovered:rows.filter(x=>x.severity==='recovered').length},issues:rows}
 }
 function sanitize(v,depth=0){if(depth>5)return'[max-depth]';if(v==null||typeof v==='number'||typeof v==='boolean')return v;if(typeof v==='string')return safeText(v).slice(0,1800);if(Array.isArray(v))return v.slice(0,100).map(x=>sanitize(x,depth+1));if(typeof v==='object'){const out={};for(const [k,x] of Object.entries(v)){if(/pass|token|secret|cookie|authorization|credential/i.test(k))out[k]='[redacted]';else out[k]=sanitize(x,depth+1)}return out}return safeText(v)}
 function log(level,event,data={}){const row={time:now(),level,event:safeText(event),data:sanitize(data)};logs.push(row);if(logs.length>600)logs.splice(0,logs.length-600);bus.dispatchEvent(new CustomEvent('log',{detail:row}));return row}
