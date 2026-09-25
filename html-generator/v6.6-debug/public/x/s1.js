@@ -2005,15 +2005,16 @@ async function closeDetail(){
   function detailSkeleton(type){
     const title='<span class="srh-shimmer-line srh-shimmer-line--title"></span>';
     const synopsis='<div class="synopsis srh-skeleton-synopsis"><span class="srh-shimmer-line"></span><span class="srh-shimmer-line"></span><span class="srh-shimmer-line"></span></div>';
+    const brand='<div class="srh-art-brand srh-skeleton-brand" aria-hidden="true"><span class="srh-shimmer-line srh-shimmer-brand"></span></div>';
     const episode='<article class="episode srh-episode-skeleton" aria-hidden="true"><span class="episode__thumb srh-shimmer-block"></span><div class="srh-episode-skeleton__body"><span class="srh-shimmer-line"></span><span class="srh-shimmer-line"></span><span class="episode__progress"></span></div><span class="episode__play srh-shimmer-button"></span></article>';
     if(type==='live'){
       const quality='<button class="quality-row srh-shimmer-row" type="button" disabled></button>';
       return '<div class="detail-content srh-modal-loading"><div class="detail-art srh-shimmer-block"></div><div class="detail-title-row">'+title+'</div><div class="quality-list srh-skeleton-quality">'+quality+quality+quality+'</div></div>';
     }
     if(type==='series'){
-      return '<div class="detail-content srh-modal-loading"><div class="series-static"><div class="detail-art srh-shimmer-block"></div><div class="detail-title-row">'+title+'<div class="srh-lite-actions"><span class="srh-lite-action srh-shimmer-button"></span><span class="srh-lite-action srh-shimmer-button"></span></div></div>'+synopsis+'<div class="season-box"><button class="season-trigger srh-shimmer-row" type="button" disabled></button></div></div><div class="episode-container"><div class="episode-list srh-skeleton-episodes">'+episode+episode+episode+'</div></div></div>';
+      return '<div class="detail-content srh-modal-loading"><div class="series-static"><div class="detail-art srh-shimmer-block">'+brand+'</div>'+synopsis+'<div class="season-box srh-season-actions"><button class="season-trigger srh-shimmer-row" type="button" disabled></button><div class="srh-series-season-actions"><span class="srh-lite-action srh-shimmer-button"></span><span class="srh-lite-action srh-shimmer-button"></span></div></div></div><div class="episode-container"><div class="episode-list srh-skeleton-episodes">'+episode+episode+episode+'</div></div></div>';
     }
-    return '<div class="detail-content srh-modal-loading"><div class="detail-art srh-shimmer-block"></div><div class="detail-title-row">'+title+'</div>'+synopsis+'<div class="srh-lite-film-actions"><div class="srh-lite-actions"><span class="srh-lite-action srh-shimmer-button"></span><span class="srh-lite-action srh-shimmer-button"></span></div><span class="watch-button srh-shimmer-button srh-shimmer-button--wide"></span></div></div>';
+    return '<div class="detail-content srh-modal-loading"><div class="detail-art srh-shimmer-block">'+brand+'</div>'+synopsis+'<div class="srh-lite-film-actions"><div class="srh-lite-actions"><span class="srh-lite-action srh-shimmer-button"></span><span class="srh-lite-action srh-shimmer-button"></span></div><span class="watch-button srh-shimmer-button srh-shimmer-button--wide"></span></div></div>';
   }
 
   const baseOpenDetail=openDetail;
