@@ -270,7 +270,6 @@ async function request(params={},cfg=CONFIG){
   try{const data=await requestJson(target);if(!params?.action)rememberXuiServerInfo(data,cfg);return data}
   catch(error){if(!cfg.corsProxy)throw error;const data=await requestJson(proxyUrl(target,cfg));if(!params?.action)rememberXuiServerInfo(data,cfg);return data}
 }
-const detailRequestInflight=new Map();
 const detailResponseCache=new Map();
 const DETAIL_CACHE_TTL=6*60*1000,DETAIL_STALE_TTL=60*60*1000;
 function cloneDetailPayload(value){
@@ -327,40 +326,6 @@ async function requestProviderDetailStable(params={},cfg=CONFIG,timeout=12000,op
     }
   }
   throw last||new Error('Não foi possível carregar os detalhes.')
-}
-async function requestDetail(params={},cfg=CONFIG){
-  const action=String(params?.action||''),mediaId=String(params?.series_id??params?.vod_id??params?.stream_id??''),origin=(()=>{try{return new URL(apiUrl({},cfg)).origin}catch{return''}})();
-  const key=[normalizeServer(cfg.server),String(cfg.username||''),action,mediaId].join('|');
-  const cached=detailResponseCache.get(key),age=cached?Date.now()-Number(cached.at||0):Infinity;
-  if(cached&&age<DETAIL_CACHE_TTL){
-    playbackDebug('detail-cache-hit',{action,mediaId,ageMs:Math.round(age)});
-    return cloneDetailPayload(cached.data)
-  }
-  if(detailRequestInflight.has(key))return detailRequestInflight.get(key);
-  const job=(async()=>{
-    const target=apiUrl(params,cfg),urls=[target];if(cfg.corsProxy)urls.push(proxyUrl(target,cfg));
-    const started=performance.now();let last=null;
-    for(const url of urls){
-      try{
-        const data=await requestJson(url,14000,{srhProbe:true});
-        const ms=Math.round(performance.now()-started);
-        if(ms>2600)window.SRHDebug?.noteSlow?.({kind:'detail.api',action,mediaId,origin,layer:'fetch',ms,message:'Detalhe demorou para carregar'});
-        window.SRHDebug?.noteRecovery?.({kind:'detail.api',action,mediaId,origin,layer:'fetch',ms,status:200});
-        detailResponseCache.set(key,{at:Date.now(),data:cloneDetailPayload(data)});
-        if(detailResponseCache.size>18)detailResponseCache.delete(detailResponseCache.keys().next().value);
-        return data
-      }catch(e){last=e}
-    }
-    const ms=Math.round(performance.now()-started);
-    if(cached&&age<DETAIL_STALE_TTL){
-      window.SRHDebug?.noteRecovery?.({kind:'detail.api',action,mediaId,origin,layer:'fetch',ms,status:200,message:'Detalhe recuperado do cache após falha do provedor'});
-      playbackDebug('detail-cache-stale',{action,mediaId,ageMs:Math.round(age),reason:last?.message||'provider-failure'});
-      return cloneDetailPayload(cached.data)
-    }
-    window.SRHDebug?.noteFailure?.({kind:'detail.api',action,mediaId,origin,layer:'fetch',ms,message:last?.message||'Falha ao carregar detalhe'});
-    throw last||new Error('Não foi possível carregar os detalhes.')
-  })().finally(()=>detailRequestInflight.delete(key));
-  detailRequestInflight.set(key,job);return job
 }
 function targetId(t){return String(t?.id??t?.category_id??t?.categoryId??'').trim()}
 function targetKey(t){const id=targetId(t);return String(t?.type||'')+'::'+(id?'id:'+id:'name:'+String(t?.name||''))}
