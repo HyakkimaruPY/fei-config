@@ -414,7 +414,7 @@ if(originalFetch){
         if(res.ok){
           if(circuitEnabled)recordCircuit(key,true);
           if(!probe&&policy){try{const copy=res.clone(),body=await copy.text();cache.put(policy.ns,url,res,body,policy)}catch{}}
-          const ms=Math.round(performance.now()-started);if(!probe)noteRecovery({...meta,layer:'fetch',ms,status:res.status});if(!probe&&!meta.kind.startsWith('catalog.')&&ms>2600)noteSlow({...meta,layer:'fetch',ms,message:'Resposta lenta'});log('info','network.response',{id,traceId,...meta,status:res.status,attempt,ms,probe});
+          const ms=Math.round(performance.now()-started);if(!probe)noteRecovery({...meta,layer:'fetch',ms,status:res.status});if(!probe&&!meta.kind.startsWith('catalog.')&&ms>2600)noteSlow({...meta,layer:'fetch',ms,message:'Resposta lenta',details:{source:meta.url,path:meta.path,action:meta.action||''}});log('info','network.response',{id,traceId,...meta,status:res.status,attempt,ms,probe});
           return res
         }
         if(!retryable){const ms=Math.round(performance.now()-started);if(!probe){state.network.failed++;noteFailure({...meta,layer:'fetch',message:'HTTP '+res.status,status:res.status,ms})}log('warn','network.response',{id,traceId,...meta,status:res.status,attempt,ms,probe});return res}
@@ -884,7 +884,7 @@ function installPerformanceTracing(){
     longObserver.observe({entryTypes:['longtask']})
   }catch{}
   try{
-    const resourceObserver=new PerformanceObserver(list=>{for(const e of list.getEntries()){if(e.duration<2500)continue;const meta=requestMeta(e.name),initiator=String(e.initiatorType||'').toLowerCase();if(meta.kind.startsWith('catalog.')||meta.kind==='xtream.api'||meta.kind==='proxy'||meta.kind==='media'||initiator==='video'||initiator==='audio'||initiator==='img')continue;state.performance.slowResources++;patch('performance',{slowResources:state.performance.slowResources});noteSlow({...meta,layer:'resource',ms:Math.round(e.duration),message:'Recurso demorou para carregar',details:{initiatorType:e.initiatorType,transferSize:e.transferSize||0}})}});
+    const resourceObserver=new PerformanceObserver(list=>{for(const e of list.getEntries()){if(e.duration<2500)continue;const meta=requestMeta(e.name),initiator=String(e.initiatorType||'').toLowerCase();if(meta.kind.startsWith('catalog.')||meta.kind==='xtream.api'||meta.kind==='proxy'||meta.kind==='media'||initiator==='video'||initiator==='audio'||initiator==='img')continue;state.performance.slowResources++;patch('performance',{slowResources:state.performance.slowResources});noteSlow({...meta,layer:'resource',ms:Math.round(e.duration),message:'Recurso demorou para carregar',details:{initiatorType:e.initiatorType,transferSize:e.transferSize||0,source:meta.url,path:meta.path,action:meta.action||''}})}});
     resourceObserver.observe({entryTypes:['resource']})
   }catch{}
 }
