@@ -997,7 +997,7 @@ body.srh-search-mode .search-wrap{
 .srh-search-stage__body{
   position:absolute;
   z-index:2;
-  top:114px;
+  top:124px;
   left:clamp(12px,3vw,44px);
   right:clamp(12px,3vw,44px);
   bottom:max(8px,env(safe-area-inset-bottom));
@@ -1094,7 +1094,7 @@ body.srh-search-mode .search-wrap{
 }
 @media(max-width:680px){
   .srh-search-stage__body{
-    top:108px;
+    top:118px;
     left:10px;
     right:10px;
     bottom:max(6px,env(safe-area-inset-bottom));
