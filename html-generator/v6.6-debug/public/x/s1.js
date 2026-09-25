@@ -588,6 +588,7 @@ async function runSearch(){
     const result=await getSearchDataset(type,homeToken);
     if(seq!==state.searchQueryToken||homeToken!==state.renderToken||type!==state.activeType||!document.body.classList.contains('srh-search-mode'))return;
     const items=result.items.filter(item=>normalizeSearch(cardDataName(item,type)).includes(q)),p=searchStageParts();
+    playbackDebug('search-results',{type,queryChars:Array.from(q).length,results:items.length,failedCategories:result.failed});
     if(result.failed)setSearchStatus('Parte do catálogo não carregou. '+result.failed+' categoria(s) indisponível(is).','Tentar novamente',()=>{state.searchDataset=null;void runSearch()});
     else if(!items.length)setSearchStatus('Nenhum título encontrado. Tente outro nome.');
     else setSearchStatus('');
@@ -609,6 +610,7 @@ function closeSearchMode(opts={}){
   el.search.value='';setSearchStageOpen(false);
   try{el.search.blur()}catch{}
   window.dispatchEvent(new CustomEvent('srh:search-mode',{detail:{active:false,selection:!!opts.selection}}));
+  playbackDebug('search-mode-close',{type:state.activeType,selection:!!opts.selection});
   state.searchOriginScrollY=null;state.searchOriginType=null
 }
 function openSearchMode(){
@@ -619,6 +621,7 @@ function openSearchMode(){
   el.searchWrap.classList.add('is-open');el.searchButton.classList.add('is-active');
   el.search.placeholder='Buscar em '+TYPE[state.activeType].label.toLocaleLowerCase('pt-BR')+'…';
   window.dispatchEvent(new CustomEvent('srh:search-mode',{detail:{active:true,type:state.activeType}}));
+  playbackDebug('search-mode-open',{type:state.activeType,scrollY:Math.round(Number(state.searchOriginScrollY)||0)});
   setTimeout(focusSearchWithoutScroll,20)
 }
 function toggleSearch(){document.body.classList.contains('srh-search-mode')?closeSearchMode():openSearchMode()}
@@ -4404,10 +4407,11 @@ async function closeDetail(){
     }
     playbackDebug('hero-search-resume',{type:state.activeType,index:heroIndex,count:heroItems.length});
     if(!heroItems.length||!heroNode?.isConnected)return;
-    heroTimer=setTimeout(()=>{
-      if(!heroIsVisible()){heroTimer=setTimeout(()=>{if(heroIsVisible())showHero((heroIndex+1)%Math.max(1,heroItems.length))},1000);return}
+    const resume=()=>{
+      if(!heroIsVisible()){heroTimer=setTimeout(resume,1000);return}
       showHero((heroIndex+1)%Math.max(1,heroItems.length))
-    },7000)
+    };
+    heroTimer=setTimeout(resume,7000)
   });
   function compactChannelTitle(value){
     const s=stripEmoji(String(value||'Canal'),'Canal').replace(/\s{2,}/g,' ').trim();
