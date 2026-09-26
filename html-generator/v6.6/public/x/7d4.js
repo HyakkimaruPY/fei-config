@@ -72,7 +72,7 @@ const UI_ICON_CHEVRON_UP='<svg width="18" height="18" viewBox="0 0 24 24" aria-h
 const UI_ICON_RATING_STAR='<svg width="14" height="14" viewBox="0 0 24 24" aria-hidden="true" focusable="false"><path d="M12 3.6l2.55 5.17 5.7.83-4.12 4.02.97 5.68L12 16.62 6.9 19.3l.97-5.68L3.75 9.6l5.7-.83L12 3.6z" fill="currentColor"/></svg>';
 function setUpdateAccordionIcon(hidden){if(!el.updateAccordionIcon)return;el.updateAccordionIcon.innerHTML=hidden?UI_ICON_CHEVRON_DOWN:UI_ICON_CHEVRON_UP}
 function toast(msg){el.toast.textContent=msg;el.toast.classList.add('is-show');clearTimeout(toast.t);toast.t=setTimeout(()=>el.toast.classList.remove('is-show'),2200)}
-const SERIES_PROVIDER_GUARD_LIMIT=3,SERIES_PROVIDER_GUARD_KEY='srhell:'+STANDARD_APP_NS+':series-provider-guard:v2';
+const SERIES_PROVIDER_GUARD_LIMIT=3,SERIES_PROVIDER_GUARD_KEY='srhell:'+STANDARD_APP_NS+':series-provider-guard:v3';
 function seriesProviderGuardFingerprint(){
   const origin=(()=>{try{return new URL(normalizeServer(CONFIG.server)).origin.toLowerCase()}catch{return normalizeServer(CONFIG.server).toLowerCase()}})();
   let h=2166136261;for(const ch of String(CONFIG.username||'')){h^=ch.charCodeAt(0);h=Math.imul(h,16777619)}
