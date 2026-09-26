@@ -3962,8 +3962,24 @@ async function closeDetail(){
     }
     queueSimilarStoreWrite(store)
   }
+  async function recommendationTargetIds(type){
+    const allowed=configuredTargetIds(type);
+    let map=null;
+    try{map=await categoryMap(type)}catch{}
+    if(map){
+      for(const target of targetsFor(type)){
+        const id=targetId(target),name=String(target?.name||'');
+        if(id&&map.__ids?.has(id)){allowed.add(id);continue}
+        if(name&&!map.__duplicates?.has(name)){
+          const current=map.get(name);
+          if(current)allowed.add(current)
+        }
+      }
+    }
+    return allowed
+  }
   async function revalidateCachedRows(type,rows,limit=12){
-    const allowed=configuredTargetIds(type),out=[];
+    const allowed=await recommendationTargetIds(type),out=[];
     for(const saved of rows||[]){
       const item=saved?.item||saved,cid=String(item?._srhCategoryId??item?.categoryId??item?.category_id??'').trim(),iid=String(itemId(item,type)||'');
       if(!cid||!allowed.has(cid)||!iid)continue;
@@ -3995,8 +4011,10 @@ async function closeDetail(){
   function sourceItem(type,source){
     if(!source)return null;
     const snap=source.itemSnapshot&&typeof source.itemSnapshot==='object'?source.itemSnapshot:{};
-    if(type==='series')return{...snap,series_id:source.seriesId||snap.series_id||source.series_id,name:source.title||snap.name||source.name||'Série'};
-    return{...snap,stream_id:String(source.key||'').split(':')[1]||snap.stream_id||source.stream_id,name:source.title||snap.name||source.name||'Filme',container_extension:source.containerExtension||snap.container_extension||source.container_extension||'mp4'}
+    const tmdbId=source.tmdb_id??source.tmdb??source.tmdbId??snap.tmdb_id??snap.tmdb??snap.tmdbId??'';
+    const categoryId=source._srhCategoryId??source.category_id??source.categoryId??snap._srhCategoryId??snap.category_id??snap.categoryId??'';
+    if(type==='series')return{...snap,series_id:source.seriesId||snap.series_id||source.series_id,name:source.title||snap.name||source.name||'Série',tmdb_id:tmdbId,categoryId,_srhCategoryId:categoryId};
+    return{...snap,stream_id:String(source.key||'').split(':')[1]||snap.stream_id||source.stream_id,name:source.title||snap.name||source.name||'Filme',container_extension:source.containerExtension||snap.container_extension||source.container_extension||'mp4',tmdb_id:tmdbId,categoryId,_srhCategoryId:categoryId}
   }
   async function rawProvider(params,timeout=4800){
     const urls=[apiUrl(params,CONFIG)];
