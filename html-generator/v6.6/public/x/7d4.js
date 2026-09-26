@@ -417,13 +417,34 @@ async function refreshAccount(){
 }
 async function categoryMap(type,force=false,cfg=CONFIG){if(!force&&cfg===CONFIG&&state.categoryMaps.has(type))return state.categoryMaps.get(type);const raw=await request({action:TYPE[type].categories},cfg),map=buildCategoryLookup(raw);if(cfg===CONFIG)state.categoryMaps.set(type,map);return map}
 async function resolveCategoryId(target){
-  const explicit=targetId(target),allowed=configuredTargetIds(target?.type);
-  if(explicit){if(allowed.size&&!allowed.has(explicit))throw new Error('Categoria fora do escopo configurado.');return explicit}
-  const map=await categoryMap(target.type),name=String(target?.name||'');
-  if(map.__duplicates?.has(name))throw new Error('Categoria ambígua no HTML legado: '+stripEmoji(name)+'. Reconfigure a categoria.');
-  const id=map.get(name);if(!id)throw new Error('Categoria não encontrada: '+stripEmoji(name));return id
+  const explicit=targetId(target),name=String(target?.name||'');
+  let map=null;
+  try{map=await categoryMap(target.type)}catch(e){if(explicit)return explicit;throw e}
+  if(explicit&&map.__ids?.has(explicit))return explicit;
+  if(name){
+    if(map.__duplicates?.has(name)){
+      if(explicit)return explicit;
+      throw new Error('Categoria ambígua no HTML legado: '+stripEmoji(name)+'. Reconfigure a categoria.')
+    }
+    const current=map.get(name);
+    if(current)return current
+  }
+  if(explicit)return explicit;
+  throw new Error('Categoria não encontrada: '+stripEmoji(name))
 }
-async function loadTargetItems(target){const id=await resolveCategoryId(target),raw=await request({action:TYPE[target.type].content,category_id:id});return scopeCategoryItems(raw,target.type,id)}
+async function loadTargetItems(target){
+  const id=await resolveCategoryId(target),raw=await request({action:TYPE[target.type].content,category_id:id}),scoped=scopeCategoryItems(raw,target.type,id);
+  if(scoped.length||!Array.isArray(raw)||!raw.length)return scoped;
+  const fallback=[],membership=new Set();
+  for(const item of raw){
+    if(!item||typeof item!=='object')continue;
+    try{item._srhCategoryId=id}catch{}
+    const iid=String(itemId(item,target.type)||'');if(iid)membership.add(iid);fallback.push(item)
+  }
+  if(!state.srhCatalogMembership)state.srhCatalogMembership=new Map();
+  state.srhCatalogMembership.set(target.type+':'+String(id||''),membership);
+  return fallback
+}
 function streamUrl(type,item){const base=normalizeServer(CONFIG.server),u=encodeURIComponent(CONFIG.username),p=encodeURIComponent(CONFIG.password),id=item?.id||item?.stream_id;let ext=item?.container_extension||item?.containerExtension||'';if(type==='live')return `${base}/live/${u}/${p}/${id}.${CONFIG.liveExtension||'m3u8'}`;if(type==='series')return `${base}/series/${u}/${p}/${id}.${ext||'mp4'}`;return `${base}/movie/${u}/${p}/${id}.${ext||'mp4'}`}
 function uniqueMediaUrls(values){const out=[];for(const raw of values||[]){const v=String(raw||'').trim();if(v&&!out.includes(v))out.push(v)}return out}
 function normalizeMediaUrl(value){const v=String(value||'').trim();if(!v)return'';if(/^https?:\/\//i.test(v))return v;if(v.startsWith('/'))return normalizeServer(CONFIG.server)+v;return''}
