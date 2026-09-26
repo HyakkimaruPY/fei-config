@@ -433,17 +433,8 @@ async function resolveCategoryId(target){
   throw new Error('Categoria não encontrada: '+stripEmoji(name))
 }
 async function loadTargetItems(target){
-  const id=await resolveCategoryId(target),raw=await request({action:TYPE[target.type].content,category_id:id}),scoped=scopeCategoryItems(raw,target.type,id);
-  if(scoped.length||!Array.isArray(raw)||!raw.length)return scoped;
-  const fallback=[],membership=new Set();
-  for(const item of raw){
-    if(!item||typeof item!=='object')continue;
-    try{item._srhCategoryId=id}catch{}
-    const iid=String(itemId(item,target.type)||'');if(iid)membership.add(iid);fallback.push(item)
-  }
-  if(!state.srhCatalogMembership)state.srhCatalogMembership=new Map();
-  state.srhCatalogMembership.set(target.type+':'+String(id||''),membership);
-  return fallback
+  const id=await resolveCategoryId(target),raw=await request({action:TYPE[target.type].content,category_id:id});
+  return scopeCategoryItems(raw,target.type,id)
 }
 function streamUrl(type,item){const base=normalizeServer(CONFIG.server),u=encodeURIComponent(CONFIG.username),p=encodeURIComponent(CONFIG.password),id=item?.id||item?.stream_id;let ext=item?.container_extension||item?.containerExtension||'';if(type==='live')return `${base}/live/${u}/${p}/${id}.${CONFIG.liveExtension||'m3u8'}`;if(type==='series')return `${base}/series/${u}/${p}/${id}.${ext||'mp4'}`;return `${base}/movie/${u}/${p}/${id}.${ext||'mp4'}`}
 function uniqueMediaUrls(values){const out=[];for(const raw of values||[]){const v=String(raw||'').trim();if(v&&!out.includes(v))out.push(v)}return out}
@@ -2277,14 +2268,21 @@ async function closeDetail(){
   }
   loadTargetItems=async function(target,token=state.renderToken,opts=null){
     if(token!==state.renderToken)return[];
-    let id=targetId(target),allowed=configuredTargetIds(target?.type);
+    let id=targetId(target),allowed=configuredTargetIds(target?.type),map=null;
     if(id&&allowed.size&&!allowed.has(id))throw new Error('Categoria fora do escopo configurado.');
-    if(!id){
-      const map=await stableRailCategoryMap(target.type),name=String(target?.name||'');
-      if(map.__duplicates?.has(name))throw new Error('Categoria ambígua no HTML legado: '+stripEmoji(name)+'.');
-      id=map.get(name)
-    }
+    try{map=await stableRailCategoryMap(target.type)}catch(e){if(!id)throw e}
     if(token!==state.renderToken)return[];
+    if(map){
+      const name=String(target?.name||'');
+      if(!id||!map.__ids?.has(id)){
+        if(map.__duplicates?.has(name)){
+          if(!id)throw new Error('Categoria ambígua no HTML legado: '+stripEmoji(name)+'.');
+        }else{
+          const current=map.get(name);
+          if(current)id=current
+        }
+      }
+    }
     if(!id)throw new Error('Categoria não encontrada: '+stripEmoji(target.name));
     const key=target.type+':'+id,cached=catalogCache.get(key);
     if(cached&&Date.now()-cached.at<240000){
