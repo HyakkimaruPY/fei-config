@@ -1662,14 +1662,11 @@ async function resolveModalDetailPackage(type,item,providerData){
   ].filter(x=>x.src);
   let art='',artSource='none';
   const logoCandidate=String(tmdb?.logo||'').trim();
-  const [ready,logoReady]=await Promise.all([
-    Promise.all(candidates.map(candidate=>preloadModalAsset(candidate.src))),
-    logoCandidate?preloadModalAsset(logoCandidate,4200):Promise.resolve(false)
-  ]);
+  const ready=await Promise.all(candidates.map(candidate=>preloadModalAsset(candidate.src)));
   const chosenIndex=ready.findIndex(Boolean);
   if(chosenIndex>=0){art=candidates[chosenIndex].src;artSource=candidates[chosenIndex].source}
   else if(candidates[0]){art=candidates[0].src;artSource=candidates[0].source}
-  const logo=logoCandidate&&logoReady?logoCandidate:'';
+  const logo=logoCandidate;
   const overview=String(tmdb?.overview||providerOverview||'').trim();
   const title=stripEmoji(tmdb?.title||providerTitle,'Sem título');
   const year=String(tmdb?.year||providerYear||'').trim();
@@ -3026,7 +3023,10 @@ async function closeDetail(){
     const year=titleYear(rawTitle)||titleYear(extra?.name||extra?.title||'');
     const cacheKey=kind+':'+(explicit?'id:'+explicit:'q:'+clean.toLocaleLowerCase('pt-BR')+':'+year);
     const cached=cacheRead(cacheKey),stale=cached||cacheReadStale(cacheKey);
-    if(Number(cached?.metadataVersion||0)>=TMDB_METADATA_VERSION)return cached;
+    const cachedComplete=Number(cached?.metadataVersion||0)>=TMDB_METADATA_VERSION;
+    if(cachedComplete&&cached?.logo)return cached;
+    if(cachedComplete&&logoRefreshTried.has(cacheKey))return cached;
+    if(cachedComplete)logoRefreshTried.add(cacheKey);
 
     let id=explicit||String(stale?.id||''),picked=null;
     if(!id&&clean){
@@ -3048,6 +3048,7 @@ async function closeDetail(){
     let pt=null,en=null;
     try{pt=await detailsById(kind,id,'pt-BR')}
     catch(e){
+      if(cachedComplete)logoRefreshTried.delete(cacheKey);
       if(picked?.backdrop_path||picked?.poster_path){
         return{
           ...(stale||{}),
@@ -3767,7 +3768,7 @@ async function closeDetail(){
     const type=kind==='tv'?'series':'vod';
     const id=String(kind==='tv'?(item?.series_id??item?.id??''):(item?.stream_id??item?.id??''));
     const rich=id?detailTmdb.get(type+':'+id):null;
-    if(Number(rich?.metadataVersion||0)>=TMDB_METADATA_VERSION)return rich;
+    if(Number(rich?.metadataVersion||0)>=TMDB_METADATA_VERSION&&rich?.logo)return rich;
     const resolved=await resolveTmdb(kind,item,extra);
     if(rich){
       if(!resolved)return rich;
