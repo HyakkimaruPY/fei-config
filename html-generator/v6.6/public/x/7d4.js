@@ -3023,7 +3023,10 @@ async function closeDetail(){
     const year=titleYear(rawTitle)||titleYear(extra?.name||extra?.title||'');
     const cacheKey=kind+':'+(explicit?'id:'+explicit:'q:'+clean.toLocaleLowerCase('pt-BR')+':'+year);
     const cached=cacheRead(cacheKey),stale=cached||cacheReadStale(cacheKey);
-    if(Number(cached?.metadataVersion||0)>=TMDB_METADATA_VERSION)return cached;
+    const cachedComplete=Number(cached?.metadataVersion||0)>=TMDB_METADATA_VERSION;
+    if(cachedComplete&&cached?.logo)return cached;
+    if(cachedComplete&&logoRefreshTried.has(cacheKey))return cached;
+    if(cachedComplete)logoRefreshTried.add(cacheKey);
 
     let id=explicit||String(stale?.id||''),picked=null;
     if(!id&&clean){
@@ -3045,6 +3048,7 @@ async function closeDetail(){
     let pt=null,en=null;
     try{pt=await detailsById(kind,id,'pt-BR')}
     catch(e){
+      if(cachedComplete)logoRefreshTried.delete(cacheKey);
       if(picked?.backdrop_path||picked?.poster_path){
         return{
           ...(stale||{}),
@@ -3764,7 +3768,7 @@ async function closeDetail(){
     const type=kind==='tv'?'series':'vod';
     const id=String(kind==='tv'?(item?.series_id??item?.id??''):(item?.stream_id??item?.id??''));
     const rich=id?detailTmdb.get(type+':'+id):null;
-    if(Number(rich?.metadataVersion||0)>=TMDB_METADATA_VERSION)return rich;
+    if(Number(rich?.metadataVersion||0)>=TMDB_METADATA_VERSION&&rich?.logo)return rich;
     const resolved=await resolveTmdb(kind,item,extra);
     if(rich){
       if(!resolved)return rich;
@@ -3906,6 +3910,19 @@ async function closeDetail(){
   const SIMILAR='<svg class="srh-lite-icon srh-lite-icon--similar" viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 7.5h6v-3h-6zM13.5 7.5h6v-3h-6zM4.5 19.5h6v-8h-6zM13.5 19.5h6v-8h-6z"/></svg>';
   const CLOSE='<svg class="ui-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M6.5 6.5l11 11M17.5 6.5l-11 11"/></svg>';
   const recCache=new Map(),probeCache=new Map(),configuredIndexCache=new Map();
+  const probeCancels=new Set();
+  let probeEpoch=0;
+  function foregroundPlaybackBusy(){
+    const video=state.detailInlineVideo?.video||state.seriesVideo?.video||(state.playerActive?el.video:null);
+    return !video?.ended&&['preparing','loading','playing','paused','stalled','destroying'].includes(state.playbackLifecycle)
+  }
+  const recommendationPlaybackLaunch=notePlaybackLaunch;
+  notePlaybackLaunch=function(...args){
+    ++probeEpoch;
+    for(const cancel of [...probeCancels])cancel();
+    return recommendationPlaybackLaunch.apply(this,args)
+  };
+
   const similarStoreKey=()=> 'srhell:'+STANDARD_APP_NS+':standard:similar:'+standardProviderId()+':v1';
   let recSeq=0,endRecoSeq=0,similarStorePromise=null,similarStoreBoundKey='',similarWriteTail=Promise.resolve(),similarJobTail=Promise.resolve();
   const similarJobs=new Map();
@@ -4013,17 +4030,20 @@ async function closeDetail(){
     return{...snap,stream_id:String(source.key||'').split(':')[1]||snap.stream_id||source.stream_id,name:source.title||snap.name||source.name||'Filme',container_extension:source.containerExtension||snap.container_extension||source.container_extension||'mp4',tmdb_id:tmdbId,categoryId,_srhCategoryId:categoryId}
   }
   async function rawProvider(params,timeout=4800){
+    const deadline=Date.now()+timeout;
     const urls=[apiUrl(params,CONFIG)];
     if(CONFIG.corsProxy)urls.push(proxyUrl(urls[0],CONFIG));
     let last=null;
     for(const url of urls){
-      const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),timeout);
+      const remaining=deadline-Date.now();if(remaining<=0||foregroundPlaybackBusy())break;
+      const ctrl=new AbortController(),cancel=()=>ctrl.abort(),timer=setTimeout(cancel,remaining);
+      probeCancels.add(cancel);
       try{
         const r=await fetch(url,{cache:'no-store',signal:ctrl.signal,srhProbe:true});
         if(!r.ok)throw new Error('HTTP '+r.status);
         return await r.json()
       }catch(e){last=e}
-      finally{clearTimeout(timer)}
+      finally{clearTimeout(timer);probeCancels.delete(cancel);ctrl.abort()}
     }
     throw last||new Error('probe API indisponível')
   }
@@ -4038,44 +4058,51 @@ async function closeDetail(){
     return uniqueMediaUrls([native,corrected,direct,mediaUrlWithExtension('series',eid,'m3u8')])
   }
   function probeNative(url,timeout=3300){
+    if(foregroundPlaybackBusy())return Promise.resolve(false);
     return new Promise(resolve=>{
       const v=document.createElement('video');v.className='srh-probe-media';v.dataset.srhBackgroundMedia='1';v.muted=true;v.playsInline=true;v.preload='metadata';
       let done=false,timer=0;
-      const finish=ok=>{if(done)return;done=true;clearTimeout(timer);v.onloadedmetadata=v.onerror=null;try{v.pause();v.removeAttribute('src');v.load()}catch{}resolve(!!ok)};
+      const finish=ok=>{if(done)return;done=true;clearTimeout(timer);probeCancels.delete(cancel);v.onloadedmetadata=v.onerror=null;try{v.pause();v.removeAttribute('src');v.load()}catch{}resolve(!!ok)};
+      const cancel=()=>finish(false);probeCancels.add(cancel);
       v.onloadedmetadata=()=>finish(true);v.onerror=()=>finish(false);timer=setTimeout(()=>finish(false),timeout);
       try{v.src=url;v.load()}catch{finish(false)}
     })
   }
-  async function probeSource(url){
+  async function probeSource(url,budgetMs=3400){
+    if(budgetMs<=0||foregroundPlaybackBusy())return false;
     const kind=mediaKind(url);
     if(kind==='hls'){
-      const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),3400);
+      const ctrl=new AbortController(),cancel=()=>ctrl.abort(),timer=setTimeout(cancel,Math.min(3400,budgetMs));
+      probeCancels.add(cancel);
       try{const r=await fetch(url,{cache:'no-store',signal:ctrl.signal,srhProbe:true});if(!r.ok)return false;const text=await r.text();return /^\s*#EXTM3U/i.test(text)}
-      catch{return false}finally{clearTimeout(timer)}
+      catch{return false}finally{clearTimeout(timer);probeCancels.delete(cancel);ctrl.abort()}
     }
     if(kind==='mpegts'||kind==='m2ts'){
-      const ctrl=new AbortController(),timer=setTimeout(()=>ctrl.abort(),3000);
+      const ctrl=new AbortController(),cancel=()=>ctrl.abort(),timer=setTimeout(cancel,Math.min(3000,budgetMs));
+      probeCancels.add(cancel);
       try{const r=await fetch(url,{cache:'no-store',headers:{Range:'bytes=0-65535'},signal:ctrl.signal,srhProbe:true});return r.ok||r.status===206}
-      catch{return false}finally{clearTimeout(timer)}
+      catch{return false}finally{clearTimeout(timer);probeCancels.delete(cancel);ctrl.abort()}
     }
-    return probeNative(url)
+    return probeNative(url,Math.min(3300,budgetMs))
   }
-  async function probeItem(item,type){
+  async function probeItem(item,type,budgetMs=10000){
+    if(foregroundPlaybackBusy())return false;
+    const epoch=probeEpoch,deadline=Date.now()+Math.max(0,budgetMs);
     const id=String(itemId(item,type)||'');if(!id)return false;
     const key=standardProviderId()+':'+type+':'+id,cached=probeCache.get(key);
-    if(cached&&Date.now()-cached.at<15*60*1000)return cached.ok;
+    if(cached&&Date.now()-cached.at<(cached.ok?15*60*1000:30000))return cached.ok;
     let sources=[];
     try{
       if(type==='series'){
-        const data=await rawProvider({action:'get_series_info',series_id:item.series_id??item.id}),first=firstSeriesEpisode(data);
+        const data=await rawProvider({action:'get_series_info',series_id:item.series_id??item.id},Math.min(4800,Math.max(1,deadline-Date.now()))),first=firstSeriesEpisode(data);
         if(first?.ep)sources=seriesProbeSources(first.ep)
       }else{
-        const data=await rawProvider({action:'get_vod_info',vod_id:item.stream_id??item.id});
+        const data=await rawProvider({action:'get_vod_info',vod_id:item.stream_id??item.id},Math.min(4800,Math.max(1,deadline-Date.now())));
         sources=vodSourcesFromInfo(data,item)
       }
-      for(const url of sources.slice(0,5)){if(await probeSource(url)){probeCache.set(key,{ok:true,at:Date.now()});return true}}
+      for(const url of sources.slice(0,5)){if(Date.now()>=deadline||epoch!==probeEpoch||foregroundPlaybackBusy())return false;if(await probeSource(url,deadline-Date.now())){if(epoch!==probeEpoch||foregroundPlaybackBusy())return false;probeCache.set(key,{ok:true,at:Date.now()});return true}}
     }catch{}
-    probeCache.set(key,{ok:false,at:Date.now()});return false
+    if(epoch===probeEpoch&&!foregroundPlaybackBusy()&&Date.now()<deadline)probeCache.set(key,{ok:false,at:Date.now()});return false
   }
   async function candidateResults(type,current,maxPages=3){
     const api=recoApi();if(!api)return[];
@@ -4109,9 +4136,10 @@ async function closeDetail(){
     const recs=recommended.map((row,i)=>({row,i,aliases:recommendationAliases(row,type),id:String(row?.id||'')})).filter(x=>x.aliases.length||x.id);
     if(!recs.length)return[];
     const direct=[],fuzzy=[],seenLocal=new Set(),token=state.renderToken,deadline=Date.now()+budgetMs,api=recoApi(),kind=type==='series'?'tv':'movie';
+    const scanDeadline=deadline-Math.min(9000,Math.floor(budgetMs*.55));
     for(const target of targetsFor(type)){
-      if(Date.now()>deadline||token!==state.renderToken)break;
-      let raw=[];try{raw=await loadTargetItems(target,token,{priority:-30,probe:true})}catch{continue}
+      if(Date.now()>scanDeadline||token!==state.renderToken||direct.length>=limit)break;
+      let raw=[];try{raw=await loadTargetItems(target,token,{priority:-30,probe:true,timeoutMs:Math.max(2800,Math.min(4200,scanDeadline-Date.now()))})}catch{continue}
       const localSeen=new Set();
       for(let localIndex=0;localIndex<raw.length;localIndex++){
         const item=raw[localIndex],localId=String(itemId(item,type)||'');if(!localId||localSeen.has(localId)||seenLocal.has(localId)){if(localIndex&&localIndex%180===0)await recoYield();continue}
@@ -4131,15 +4159,16 @@ async function closeDetail(){
     }
     const verified=[];
     fuzzy.sort((a,b)=>b.score-a.score||a.rank-b.rank);
-    for(let i=0;i<fuzzy.length&&i<24&&Date.now()<deadline;i+=2){
+    for(let i=0;i<fuzzy.length&&i<24&&Date.now()<scanDeadline;i+=2){
       const batch=fuzzy.slice(i,i+2);
       const metas=await Promise.all(batch.map(x=>api?.resolve?.(kind,x.item,null).catch?.(()=>null)??Promise.resolve(null)));
       batch.forEach((x,j)=>{if(String(metas[j]?.id||'')===String(x.tmdb?.id||''))verified.push(x)})
     }
-    const merged=[...direct,...verified].sort((a,b)=>a.rank-b.rank),out=[],seen=new Set();
-    for(const row of merged){
-      const id=String(itemId(row.item,type)||'');if(!id||seen.has(id)||Date.now()>deadline)continue;
-      seen.add(id);if(await probeItem(row.item,type)){out.push(row);if(out.length>=limit)break}
+    const merged=[...direct,...verified].sort((a,b)=>a.rank-b.rank),out=[],seen=new Set(),candidates=[];
+    for(const row of merged){const id=String(itemId(row.item,type)||'');if(!id||seen.has(id))continue;seen.add(id);candidates.push(row)}
+    for(const row of candidates){
+      if(out.length>=limit||Date.now()>=deadline||token!==state.renderToken||foregroundPlaybackBusy())break;
+      if(await probeItem(row.item,type,Math.max(1,Math.min(6500,deadline-Date.now()))))out.push(row)
     }
     return out
   }
