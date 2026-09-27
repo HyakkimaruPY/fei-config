@@ -3023,10 +3023,7 @@ async function closeDetail(){
     const year=titleYear(rawTitle)||titleYear(extra?.name||extra?.title||'');
     const cacheKey=kind+':'+(explicit?'id:'+explicit:'q:'+clean.toLocaleLowerCase('pt-BR')+':'+year);
     const cached=cacheRead(cacheKey),stale=cached||cacheReadStale(cacheKey);
-    const cachedComplete=Number(cached?.metadataVersion||0)>=TMDB_METADATA_VERSION;
-    if(cachedComplete&&cached?.logo)return cached;
-    if(cachedComplete&&logoRefreshTried.has(cacheKey))return cached;
-    if(cachedComplete)logoRefreshTried.add(cacheKey);
+    if(Number(cached?.metadataVersion||0)>=TMDB_METADATA_VERSION)return cached;
 
     let id=explicit||String(stale?.id||''),picked=null;
     if(!id&&clean){
@@ -3048,7 +3045,6 @@ async function closeDetail(){
     let pt=null,en=null;
     try{pt=await detailsById(kind,id,'pt-BR')}
     catch(e){
-      if(cachedComplete)logoRefreshTried.delete(cacheKey);
       if(picked?.backdrop_path||picked?.poster_path){
         return{
           ...(stale||{}),
@@ -3768,7 +3764,7 @@ async function closeDetail(){
     const type=kind==='tv'?'series':'vod';
     const id=String(kind==='tv'?(item?.series_id??item?.id??''):(item?.stream_id??item?.id??''));
     const rich=id?detailTmdb.get(type+':'+id):null;
-    if(Number(rich?.metadataVersion||0)>=TMDB_METADATA_VERSION&&rich?.logo)return rich;
+    if(Number(rich?.metadataVersion||0)>=TMDB_METADATA_VERSION)return rich;
     const resolved=await resolveTmdb(kind,item,extra);
     if(rich){
       if(!resolved)return rich;
