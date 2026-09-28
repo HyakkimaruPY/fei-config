@@ -1355,3 +1355,5 @@ body.srh-main-stream-style.srh-detail-modal-active{overscroll-behavior:none}
 }
 @media(min-width:900px) and (max-height:599px){body.srh-main-stream-style .detail-modal{width:min(960px,calc(100vw - 32px))!important;max-height:calc(100vh - 24px)!important;max-height:calc(100dvh - 24px)!important}body.srh-main-stream-style .detail-scroll{overflow:auto!important}body.srh-main-stream-style .detail-content{display:block!important}}
 @media(prefers-reduced-motion:reduce){body.srh-main-stream-style .season-menu.srh-season-overlay,body.srh-main-stream-style .srh-selection-state{transition:none!important}}
+body.srh-main-stream-style .detail-modal.is-vod .srh-lite-film-actions{display:flex!important;align-items:center!important;gap:8px!important}
+body.srh-main-stream-style .detail-modal.is-vod .srh-lite-film-actions .srh-lite-actions{display:flex!important;align-items:center!important;gap:8px!important}
