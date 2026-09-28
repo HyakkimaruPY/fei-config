@@ -24,7 +24,9 @@ const THEMES=[
 const IDS=new Set(THEMES.map(x=>x[0]));
 const SPECIAL=new Set(THEMES.slice(6).map(x=>x[0]));
 const PDTO=new Set(['graphene-protan','graphene-deutan','graphene-tritan']);
-const state={theme:cfg.theme||document.body.dataset.theme||'graphene',activeVideo:null,sessionEnabled:false,compare:false,panel:null,button:null,runtimeTheme:null};
+const initialTheme=IDS.has(cfg.theme)?cfg.theme:(IDS.has(document.body.dataset.theme)?document.body.dataset.theme:'graphene');
+const state={theme:initialTheme,activeVideo:null,sessionEnabled:false,compare:false,panel:null,button:null,runtimeTheme:null};
+document.body.dataset.theme=initialTheme;
 function normalizeViewport(){const m=document.querySelector('meta[name="viewport"]');if(m)m.setAttribute('content','width=device-width, initial-scale=1, viewport-fit=cover')}
 normalizeViewport();
 function readJson(k,f){try{const v=JSON.parse(localStorage.getItem(k)||'null');return v&&typeof v==='object'?v:f}catch{return f}}
@@ -76,9 +78,16 @@ function ensurePlayerButton(){
 }
 function syncVideoUi(){
   if(!state.panel)return;
-  const enabled=state.panel.querySelector('[data-a11y-video-enable]'),mode=state.panel.querySelector('[data-a11y-video-mode]'),range=state.panel.querySelector('[data-a11y-video-intensity]'),compare=state.panel.querySelector('[data-a11y-video-compare]'),status=state.panel.querySelector('[data-a11y-video-status]');
-  if(enabled)enabled.checked=state.sessionEnabled;if(mode)mode.value=videoPrefs.mode;if(range)range.value=String(videoPrefs.intensity);if(compare)compare.checked=state.compare;
-  if(status)status.textContent=!supportsFilter()?'Ajustes indisponíveis neste navegador.':PDTO.has(state.theme)?'Ajustes tonais disponíveis. Remapeamento cromático P/D/T permanece experimental e não foi ativado.':state.sessionEnabled?'Ativo nesta sessão.':'Desligado.'
+  const enabled=state.panel.querySelector('[data-a11y-video-enable]'),mode=state.panel.querySelector('[data-a11y-video-mode]'),range=state.panel.querySelector('[data-a11y-video-intensity]'),output=state.panel.querySelector('[data-a11y-video-output]'),compare=state.panel.querySelector('[data-a11y-video-compare]'),status=state.panel.querySelector('[data-a11y-video-status]');
+  if(enabled)enabled.checked=state.sessionEnabled;if(mode)mode.value=videoPrefs.mode;if(range)range.value=String(videoPrefs.intensity);if(output){output.value=videoPrefs.intensity+'%';output.textContent=videoPrefs.intensity+'%'}if(compare)compare.checked=state.compare;
+  const active=!!filterValue(),label='Ajustes de imagem — '+(active?'Ativo':'Desligado');
+  if(state.button){state.button.setAttribute('aria-label',label);state.button.title=label;state.button.dataset.state=active?'active':'off'}
+  if(status){
+    if(!supportsFilter())status.textContent='Ajustes de imagem indisponíveis neste navegador. O vídeo permanece no modo Original.';
+    else if(active&&videoPrefs.mode==='mono')status.textContent='Ativo nesta sessão. O modo monocromático remove as cores do vídeo.';
+    else if(PDTO.has(state.theme))status.textContent=(active?'Ajuste tonal ativo nesta sessão. ':'Desligado. ')+'O remapeamento cromático P/D/T permanece experimental e não foi ativado.';
+    else status.textContent=active?'Ativo nesta sessão.':'Desligado.'
+  }
 }
 function ensureImagePanel(){
   if(state.panel?.isConnected)return state.panel;
@@ -109,14 +118,14 @@ function refreshSettings(error=''){
   const sec=document.getElementById('srhA11ySettings');if(!sec)return;
   const sel=sec.querySelector('[data-a11y-theme]');if(sel)sel.value=state.theme;
   const note=sec.querySelector('[data-a11y-theme-note]');const row=THEMES.find(x=>x[0]===state.theme);
-  if(note)note.textContent=error?'Falha ao carregar tema: '+error:(row?.[2]||'');
+  if(note)note.textContent=error?'Falha ao carregar tema: '+error:(row?.[2]||'')+(special()&&!supportsFilter()?' Ajustes de imagem indisponíveis neste navegador. O vídeo permanece no modo Original.':'');
   sec.classList.toggle('is-special',special());
-  const v=sec.querySelector('[data-a11y-open-video]');if(v){v.hidden=!special();v.disabled=!supportsFilter()}
+  const v=sec.querySelector('[data-a11y-open-video]');if(v){v.hidden=!special();v.disabled=!supportsFilter();v.setAttribute('aria-disabled',v.disabled?'true':'false')}
 }
 function ensureSettings(){
   const host=settingsHost();if(!host||document.getElementById('srhA11ySettings')){refreshSettings();return}
   const sec=document.createElement('section');sec.id='srhA11ySettings';sec.className='srh-a11y-settings';
-  sec.innerHTML='<div class="srh-a11y-settings__title">Acessibilidade visual</div><label>Perfil visual<select data-a11y-theme>'+THEMES.map(x=>'<option value="'+x[0]+'">'+x[1]+'</option>').join('')+'</select></label><div class="srh-a11y-note" data-a11y-theme-note></div><div class="srh-a11y-preview"><span>Texto e estado</span><button type="button">Botão</button><span class="srh-a11y-preview__selected">✓ Selecionado</span></div><button type="button" data-a11y-open-video hidden>Ajustes de imagem</button>';
+  sec.innerHTML='<div class="srh-a11y-settings__title">Acessibilidade visual</div><label>Perfil visual<select data-a11y-theme>'+THEMES.map(x=>'<option value="'+x[0]+'">'+x[1]+'</option>').join('')+'</select></label><div class="srh-a11y-note" data-a11y-theme-note></div><div class="srh-a11y-preview"><span>Texto e estado</span><button type="button">Botão</button><span class="srh-a11y-preview__focus" tabindex="0">Foco</span><span class="srh-a11y-preview__selected">✓ Selecionado</span></div><button type="button" data-a11y-open-video hidden>Ajustes de imagem</button>';
   host.appendChild(sec);
   sec.querySelector('[data-a11y-theme]').onchange=async e=>{e.target.disabled=true;await loadTheme(e.target.value);e.target.disabled=false};
   sec.querySelector('[data-a11y-open-video]').onclick=()=>openPanel();

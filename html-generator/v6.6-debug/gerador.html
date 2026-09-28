@@ -8,8 +8,8 @@
 <style id="srhA11yGeneratorStyle">
 .srh-a11y-theme-group{grid-column:1/-1;margin:10px 0 2px;padding-top:12px;border-top:1px solid rgba(210,218,229,.18)}
 .srh-a11y-theme-group__title{font:800 12px/1.25 system-ui;color:#eef1f5}.srh-a11y-theme-group__note{margin-top:4px;font:500 10px/1.45 system-ui;color:#aab3bf}
-.srh-a11y-card-preview{display:grid;grid-template-columns:1fr auto auto;align-items:center;gap:6px;margin-top:8px;padding:7px;border:1px solid var(--swatch-line);border-radius:9px;background:var(--swatch-surface);color:var(--swatch-accent);font:600 9px/1.2 system-ui}
-.srh-a11y-card-preview b{padding:5px 7px;border:1px solid currentColor;border-radius:6px}.srh-a11y-card-preview em{font-style:normal;text-decoration:underline 2px;text-underline-offset:2px}
+.srh-a11y-card-preview{display:grid;grid-template-columns:1fr auto auto auto;align-items:center;gap:6px;margin-top:8px;padding:7px;border:1px solid var(--swatch-line);border-radius:9px;background:var(--swatch-surface);color:var(--swatch-accent);font:600 9px/1.2 system-ui}
+.srh-a11y-card-preview b{padding:5px 7px;border:1px solid currentColor;border-radius:6px}.srh-a11y-card-preview__focus{font-style:normal;padding:4px 6px;border-radius:6px;outline:2px solid currentColor;outline-offset:2px}.srh-a11y-card-preview em{font-style:normal;text-decoration:underline 2px;text-underline-offset:2px}
 @media(max-width:520px){.srh-a11y-card-preview{grid-template-columns:1fr}}
 </style>
 </head>
@@ -33,6 +33,9 @@ const v=(a,z,h)=>{if(l)l.textContent=a;if(p)p.textContent=z;if(n)n.textContent=h
 const e=a=>{if(c)c.classList.add('is-error');if(l)l.textContent=a;if(p)p.textContent='Falha no carregamento';if(n)n.textContent='—';if(f)f.style.width='100%';if(r){r.style.display='block';r.onclick=()=>location.reload()}};
 const h=()=>{if(window.__srhRouterState)return;if(i>=u.length){e('Não foi possível carregar o gerador. Verifique a conexão e tente novamente.');return}const route=i++,token=++seq,a=u[route],base=a.slice(0,a.lastIndexOf('/')+1);v('Conectando ao gerador…','Rota '+(route+1)+' de '+u.length,12+route*3);window.__srhPublicBase=base;const s=d.createElement('script');s.async=true;s.src=a+(a.includes('?')?'&':'?')+'b='+Date.now();s.dataset.x='g';let done=false,t=0;const next=()=>{if(done)return;done=true;clearTimeout(t);s.onload=s.onerror=null;if(token!==seq)return;if(window.__srhRouterState){v('Preparando módulos…','Router carregado',18);return}try{s.remove()}catch{}setTimeout(h,80)};s.onload=next;s.onerror=next;(d.body||d.documentElement).appendChild(s);t=setTimeout(()=>{if(done||token!==seq)return;if(window.__srhRouterState){done=true;v('Preparando módulos…','Router carregado',18);return}next()},5200)};
 if(r)r.onclick=()=>location.reload();h()})();
+</script>
+<script id="srhA11yGeneratorPreview">
+(()=>{document.querySelectorAll('.theme-card').forEach(card=>{let p=card.querySelector('.srh-a11y-card-preview');if(!p){p=document.createElement('div');p.className='srh-a11y-card-preview';p.innerHTML='<span>Texto</span><b>Botão</b><i class="srh-a11y-card-preview__focus">Foco</i><em>✓ Selecionado</em>';card.appendChild(p)}else if(!p.querySelector('.srh-a11y-card-preview__focus')){const i=document.createElement('i');i.className='srh-a11y-card-preview__focus';i.textContent='Foco';p.querySelector('em')?.before(i)}})})();
 </script>
 </body>
 </html>
