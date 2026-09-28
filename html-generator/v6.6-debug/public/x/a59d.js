@@ -386,10 +386,8 @@ S.removeHistory=item=>{
   return true
 };
 S.lockZoom=()=>{
-  document.addEventListener('gesturestart',e=>e.preventDefault(),{passive:false});
-  document.addEventListener('touchmove',e=>{if(e.touches?.length>1)e.preventDefault()},{passive:false});
-  window.addEventListener('wheel',e=>{if(e.ctrlKey)e.preventDefault()},{passive:false});
-  window.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&['+','-','=','0'].includes(e.key))e.preventDefault()});
+  const m=document.querySelector('meta[name="viewport"]');
+  if(m)m.setAttribute('content','width=device-width, initial-scale=1, viewport-fit=cover');
 };
 S.account=async()=>{try{const a=await S.request({}),raw=a?.user_info?.exp_date,n=Number(raw);if(n>0){const d=new Date(n*1000),days=Math.ceil((d-Date.now())/86400000);$('#expiryDate').textContent=d.toLocaleDateString('pt-BR');$('#expiryDays').textContent=days+' dias';$('#appMeta').textContent=(a?.user_info?.status||'Active')+' · '+days+' dias restantes'}else $('#appMeta').textContent=a?.user_info?.status||'Active'}catch{$('#appMeta').textContent='Conta conectada'}};
 S.boot=async()=>{await S.hydrateRuntime?.();await S.hydrateProxy?.();document.body.dataset.theme=cfg.theme||'graphene';$('#appTitle').textContent=cfg.appName||'Meu App';S.lockZoom();S.state.favorites=await S.hydrateFavorites?.()||S.readFavorites();S.state.history=await S.hydrateHistory();await S.hydrateContinueHidden?.();if(S.hydrateMiniUiState)await S.hydrateMiniUiState();S.reconcileContinueHidden?.();S.bindShell?.();await S.loadCatalog?.();window.dispatchEvent(new Event('srh25:ready'));setTimeout(()=>S.account(),0)};
@@ -1053,7 +1051,7 @@ function startMiniDrag(event){
   window.addEventListener('pointercancel',finish)
 }
 function startMiniTouch(event){
-  if(!miniDock||miniDock.hidden||!miniDock.classList.contains('is-compact'))return;
+  if(!miniDock||miniDock.hidden||!miniDock.classList.contains('is-compact')||event.touches?.length!==1)return;
   const touch=event.touches&&event.touches[0];if(!touch)return;
   const rect=miniDock.getBoundingClientRect(),bounds=miniFrameBounds(rect);
   const startX=touch.clientX,startY=touch.clientY,shiftX=startX-rect.left,shiftY=startY-rect.top;
@@ -1062,6 +1060,7 @@ function startMiniTouch(event){
   miniDock.classList.add('is-dragging');
   const move=e=>{
     if(finished)return;
+    if(e.touches?.length!==1){finish();return}
     const t=e.touches&&e.touches[0];if(!t)return;
     const dx=t.clientX-startX,dy=t.clientY-startY;
     if(!moved&&Math.sqrt(dx*dx+dy*dy)<5)return;
