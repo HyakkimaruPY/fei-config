@@ -1516,7 +1516,7 @@ body.srh-main-stream-style .detail-modal.is-series .season-box.srh-season-action
 /* SRHELL DEBUG R118 — modal art, integrated season selector and uniform actions */
 body.srh-main-stream-style .detail-modal .detail-scroll .detail-content>.detail-art,
 body.srh-main-stream-style .detail-modal .detail-scroll .series-static>.detail-art{
-  margin:-10px -10px 0!important;width:calc(100% + 20px)!important;max-width:none!important;
+  margin:-20px -20px 0!important;width:calc(100% + 40px)!important;max-width:none!important;
   border:0!important;border-radius:var(--modal-radius,16px) var(--modal-radius,16px) 14px 14px!important;overflow:hidden!important;
 }
 body.srh-main-stream-style .detail-modal.is-series .detail-scroll .series-static>.detail-art,
