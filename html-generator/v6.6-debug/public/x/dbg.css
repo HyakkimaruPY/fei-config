@@ -1512,3 +1512,44 @@ body.srh-main-stream-style .srh-lite-action.srh-lite-action--similar span{displa
 body.srh-main-stream-style .season-box.srh-season-actions .season-menu{grid-column:1!important;position:static!important;inset:auto!important;width:100%!important;min-width:0!important;max-width:none!important;max-height:min(42vh,280px)!important;margin:2px 0 0!important;align-self:start!important;overflow:auto!important;border:1px solid color-mix(in srgb,var(--line) 58%,transparent)!important;border-radius:11px!important;background:var(--surface)!important;box-shadow:none!important}
 @media(max-width:680px){body.srh-main-stream-style .srh-lite-action.srh-lite-action--similar,body.srh-main-stream-style .srh-series-season-actions .srh-lite-action.srh-lite-action--similar{min-width:88px!important;padding-inline:10px!important}}
 body.srh-main-stream-style .detail-modal.is-series .season-box.srh-season-actions>.season-menu{grid-column:1!important;position:static!important;inset:auto!important;width:100%!important;min-width:0!important;max-width:none!important;max-height:min(42vh,280px)!important;margin:2px 0 0!important;align-self:start!important;overflow:auto!important;border:1px solid color-mix(in srgb,var(--line) 58%,transparent)!important;border-radius:11px!important;background:var(--surface)!important;box-shadow:none!important}
+
+/* SRHELL DEBUG R118 — modal art, integrated season selector and uniform actions */
+body.srh-main-stream-style .detail-modal .detail-scroll .detail-content>.detail-art,
+body.srh-main-stream-style .detail-modal .detail-scroll .series-static>.detail-art{
+  margin:-10px -10px 0!important;width:calc(100% + 20px)!important;max-width:none!important;
+  border:0!important;border-radius:var(--modal-radius,16px) var(--modal-radius,16px) 14px 14px!important;overflow:hidden!important;
+}
+body.srh-main-stream-style .detail-modal.is-series .detail-scroll .series-static>.detail-art,
+body.srh-main-stream-style .detail-modal.is-live .detail-scroll .detail-content>.detail-art{margin-bottom:0!important}
+body.srh-main-stream-style .season-box.srh-season-actions{
+  position:relative!important;display:grid!important;grid-template-columns:minmax(0,1fr) auto!important;
+  grid-template-rows:48px auto!important;align-items:stretch!important;gap:0 10px!important;overflow:visible!important;
+}
+body.srh-main-stream-style .season-box.srh-season-actions>.season-trigger{
+  grid-column:1!important;grid-row:1!important;width:100%!important;min-width:0!important;
+  height:48px!important;min-height:48px!important;box-sizing:border-box!important;margin:0!important;align-self:stretch!important;
+}
+body.srh-main-stream-style .season-box.srh-season-actions>.srh-series-season-actions{
+  grid-column:2!important;grid-row:1!important;display:flex!important;align-items:center!important;gap:10px!important;
+  height:48px!important;min-height:48px!important;margin:0!important;
+}
+body.srh-main-stream-style .season-box.srh-season-actions>.season-menu{
+  grid-column:1!important;grid-row:2!important;position:static!important;inset:auto!important;
+  width:100%!important;min-width:0!important;max-width:none!important;max-height:min(42vh,280px)!important;
+  margin:-1px 0 0!important;align-self:stretch!important;overflow:auto!important;
+  border:1px solid color-mix(in srgb,var(--line) 58%,transparent)!important;border-top:0!important;
+  border-radius:0 0 12px 12px!important;background:var(--surface)!important;box-shadow:none!important;
+}
+body.srh-main-stream-style .season-box.srh-season-actions.is-expanded>.season-trigger{border-radius:12px 12px 0 0!important}
+body.srh-main-stream-style .season-box.srh-season-actions.is-expanded>.season-menu{border-color:color-mix(in srgb,var(--line) 58%,transparent)!important}
+body.srh-main-stream-style .srh-lite-action.srh-lite-action--similar,
+body.srh-main-stream-style .srh-series-season-actions .srh-lite-action.srh-lite-action--similar{
+  box-sizing:border-box!important;height:48px!important;min-height:48px!important;padding-block:0!important;
+  line-height:1!important;align-self:center!important;margin-block:0!important;font-weight:600!important;
+}
+@media(min-width:900px){
+  body.srh-main-stream-style .detail-modal .detail-scroll .detail-content>.detail-art,
+  body.srh-main-stream-style .detail-modal .detail-scroll .series-static>.detail-art{
+    margin:-20px 0 0 -20px!important;width:calc(100% + 20px)!important;
+  }
+}

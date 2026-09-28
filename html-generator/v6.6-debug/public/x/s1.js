@@ -1378,7 +1378,45 @@ async function loadUpdateCategories(){state.updateCategories=[];state.updateSele
 async function applyUpdate(){if(!state.updateCandidate||!state.updateSelected.size)return;const targets=state.updateCategories.filter(c=>state.updateSelected.has(updateCategoryKey(c))).map(c=>({type:c.type,id:String(c.id),name:c.name})),runtime={server:state.updateCandidate.server,username:state.updateCandidate.username,password:state.updateCandidate.password,liveExtension:state.updateCandidate.liveExtension,targets},providerChanged=!!standardProviderId(CONFIG)&&!!standardProviderId(runtime)&&standardProviderId(CONFIG)!==standardProviderId(runtime);try{if(providerChanged){for(const key of [`srhell:${STANDARD_APP_NS}:standard:favorites:v1`,`srhell:${STANDARD_APP_NS}:standard:continue:vod`,`srhell:${STANDARD_APP_NS}:standard:continue:series`,STANDARD_COMPLETED_KEY,STANDARD_LAST_WATCHED_PREFIX+'vod',STANDARD_LAST_WATCHED_PREFIX+'series','srhell:'+STANDARD_APP_NS+':standard:similar:'+standardProviderId(CONFIG)+':v1'])await standardStateDelete(key)}const ok=await standardStateSet(storageKey(),runtime);if(!ok)throw new Error('IndexedDB');try{localStorage.removeItem(storageKey())}catch{}toast('Lista atualizada. Recarregando…');setTimeout(()=>location.reload(),350)}catch{toast('Não foi possível salvar a lista no IndexedDB.')}}
 setUpdateAccordionIcon(el.updateAccordionBody?.classList.contains('is-hidden')!==false);el.settingsButton.onclick=()=>{const opening=el.settingsPanel.classList.contains('is-hidden');el.settingsPanel.classList.toggle('is-hidden');if(opening)void refreshAccount().catch(e=>playbackDebug('account-refresh-failed',{message:e?.message||String(e)}))};el.updateAccordionButton.onclick=()=>{const hidden=el.updateAccordionBody.classList.toggle('is-hidden');setUpdateAccordionIcon(hidden)};el.updateLoad.onclick=()=>{void loadUpdateCategories().catch(e=>playbackDebug('update-categories-failed',{message:e?.message||String(e)}))};el.updateApply.onclick=()=>{void applyUpdate().catch(e=>playbackDebug('update-apply-failed',{message:e?.message||String(e)}))};
 document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement&&isMobile())screen.orientation?.lock?.('portrait')?.catch?.(()=>{})});
-function init(){installImageFallback();installLiveLogoPipeline();installR104VisualOverrides();document.body.dataset.theme=CONFIG.theme||'graphene';document.title=CONFIG.appName;el.title.textContent=CONFIG.appName;const types=selectedTypes();if(!types.length){el.homeStatus.textContent='Nenhuma categoria configurada.';return}state.activeType=types[0];renderActiveType();refreshAccount()}
+
+function installDebugVirtualizerScrollBudget(){
+  if(window.__srhDebugVirtualizerScrollBudget)return;
+  window.__srhDebugVirtualizerScrollBudget=true;
+  const coalesce=proto=>{
+    if(!proto||typeof proto.render!=='function'||proto.__srhRafRender)return;
+    const base=proto.render;
+    proto.render=function(force=false){
+      if(force){
+        if(this.__srhRenderFrame){cancelAnimationFrame(this.__srhRenderFrame);this.__srhRenderFrame=0}
+        this.__srhRenderQueued=false;
+        return base.call(this,true)
+      }
+      if(this.__srhRenderQueued)return;
+      this.__srhRenderQueued=true;
+      this.__srhRenderFrame=requestAnimationFrame(()=>{
+        this.__srhRenderFrame=0;this.__srhRenderQueued=false;
+        base.call(this,false)
+      })
+    };
+    const destroy=proto.destroy;
+    if(typeof destroy==='function')proto.destroy=function(){if(this.__srhRenderFrame)cancelAnimationFrame(this.__srhRenderFrame);this.__srhRenderFrame=0;this.__srhRenderQueued=false;return destroy.apply(this,arguments)};
+    proto.__srhRafRender=true
+  };
+  coalesce(RailVirtualizer?.prototype);coalesce(GridVirtualizer?.prototype);
+  const grid=GridVirtualizer?.prototype;
+  if(grid&&typeof grid.metrics==='function'&&!grid.__srhMetricsCache){
+    const metrics=grid.metrics;
+    grid.metrics=function(){
+      const width=this.scroller?.clientWidth||0,viewportWidth=innerWidth,cache=this.__srhMetricsCache;
+      if(cache&&cache.width===width&&cache.viewportWidth===viewportWidth)return cache.value;
+      const value=metrics.apply(this,arguments);
+      this.__srhMetricsCache={width,viewportWidth,value};
+      return value
+    };
+    grid.__srhMetricsCache=true
+  }
+}
+function init(){installImageFallback();installLiveLogoPipeline();installR104VisualOverrides();installDebugVirtualizerScrollBudget();document.body.dataset.theme=CONFIG.theme||'graphene';document.title=CONFIG.appName;el.title.textContent=CONFIG.appName;const types=selectedTypes();if(!types.length){el.homeStatus.textContent='Nenhuma categoria configurada.';return}state.activeType=types[0];renderActiveType();refreshAccount()}
 /* SRHELL v6.6 detail/player fixes — loaded after standard/03.js */
 function srhFeedbackBrandMarkup(art,title){
   const brand=art?.querySelector('.srh-art-brand'),logo=brand?.querySelector('img:not(.is-hidden)'),fallback=brand?.querySelector('.srh-art-brand__fallback:not(.is-hidden)');
@@ -5250,7 +5288,7 @@ async function closeDetail(){
   function seasonOpen(){return !!ui.season&&!ui.season.menu.classList.contains('is-hidden')}
   function closeSeason(focus=false){
     const s=ui.season;if(!s)return;
-    s.menu.classList.add('is-hidden');s.menu.classList.remove('is-open');s.trigger.setAttribute('aria-expanded','false');s.trigger.removeAttribute('aria-activedescendant');s.open=false;
+    s.menu.classList.add('is-hidden');s.menu.classList.remove('is-open');s.trigger.setAttribute('aria-expanded','false');s.trigger.removeAttribute('aria-activedescendant');s.open=false;s.trigger.closest('.season-box')?.classList.remove('is-expanded');
     if(focus)try{s.trigger.focus({preventScroll:true})}catch{try{s.trigger.focus()}catch{}}
   }
   function positionSeason(){}
@@ -5268,7 +5306,7 @@ async function closeDetail(){
   }
   function openSeason(){
     const s=ui.season;if(!s)return;const opts=syncSeasonOptions();if(!opts.length)return;
-    s.menu.classList.remove('is-hidden');s.menu.classList.add('is-open');s.trigger.setAttribute('aria-expanded','true');s.open=true;setSeasonActive(s.active||0)
+    s.menu.classList.remove('is-hidden');s.menu.classList.add('is-open');s.trigger.setAttribute('aria-expanded','true');s.open=true;s.trigger.closest('.season-box')?.classList.add('is-expanded');setSeasonActive(s.active||0)
   }
   function installSeason(item){
     const trigger=el.detailBody.querySelector('#seasonTrigger'),menu=el.detailBody.querySelector('#seasonMenu');if(!trigger||!menu)return;
