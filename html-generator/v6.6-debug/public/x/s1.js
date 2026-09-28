@@ -397,7 +397,7 @@ function formatExpiry(accountOrNormalized){
 }
 function renderAccountExpiry(info,{cached=false}={}){
   const exp=formatExpiry(info);
-  if(el.daysChip)el.daysChip.textContent=exp.chip;
+  if(el.daysChip){el.daysChip.textContent=exp.chip;el.daysChip.setAttribute('aria-label','Validade: '+exp.days);el.daysChip.setAttribute('title',exp.days)}
   if(el.expiryDate)el.expiryDate.textContent=exp.date;
   if(el.expiryDays)el.expiryDays.textContent=exp.days;
   const status=String(info?.status||'').trim();
@@ -480,7 +480,7 @@ function freezePage(on){document.body.classList.toggle('modal-open',!!on)}
 function closeCollection(rebuild=true){state.gridInstance?.destroy();state.gridInstance=null;el.collectionSpacer.innerHTML='';el.collectionSpacer.style.height='';el.collectionView.classList.add('is-hidden');state.collectionOpen=false;freezePage(false);if(rebuild)renderActiveType()}
 async function openCollection(title,type,items){clearTimeout(state.searchTimer);++state.renderToken;await closeDetail();state.searchDataset=null;destroyVirtualizers();el.content.innerHTML='';el.continueRow.innerHTML='';el.continueSection.classList.add('is-hidden');el.collectionTitle.textContent=stripEmoji(title);el.collectionView.classList.remove('is-hidden');state.collectionOpen=true;freezePage(true);state.gridInstance=new GridVirtualizer(el.collectionScroller,el.collectionSpacer,type,items.slice(),openItem);el.collectionScroller.scrollTop=0}
 el.collectionClose.onclick=()=>closeCollection(true);
-function renderTabs(){const types=selectedTypes();if(types.length<2){el.bottomNav.classList.add('is-hidden');el.app.classList.remove('has-bottom-nav');return}const icons={live:'<svg class="tab-svg" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6.5" width="16" height="11" rx="2"/><path d="M9 20h6M10 3.5l2 3 2-3"/></svg>',vod:'<svg class="tab-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6.5h14v12H5zM5 10h14M8 6.5l2 3.5M13 6.5l2 3.5"/></svg>',series:'<svg class="tab-svg" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="4.5" width="12" height="15" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>'};el.bottomNav.innerHTML=types.map(t=>`<button class="tab-button${t===state.activeType?' is-active':''}" data-type="${t}">${icons[t]||''}<span>${TYPE[t].label}</span></button>`).join('');el.bottomNav.classList.remove('is-hidden');el.app.classList.add('has-bottom-nav');el.bottomNav.querySelectorAll('[data-type]').forEach(b=>b.onclick=()=>switchType(b.dataset.type))}
+function renderTabs(){const types=selectedTypes();if(types.length<2){el.bottomNav.classList.add('is-hidden');el.app.classList.remove('has-bottom-nav');return}const icons={live:'<svg class="tab-svg" viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="6.5" width="16" height="11" rx="2"/><path d="M9 20h6M10 3.5l2 3 2-3"/></svg>',vod:'<svg class="tab-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 6.5h14v12H5zM5 10h14M8 6.5l2 3.5M13 6.5l2 3.5"/></svg>',series:'<svg class="tab-svg" viewBox="0 0 24 24" aria-hidden="true"><rect x="6" y="4.5" width="12" height="15" rx="2"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>'};el.bottomNav.setAttribute('role','navigation');el.bottomNav.setAttribute('aria-label','Navegação principal');el.bottomNav.innerHTML=types.map(t=>`<button class="tab-button${t===state.activeType?' is-active':''}" data-type="${t}" aria-label="${TYPE[t].label}"${t===state.activeType?' aria-current="page"':''}>${icons[t]||''}<span>${TYPE[t].label}</span></button>`).join('');el.bottomNav.classList.remove('is-hidden');el.app.classList.add('has-bottom-nav');el.bottomNav.querySelectorAll('[data-type]').forEach(b=>b.onclick=()=>switchType(b.dataset.type))}
 function renderContinue(){const type=state.activeType,list=getHistory(type).filter(x=>x.duration>0&&x.position>5).slice(0,12);if(!list.length||type==='live'){el.continueSection.classList.add('is-hidden');el.continueRow.innerHTML='';return}el.continueSection.classList.remove('is-hidden');el.continueRow.innerHTML=list.map((x,i)=>`<article class="continue-card" data-history="${i}"><img src="${escapeHtml(x.image||'')}" alt="" loading="lazy"><div class="progress"><div class="progress__bar" style="width:${Math.min(100,x.position/x.duration*100)}%"></div></div><div class="continue-card__body"><div class="continue-card__title">${escapeHtml(x.title)}</div><div class="continue-card__meta">${Math.round(x.position/x.duration*100)}%</div></div></article>`).join('');el.continueRow.querySelectorAll('[data-history]').forEach(c=>c.onclick=()=>{const x=list[Number(c.dataset.history)];if(x)openGeneralPlayer(x.sources||x.url,x.title,x)})}
 async function renderRail(section,target,token){if(token!==state.renderToken)return;const body=section.querySelector('.rail-body');body.innerHTML=mediaLoaderMarkup('Carregando conteúdo');try{const raw=await loadTargetItems(target);if(token!==state.renderToken)return;const items=target.type==='live'?groupChannels(raw):uniqueById(raw,target.type);if(!items.length){body.innerHTML='<div class="skeleton">Sem conteúdos nesta categoria.</div>';return}body.innerHTML='<div class="rail-viewport"><div class="rail-track"></div></div>';const v=new RailVirtualizer(section,target.type,items,openItem);section._railV=v;state.railInstances.push(v);section.querySelector('[data-all]').onclick=()=>openCollection(target.name,target.type,items)}catch(e){body.innerHTML='<div class="skeleton">'+escapeHtml(e.message)+'</div>'}}
 function evictRail(section){if(!section||section.dataset.loaded!=='1'||state.collectionOpen)return;const v=section._railV;if(v){v.destroy();state.railInstances=state.railInstances.filter(x=>x!==v);section._railV=null}section.querySelector('.rail-body').innerHTML=mediaLoaderMarkup('Liberado da memória');delete section.dataset.loaded;state.categoryObserver?.observe(section)}
@@ -1742,14 +1742,11 @@ async function resolveModalDetailPackage(type,item,providerData){
   ].filter(x=>x.src);
   let art='',artSource='none';
   const logoCandidate=String(tmdb?.logo||'').trim();
-  const [ready,logoReady]=await Promise.all([
-    Promise.all(candidates.map(candidate=>preloadModalAsset(candidate.src))),
-    logoCandidate?preloadModalAsset(logoCandidate,4200):Promise.resolve(false)
-  ]);
+  const ready=await Promise.all(candidates.map(candidate=>preloadModalAsset(candidate.src)));
   const chosenIndex=ready.findIndex(Boolean);
   if(chosenIndex>=0){art=candidates[chosenIndex].src;artSource=candidates[chosenIndex].source}
   else if(candidates[0]){art=candidates[0].src;artSource=candidates[0].source}
-  const logo=logoCandidate&&logoReady?logoCandidate:'';
+  const logo=logoCandidate;
   const overview=String(tmdb?.overview||providerOverview||'').trim();
   const title=stripEmoji(tmdb?.title||providerTitle,'Sem título');
   const year=String(tmdb?.year||providerYear||'').trim();
@@ -2316,33 +2313,27 @@ async function closeDetail(){
     return '<div class="rail-skeleton-row rail-skeleton-row--'+(m.live?'live':'poster')+'" style="--sk-w:'+m.w+'px;--sk-h:'+m.h+'px;gap:'+m.gap+'px;height:'+m.h+'px;min-height:'+m.h+'px;max-height:'+m.h+'px">'+Array.from({length:count},()=>card).join('')+'</div>';
   }
   function railFetchJson(params,timeout=5600,opts=null){
-    const target=apiUrl(params,CONFIG),urls=[target];
+    const target=apiUrl(params,CONFIG),urls=[target],attempts=[],rearms=[];
     if(CONFIG.corsProxy){const proxied=proxyUrl(target,CONFIG);if(proxied&&proxied!==target)urls.push(proxied)}
     const makeAttempt=(url,delay=0)=>{
-      let ctrl=null,timer=0,delayTimer=0,settled=false;
+      let ctrl=null,timer=0,delayTimer=0,settled=false,rejectPending=null,started=0;
       const promise=new Promise((resolve,reject)=>{
+        rejectPending=reject;
+        const finish=(fn,value)=>{if(settled)return;settled=true;clearTimeout(timer);clearTimeout(delayTimer);fn(value)};
+        const rearm=()=>{if(!started||settled)return;clearTimeout(timer);const remaining=Math.max(0,Number(opts?.timeoutMs||timeout)-(Date.now()-started));timer=setTimeout(()=>{finish(reject,new Error('Tempo esgotado ao carregar categoria.'));try{ctrl?.abort()}catch{}},remaining)};
+        rearms.push(rearm);
         const begin=()=>{
           if(settled)return;
-          ctrl=new AbortController();
-          timer=setTimeout(()=>ctrl.abort(),timeout);
-          fetch(url,{cache:'no-store',signal:ctrl.signal,srhBypassCircuit:true,...(opts?.probe?{srhProbe:true}:{})}).then(r=>{
-            if(!r.ok)throw new Error('HTTP '+r.status);
-            return r.json()
-          }).then(resolve,reject).finally(()=>clearTimeout(timer))
+          ctrl=new AbortController();started=Date.now();rearm();
+          Promise.resolve().then(()=>fetch(url,{cache:'no-store',signal:ctrl.signal,srhBypassCircuit:true,...(opts?.probe?{srhProbe:true}:{})})).then(r=>{if(!r.ok)throw new Error('HTTP '+r.status);return r.json()}).then(value=>finish(resolve,value),error=>finish(reject,error))
         };
         if(delay>0)delayTimer=setTimeout(begin,delay);else begin()
       });
-      return{promise,cancel(){settled=true;clearTimeout(delayTimer);clearTimeout(timer);try{ctrl?.abort()}catch{}}}
+      return{promise,cancel(){if(settled)return;settled=true;clearTimeout(delayTimer);clearTimeout(timer);try{ctrl?.abort()}catch{}rejectPending?.(new Error('Consulta substituída'))}}
     };
-    const attempts=urls.map((url,i)=>makeAttempt(url,i?420:0));
-    return new Promise((resolve,reject)=>{
-      let done=false,pending=attempts.length,last=null;
-      attempts.forEach((attempt,idx)=>attempt.promise.then(value=>{
-        if(done)return;done=true;attempts.forEach((x,j)=>{if(j!==idx)x.cancel()});resolve(value)
-      },error=>{
-        if(done)return;last=error;if(--pending<=0){done=true;reject(last||new Error('Falha ao carregar categoria.'))}
-      }))
-    })
+    if(opts)opts.rearm=()=>rearms.forEach(fn=>fn());
+    urls.forEach((url,i)=>attempts.push(makeAttempt(url,i?420:0)));
+    return Promise.any(attempts.map(x=>x.promise)).catch(error=>{throw error?.errors?.at(-1)||error}).finally(()=>{attempts.forEach(x=>x.cancel());if(opts)opts.rearm=null})
   }
   async function stableRailCategoryMap(type){
     if(state.categoryMaps.has(type))return state.categoryMaps.get(type);
@@ -2355,7 +2346,7 @@ async function closeDetail(){
     srhRailCategoryInflight.set(type,p);
     return p;
   }
-  const catalogInflight=new Map(),catalogCache=new Map();
+  const catalogInflight=new Map(),catalogCache=new Map(),catalogOptions=new Map();
   function rememberCatalog(key,items){
     if(items.length>8000)return;
     catalogCache.delete(key);
@@ -2388,6 +2379,8 @@ async function closeDetail(){
     const flightKey=token+':'+key;
     if(catalogInflight.has(flightKey)){
       if(lane==='ui'){
+        const shared=catalogOptions.get(flightKey);
+        if(shared){shared.probe=false;shared.timeoutMs=Math.max(shared.timeoutMs,timeoutMs);shared.rearm?.()}
         const queued=srhRailScheduler.queue.find(job=>job.key===flightKey);
         if(queued){
           queued.lane='ui';
@@ -2399,17 +2392,18 @@ async function closeDetail(){
       pumpRailQueue();
       return catalogInflight.get(flightKey)
     }
-    const queuedAt=Date.now();
+    const queuedAt=Date.now(),requestOptions={probe:!!opts?.probe,timeoutMs};
+    catalogOptions.set(flightKey,requestOptions);
     const pending=scheduleRailTask(async()=>{
       if(token!==state.renderToken)return[];
       const queueWaitMs=Date.now()-queuedAt;
       if(queueWaitMs>700)playbackDebug('catalog-queue-wait',{type:target.type,categoryId:id,lane,priority,waitMs:queueWaitMs});
-      const raw=await railFetchJson({action:TYPE[target.type].content,category_id:id},timeoutMs,{probe:!!opts?.probe});
+      const raw=await railFetchJson({action:TYPE[target.type].content,category_id:id},requestOptions.timeoutMs,requestOptions);
       if(!Array.isArray(raw))throw new Error('A categoria retornou dados inválidos.');
       const scoped=scopeCategoryItems(raw,target.type,id);
       if(token===state.renderToken)rememberCatalog(key,scoped);
       return scoped;
-    },token,priority,lane,flightKey).finally(()=>catalogInflight.delete(flightKey));
+    },token,priority,lane,flightKey).finally(()=>{catalogInflight.delete(flightKey);catalogOptions.delete(flightKey)});
     catalogInflight.set(flightKey,pending);
     return pending;
   };
@@ -3142,7 +3136,10 @@ async function closeDetail(){
     const year=titleYear(rawTitle)||titleYear(extra?.name||extra?.title||'');
     const cacheKey=kind+':'+(explicit?'id:'+explicit:'q:'+clean.toLocaleLowerCase('pt-BR')+':'+year);
     const cached=cacheRead(cacheKey),stale=cached||cacheReadStale(cacheKey);
-    if(Number(cached?.metadataVersion||0)>=TMDB_METADATA_VERSION)return cached;
+    const cachedComplete=Number(cached?.metadataVersion||0)>=TMDB_METADATA_VERSION;
+    if(cachedComplete&&cached?.logo)return cached;
+    if(cachedComplete&&logoRefreshTried.has(cacheKey))return cached;
+    if(cachedComplete)logoRefreshTried.add(cacheKey);
 
     let id=explicit||String(stale?.id||''),picked=null;
     if(!id&&clean){
@@ -3164,6 +3161,7 @@ async function closeDetail(){
     let pt=null,en=null;
     try{pt=await detailsById(kind,id,'pt-BR')}
     catch(e){
+      if(cachedComplete)logoRefreshTried.delete(cacheKey);
       if(picked?.backdrop_path||picked?.poster_path){
         return{
           ...(stale||{}),
@@ -3898,7 +3896,7 @@ async function closeDetail(){
     const type=kind==='tv'?'series':'vod';
     const id=String(kind==='tv'?(item?.series_id??item?.id??''):(item?.stream_id??item?.id??''));
     const rich=id?detailTmdb.get(type+':'+id):null;
-    if(Number(rich?.metadataVersion||0)>=TMDB_METADATA_VERSION)return rich;
+    if(Number(rich?.metadataVersion||0)>=TMDB_METADATA_VERSION&&rich?.logo)return rich;
     const resolved=await resolveTmdb(kind,item,extra);
     if(rich){
       if(!resolved)return rich;
@@ -4427,7 +4425,7 @@ async function closeDetail(){
   /* SRHELL R24 feed hero polish */
   let heroToken=0,heroTimer=0,heroViewToken=0,heroItems=[],heroIndex=0,heroNode=null,heroSetBucket=-1,heroSetMode='auto',heroSetExpiresAt=0;
   const heroMeta=new Map(),heroPrecacheMemory=new Map(),HERO_SET_MS=10*60*1000,HERO_TMDB_METADATA_VERSION=3,HERO_PRECACHE_VERSION=1,HERO_PRECACHE_LIMIT=10,HERO_PRECACHE_TTL=7*24*60*60*1000,HERO_FAVORITE='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.8l2.52 5.1 5.63.82-4.08 3.97.96 5.61L12 16.65 6.97 19.3l.96-5.61L3.85 9.72l5.63-.82L12 3.8z"/></svg>';
-  function heroIsVisible(){return !document.hidden&&!state.playerActive&&!state.collectionOpen&&el.detailLayer.classList.contains('is-hidden')&&!document.body.classList.contains('srh-searching')&&!document.body.classList.contains('srh-search-mode')}
+  function heroIsVisible(){return !document.hidden&&!state.playerActive&&!state.collectionOpen&&el.detailLayer.classList.contains('is-hidden')&&!document.body.classList.contains('srh-searching')&&!document.body.classList.contains('srh-search-mode')&&!heroNode?.matches?.(':focus-within')}
   window.addEventListener('srh:search-mode',e=>{
     const active=!!e.detail?.active;
     clearTimeout(heroTimer);
@@ -4747,7 +4745,7 @@ async function closeDetail(){
 
   function dots(){
     if(!heroNode)return;
-    heroNode.querySelector('.stream-hero__dots').innerHTML=heroItems.map((_,i)=>'<button class="stream-hero__dot'+(i===heroIndex?' is-active is-worm':'')+'" data-stream-dot="'+i+'" aria-label="Destaque '+(i+1)+'"></button>').join('');
+    heroNode.querySelector('.stream-hero__dots').innerHTML=heroItems.map((_,i)=>'<button class="stream-hero__dot'+(i===heroIndex?' is-active is-worm':'')+'" data-stream-dot="'+i+'" aria-label="Destaque '+(i+1)+'"'+(i===heroIndex?' aria-current="true"':'')+'></button>').join('');
     heroNode.querySelectorAll('[data-stream-dot]').forEach(b=>b.onclick=()=>showHero(Number(b.dataset.streamDot),true));
   }
 
