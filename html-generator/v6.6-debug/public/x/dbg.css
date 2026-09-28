@@ -1553,3 +1553,36 @@ body.srh-main-stream-style .srh-series-season-actions .srh-lite-action.srh-lite-
     margin:-20px 0 0 -20px!important;width:calc(100% + 20px)!important;
   }
 }
+
+
+/* R120: restore the R112 art finish while keeping full-bleed placement. */
+body.srh-main-stream-style .detail-modal .detail-scroll .detail-content>.detail-art,
+body.srh-main-stream-style .detail-modal .detail-scroll .series-static>.detail-art{
+  border-radius:14px!important;background:transparent!important;overflow:hidden!important;
+}
+body.srh-main-stream-style .detail-modal .detail-art>img,
+body.srh-main-stream-style .detail-modal .detail-art>img.backdrop,
+body.srh-main-stream-style .detail-modal.is-live .detail-art .channel-logo{
+  border-radius:inherit!important;
+}
+body.srh-main-stream-style .detail-modal.is-live .detail-scroll .detail-content>.detail-art{
+  border-radius:14px!important;background:transparent!important;overflow:hidden!important;
+}
+body.srh-main-stream-style .detail-modal.is-live .detail-art .channel-logo{
+  padding:clamp(12px,3vw,24px)!important;background:transparent!important;
+}
+body.srh-main-stream-style .detail-modal .srh-art-brand{
+  isolation:isolate!important;
+}
+body.srh-main-stream-style .detail-modal .srh-art-brand img{
+  object-fit:contain!important;object-position:left bottom!important;
+  image-rendering:auto!important;transform:none!important;
+}
+.rail-viewport{
+  overscroll-behavior-x:contain!important;-webkit-overflow-scrolling:touch!important;
+  scroll-behavior:auto!important;
+}
+#collectionScroller,.episode-container,.detail-scroll{
+  overscroll-behavior-y:contain!important;-webkit-overflow-scrolling:touch!important;
+  scroll-behavior:auto!important;
+}

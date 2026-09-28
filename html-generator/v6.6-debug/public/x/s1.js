@@ -1382,27 +1382,39 @@ document.addEventListener('fullscreenchange',()=>{if(!document.fullscreenElement
 function installDebugVirtualizerScrollBudget(){
   if(window.__srhDebugVirtualizerScrollBudget)return;
   window.__srhDebugVirtualizerScrollBudget=true;
-  const coalesce=proto=>{
+  const coalesce=(proto,axis)=>{
     if(!proto||typeof proto.render!=='function'||proto.__srhRafRender)return;
     const base=proto.render;
+    const scrollerFor=instance=>axis==='x'?instance.viewport:instance.scroller;
+    const positionFor=instance=>{const target=scrollerFor(instance);return Number(axis==='x'?target?.scrollLeft:target?.scrollTop)||0};
     proto.render=function(force=false){
+      const scroller=scrollerFor(this);
       if(force){
         if(this.__srhRenderFrame){cancelAnimationFrame(this.__srhRenderFrame);this.__srhRenderFrame=0}
         this.__srhRenderQueued=false;
+        this.__srhLastRenderOffset=positionFor(this);
         return base.call(this,true)
+      }
+      const current=positionFor(this),previous=this.__srhLastRenderOffset;
+      if(Number.isFinite(previous)&&scroller){
+        const metrics=this.metrics?.()||{};
+        const backBuffer=axis==='x'?(metrics.slot||1):(metrics.rowH||1);
+        const forwardBuffer=Math.max(backBuffer,(axis==='x'?scroller.clientWidth:scroller.clientHeight)*.75);
+        if(current>=previous-backBuffer*.75&&current<=previous+forwardBuffer)return
       }
       if(this.__srhRenderQueued)return;
       this.__srhRenderQueued=true;
       this.__srhRenderFrame=requestAnimationFrame(()=>{
         this.__srhRenderFrame=0;this.__srhRenderQueued=false;
+        this.__srhLastRenderOffset=positionFor(this);
         base.call(this,false)
       })
     };
     const destroy=proto.destroy;
-    if(typeof destroy==='function')proto.destroy=function(){if(this.__srhRenderFrame)cancelAnimationFrame(this.__srhRenderFrame);this.__srhRenderFrame=0;this.__srhRenderQueued=false;return destroy.apply(this,arguments)};
+    if(typeof destroy==='function')proto.destroy=function(){if(this.__srhRenderFrame)cancelAnimationFrame(this.__srhRenderFrame);this.__srhRenderFrame=0;this.__srhRenderQueued=false;this.__srhLastRenderOffset=undefined;return destroy.apply(this,arguments)};
     proto.__srhRafRender=true
   };
-  coalesce(RailVirtualizer?.prototype);coalesce(GridVirtualizer?.prototype);
+  coalesce(RailVirtualizer?.prototype,'x');coalesce(GridVirtualizer?.prototype,'y');
   const grid=GridVirtualizer?.prototype;
   if(grid&&typeof grid.metrics==='function'&&!grid.__srhMetricsCache){
     const metrics=grid.metrics;
@@ -3855,7 +3867,7 @@ async function closeDetail(){
     return d.area*(.78+.22*fit)
   }
   async function assessProviderSeasonArt(eps){
-    const urls=(Array.isArray(eps)?eps:[]).map(providerEpisodeArt).filter(Boolean);
+    const urls=(Array.isArray(eps)?eps:[]).map(providerEpisodeArtValue).filter(Boolean);
     if(urls.length<2)return{generic:false,similarity:0,providerUrl:urls[0]||''};
     const first=urls[0],allExact=urls.every(u=>u===first);
     if(allExact)return{generic:true,similarity:1,providerUrl:first};
