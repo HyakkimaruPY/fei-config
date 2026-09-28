@@ -1134,7 +1134,7 @@ function setSynopsisState(node,text,expanded){state.synopsisNode=node;state.syno
 function collapseSynopsis(){if(state.synopsisExpanded&&state.synopsisNode){state.synopsisExpanded=false;state.synopsisNode.innerHTML=synopsisMarkup(state.synopsisText,false)}}
 el.detailClose.onclick=closeDetail;
 el.detailLayer.addEventListener('click',e=>{if(e.target===el.detailLayer)closeDetail()});detailModal()?.addEventListener('click',e=>{if(state.synopsisExpanded&&!e.target.closest('.synopsis'))collapseSynopsis()},true);
-async function openFilm(item){if(!await openDetail(itemTitle(item)))return;const token=state.detailToken;await waitDetailSkeletonPaint(token);if(!isDetailCurrent(token))return;try{const detailParams={action:'get_vod_info',vod_id:item.stream_id};let data=null;try{data=await requestProviderDetailStable(detailParams)}catch(detailError){data={info:{plot:item?.plot||item?.description||'',description:item?.description||item?.plot||'',movie_image:item?.movie_image||item?.stream_icon||item?.cover||'',backdrop_path:item?.backdrop_path||'',tmdb_id:item?.tmdb_id||''},movie_data:{...item,stream_id:item.stream_id,name:itemTitle(item),container_extension:item?.container_extension||'mp4'}};playbackDebug('vod-detail-catalog-fallback',{mediaId:String(item?.stream_id||''),message:detailError?.message||String(detailError)})}if(!isDetailCurrent(token))return;const modalPackage=await resolveModalDetailPackage('vod',item,data);if(!isDetailCurrent(token))return;const info=data?.info||{},movie=data?.movie_data||item,art=modalPackage.art||IMAGE_PLACEHOLDER,title=modalPackage.title||movie.name||itemTitle(item),plot=modalPackage.overview||'',sources=vodSourcesFromInfo(data,item),url=sources[0]||streamUrl('vod',{...movie,stream_id:movie.stream_id||item.stream_id,container_extension:movie.container_extension||item.container_extension}),entry={key:'vod:'+(movie.stream_id||item.stream_id),type:'vod',openPath:state.srhOpeningContinue?'continue':'catalog',title,image:art,url,sources,tmdbId:data?.__tmdb?.id||info?.tmdb_id||null,containerExtension:String(movie.container_extension||info.container_extension||item.container_extension||'mp4').toLowerCase(),itemSnapshot:{stream_id:movie.stream_id||item.stream_id,name:title,stream_icon:movie.stream_icon||item.stream_icon,movie_image:info.movie_image||movie.movie_image||'',cover:item.cover||'',cover_big:info.cover_big||'',backdrop_path:info.backdrop_path||'',tmdb_id:data?.__tmdb?.id||info?.tmdb_id||null,container_extension:movie.container_extension||info.container_extension||item.container_extension||'mp4'},position:0,duration:0};sources.forEach(warmMediaOrigin);state.currentDetail={type:'vod',entry};state.srhDetailPackage={token,type:'vod',mediaId:String(movie.stream_id||item.stream_id||''),brand:modalPackage.brand};if(state.srhOpeningContinue&&state.srhContinueFramePromise){await state.srhContinueFramePromise.catch(()=>null);if(!isDetailCurrent(token))return}const displayArt=state.srhOpeningContinue&&state.srhContinueFrameUrl?state.srhContinueFrameUrl:art;el.detailBody.innerHTML=`<div class="detail-content"><div class="detail-art"><img src="${escapeHtml(displayArt||IMAGE_PLACEHOLDER)}" alt=""></div><div class="detail-title-row"><h2 class="detail-title">${escapeHtml(title)}</h2><button class="watch-button" id="watchFilm"><svg class="watch-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.8v12.4L18 12z"/></svg><span>Assistir</span></button></div><div class="synopsis" id="filmSynopsis">${synopsisMarkup(plot,false)}</div></div>`;const filmImage=el.detailBody.querySelector('.detail-art img');applyManagedImageChain(filmImage,[displayArt,modalPackage.brand?.backdrop,modalPackage.brand?.providerBackdrop,modalPackage.brand?.poster,modalPackage.brand?.providerCover,info?.backdrop_path,info?.movie_image,movie?.movie_image,movie?.stream_icon,item?.stream_icon,item?.movie_image,item?.cover],{label:'vod-detail',eager:true});const filmSynopsis=$('#filmSynopsis');setSynopsisState(filmSynopsis,plot,false);filmSynopsis.onclick=e=>{e.stopPropagation();setSynopsisState(filmSynopsis,plot,!state.synopsisExpanded)};$('#watchFilm').onclick=()=>{const old=getHistory('vod').find(x=>x.key===entry.key);openGeneralPlayer(entry.sources||url,title,old?{...entry,...old,tmdbId:entry.tmdbId||old.tmdbId||old.itemSnapshot?.tmdb_id||null,itemSnapshot:{...(old.itemSnapshot||{}),...(entry.itemSnapshot||{})},sources:entry.sources}:entry)}}catch(e){if(!isDetailCurrent(token))return;el.detailBody.innerHTML='<div class="rail-load-error"><span>'+escapeHtml(e.message)+'</span><button type="button">Tentar novamente</button></div>';el.detailBody.querySelector('button').onclick=()=>openItem(item,item.series_id!==undefined?'series':'vod')}}
+async function openFilm(item){if(!await openDetail(itemTitle(item)))return;const token=state.detailToken;await waitDetailSkeletonPaint(token);if(!isDetailCurrent(token))return;try{const detailParams={action:'get_vod_info',vod_id:item.stream_id};let data=null;try{data=await requestProviderDetailStable(detailParams)}catch(detailError){data={info:{plot:item?.plot||item?.description||'',description:item?.description||item?.plot||'',movie_image:item?.movie_image||item?.stream_icon||item?.cover||'',backdrop_path:item?.backdrop_path||'',tmdb_id:item?.tmdb_id||''},movie_data:{...item,stream_id:item.stream_id,name:itemTitle(item),container_extension:item?.container_extension||'mp4'}};playbackDebug('vod-detail-catalog-fallback',{mediaId:String(item?.stream_id||''),message:detailError?.message||String(detailError)})}if(!isDetailCurrent(token))return;const modalPackage=await resolveModalDetailPackage('vod',item,data);if(!isDetailCurrent(token))return;const info=data?.info||{},movie=data?.movie_data||item,art=modalPackage.art||IMAGE_PLACEHOLDER,title=modalPackage.title||movie.name||itemTitle(item),plot=modalPackage.overview||'',sources=vodSourcesFromInfo(data,item),url=sources[0]||streamUrl('vod',{...movie,stream_id:movie.stream_id||item.stream_id,container_extension:movie.container_extension||item.container_extension}),entry={key:'vod:'+(movie.stream_id||item.stream_id),type:'vod',openPath:state.srhOpeningContinue?'continue':'catalog',title,image:art,url,sources,tmdbId:data?.__tmdb?.id||info?.tmdb_id||null,containerExtension:String(movie.container_extension||info.container_extension||item.container_extension||'mp4').toLowerCase(),itemSnapshot:{stream_id:movie.stream_id||item.stream_id,name:title,stream_icon:movie.stream_icon||item.stream_icon,movie_image:info.movie_image||movie.movie_image||'',cover:item.cover||'',cover_big:info.cover_big||'',backdrop_path:info.backdrop_path||'',tmdb_id:data?.__tmdb?.id||info?.tmdb_id||null,container_extension:movie.container_extension||info.container_extension||item.container_extension||'mp4'},position:0,duration:0};sources.forEach(warmMediaOrigin);state.currentDetail={type:'vod',entry};state.srhDetailPackage={token,type:'vod',mediaId:String(movie.stream_id||item.stream_id||''),brand:modalPackage.brand};if(state.srhOpeningContinue&&state.srhContinueFramePromise){await state.srhContinueFramePromise.catch(()=>null);if(!isDetailCurrent(token))return}const displayArt=state.srhOpeningContinue&&state.srhContinueFrameUrl?state.srhContinueFrameUrl:art;el.detailBody.innerHTML=`<div class="detail-content"><div class="detail-art"><img class="backdrop" src="${escapeHtml(displayArt||IMAGE_PLACEHOLDER)}" alt=""></div><div class="detail-title-row"><h2 class="detail-title">${escapeHtml(title)}</h2><button class="watch-button" id="watchFilm"><svg class="watch-svg" viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.8v12.4L18 12z"/></svg><span>Assistir</span></button></div><div class="synopsis" id="filmSynopsis">${synopsisMarkup(plot,false)}</div></div>`;const filmImage=el.detailBody.querySelector('.detail-art img');applyManagedImageChain(filmImage,[displayArt,modalPackage.brand?.backdrop,modalPackage.brand?.providerBackdrop,modalPackage.brand?.poster,modalPackage.brand?.providerCover,info?.backdrop_path,info?.movie_image,movie?.movie_image,movie?.stream_icon,item?.stream_icon,item?.movie_image,item?.cover],{label:'vod-detail',eager:true});const filmSynopsis=$('#filmSynopsis');setSynopsisState(filmSynopsis,plot,false);filmSynopsis.onclick=e=>{e.stopPropagation();setSynopsisState(filmSynopsis,plot,!state.synopsisExpanded)};$('#watchFilm').onclick=()=>{const old=getHistory('vod').find(x=>x.key===entry.key);openGeneralPlayer(entry.sources||url,title,old?{...entry,...old,tmdbId:entry.tmdbId||old.tmdbId||old.itemSnapshot?.tmdb_id||null,itemSnapshot:{...(old.itemSnapshot||{}),...(entry.itemSnapshot||{})},sources:entry.sources}:entry)}}catch(e){if(!isDetailCurrent(token))return;el.detailBody.innerHTML='<div class="rail-load-error"><span>'+escapeHtml(e.message)+'</span><button type="button">Tentar novamente</button></div>';el.detailBody.querySelector('button').onclick=()=>openItem(item,item.series_id!==undefined?'series':'vod')}}
 function normalizeEpisodes(v){
   const out={};
   const seasonKey=(value,fallback='1')=>{const raw=String(value??fallback).trim(),m=raw.match(/-?\d+/);return m?String(Number(m[0])):(raw||fallback)};
@@ -2939,22 +2939,14 @@ async function closeDetail(){
     section.classList.remove('is-hidden');
     row.innerHTML=list.map((x,i)=>{
       const pct=Math.round(Math.min(100,x.position/x.duration*100)),title=escapeHtml(x.title);
-      return '<article class="continue-card" data-history="'+i+'"><button class="continue-card__open" type="button" data-history-open="'+i+'" aria-label="Abrir '+title+', '+pct+'% assistido"><div class="continue-card__media"><img src="'+escapeHtml(IMAGE_PLACEHOLDER)+'" alt="" loading="eager" decoding="async"></div><div class="progress" role="progressbar" aria-label="Progresso assistido" aria-valuemin="0" aria-valuemax="100" aria-valuenow="'+pct+'"><div class="progress__bar" style="width:'+Math.min(100,x.position/x.duration*100)+'%"></div></div><div class="continue-card__body"><div class="continue-card__title">'+title+'</div><div class="continue-card__meta">'+pct+'%</div></div></button><button class="continue-card__remove" type="button" data-history-remove="'+i+'" aria-label="Remover '+title+' de Continuar assistindo">'+TRASH+'</button></article>'
+      return '<article class="continue-card" data-history="'+i+'"><button class="continue-card__open" type="button" data-history-open="'+i+'" aria-label="Abrir '+title+', '+pct+'% assistido"><div class="continue-card__media"><img src="'+escapeHtml(IMAGE_PLACEHOLDER)+'" alt="" loading="eager" decoding="async"></div><div class="progress" role="progressbar" aria-label="Progresso assistido" aria-valuemin="0" aria-valuemax="100" aria-valuenow="'+pct+'"><div class="progress__bar" style="width:'+Math.min(100,x.position/x.duration*100)+'%"></div></div><div class="continue-card__body"><div class="continue-card__title">'+title+'</div><div class="continue-card__meta">'+pct+'%</div></div></button></article>'
     }).join('');
     row.querySelectorAll('[data-history]').forEach(card=>{
-      const x=list[Number(card.dataset.history)],open=card.querySelector('[data-history-open]'),remove=card.querySelector('[data-history-remove]');
+      const x=list[Number(card.dataset.history)],open=card.querySelector('[data-history-open]');
       if(open)open.onclick=()=>{
         if(state.srhContinueOpening||!x)return;
         try{onBeforeOpen?.(x,type)}catch{}
         void openContinueEntry(x,type).catch(e=>{playbackDebug('continue-open-failed',{type,key:x?.key||'',message:e?.message||String(e)});toast('Não foi possível abrir este item.')})
-      };
-      if(remove)remove.onclick=e=>{
-        e.stopPropagation();
-        if(!x)return;
-        removeContinueForEntry(x);
-        card.remove();
-        if(!row.querySelector('.continue-card'))section.classList.add('is-hidden');
-        toast('Removido de Continuar assistindo.')
       };
       if(x)void hydrateContinueCard(card,x,type)
     });
@@ -5225,16 +5217,17 @@ async function closeDetail(){
   if(window.__srhPendingUiR115)return;
   window.__srhPendingUiR115=true;
   const FOCUSABLE='button:not([disabled]),[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
-  const ui={active:false,trigger:null,scrollX:0,scrollY:0,listeners:[],outside:[],season:null,consumeUntil:0};
+  const ui={active:false,trigger:null,triggerLabel:'',scrollX:0,scrollY:0,listeners:[],outside:[],season:null,consumeUntil:0};
   const add=(target,type,fn,opts)=>{target?.addEventListener?.(type,fn,opts);ui.listeners.push(()=>target?.removeEventListener?.(type,fn,opts))};
   const clearListeners=()=>{while(ui.listeners.length){try{ui.listeners.pop()()}catch{}}};
   const visibleFocusables=()=>[...detailModal()?.querySelectorAll?.(FOCUSABLE)||[]].filter(x=>!x.disabled&&x.getClientRects?.().length);
-  const captureReturn=()=>{const pending=state.srhModalTrigger;state.srhModalTrigger=null;if(pending?.isConnected&&!el.detailLayer.contains(pending))return pending;const a=document.activeElement;return a&&a!==document.body&&a!==document.documentElement&&!el.detailLayer.contains(a)?a:null};
+  const captureReturn=()=>{const pending=state.srhModalTrigger;state.srhModalTrigger=null;const active=document.activeElement;const target=pending?.isConnected&&!el.detailLayer.contains(pending)?pending:active&&active!==document.body&&active!==document.documentElement&&!el.detailLayer.contains(active)?active:null;ui.triggerLabel=String(target?.getAttribute?.('aria-label')||'').trim();return target};
   const restoreFocus=saved=>{
-    let target=saved||ui.trigger;
-    if(!target?.isConnected){const label=target?.getAttribute?.('aria-label');target=label?[...document.querySelectorAll('[aria-label]')].find(x=>x.getAttribute('aria-label')===label):null}
-    if(!target?.isConnected)target=el.bottomNav?.querySelector?.('.tab-button.is-active')||el.searchButton||el.settingsButton;
-    try{target?.focus?.({preventScroll:true})}catch{try{target?.focus?.()}catch{}}
+    let target=saved||ui.trigger;const label=String(target?.getAttribute?.('aria-label')||ui.triggerLabel||'').trim();
+    const focus=node=>{if(!node?.isConnected)return false;try{node.focus?.({preventScroll:true})}catch{try{node.focus?.()}catch{}}return document.activeElement===node};
+    if(focus(target))return;
+    if(label){const replacement=[...document.querySelectorAll('[aria-label]')].find(node=>node!==target&&node.getAttribute('aria-label')===label&&node.getClientRects?.().length);if(focus(replacement))return}
+    target=el.bottomNav?.querySelector?.('.tab-button.is-active')||el.searchButton||el.settingsButton;focus(target)
   };
   function isolateOutside(on){
     if(on){
@@ -5260,16 +5253,8 @@ async function closeDetail(){
     s.menu.classList.add('is-hidden');s.menu.classList.remove('is-open');s.trigger.setAttribute('aria-expanded','false');s.trigger.removeAttribute('aria-activedescendant');s.open=false;
     if(focus)try{s.trigger.focus({preventScroll:true})}catch{try{s.trigger.focus()}catch{}}
   }
-  function positionSeason(){
-    const s=ui.season;if(!s||!seasonOpen())return;
-    const r=s.trigger.getBoundingClientRect(),margin=10,vw=document.documentElement.clientWidth||innerWidth,vh=window.visualViewport?.height||innerHeight;
-    const desktop=matchMedia?.('(min-width:900px)')?.matches;const wanted=desktop?Math.min(320,Math.max(220,r.width*.72)):Math.max(220,r.width);const width=Math.min(wanted,Math.max(180,vw-margin*2));
-    s.menu.style.visibility='hidden';s.menu.style.width=width+'px';s.menu.style.maxHeight='280px';
-    const natural=Math.min(280,Math.max(96,s.menu.scrollHeight||190)),below=vh-r.bottom-margin,above=r.top-margin,useAbove=below<natural&&above>below,maxH=Math.max(96,Math.min(natural,useAbove?above:below));
-    const left=Math.min(Math.max(margin,r.left),Math.max(margin,vw-width-margin)),top=useAbove?Math.max(margin,r.top-maxH-6):Math.min(vh-maxH-margin,r.bottom+6);
-    s.menu.style.left=Math.round(left)+'px';s.menu.style.top=Math.round(top)+'px';s.menu.style.maxHeight=Math.round(maxH)+'px';s.menu.style.visibility='visible'
-  }
-  function scheduleSeason(){cancelAnimationFrame(scheduleSeason.raf||0);scheduleSeason.raf=requestAnimationFrame(positionSeason)}
+  function positionSeason(){}
+  function scheduleSeason(){}
   function syncSeasonOptions(){
     const s=ui.season;if(!s)return[];
     const opts=[...s.menu.querySelectorAll('[data-season]')];
@@ -5283,15 +5268,15 @@ async function closeDetail(){
   }
   function openSeason(){
     const s=ui.season;if(!s)return;const opts=syncSeasonOptions();if(!opts.length)return;
-    s.menu.classList.remove('is-hidden');s.menu.classList.add('is-open');s.trigger.setAttribute('aria-expanded','true');s.open=true;setSeasonActive(s.active||0);positionSeason()
+    s.menu.classList.remove('is-hidden');s.menu.classList.add('is-open');s.trigger.setAttribute('aria-expanded','true');s.open=true;setSeasonActive(s.active||0)
   }
   function installSeason(item){
     const trigger=el.detailBody.querySelector('#seasonTrigger'),menu=el.detailBody.querySelector('#seasonMenu');if(!trigger||!menu)return;
     ui.season={trigger,menu,item,active:0,open:false};
     trigger.setAttribute('role','combobox');trigger.setAttribute('aria-haspopup','listbox');trigger.setAttribute('aria-controls',menu.id);trigger.setAttribute('aria-expanded','false');trigger.setAttribute('aria-label','Selecionar temporada');
-    menu.setAttribute('role','listbox');menu.setAttribute('aria-label','Temporadas');menu.classList.add('srh-season-overlay');
+    menu.setAttribute('role','listbox');menu.setAttribute('aria-label','Temporadas');
     const opts=syncSeasonOptions();
-    opts.forEach(option=>{const original=option.onclick;option.onclick=function(e){original?.call(this,e);syncSeasonOptions();closeSeason(false);setTimeout(()=>{decorateEpisodes();positionSeason()},0)}});
+    opts.forEach(option=>{const original=option.onclick;option.onclick=function(e){original?.call(this,e);syncSeasonOptions();closeSeason(false);setTimeout(()=>{decorateEpisodes()},0)}});
     trigger.onclick=e=>{e.stopPropagation();seasonOpen()?closeSeason(false):openSeason()};
     trigger.onkeydown=e=>{
       const optsNow=syncSeasonOptions();
@@ -5300,7 +5285,6 @@ async function closeDetail(){
       if(e.key==='Escape'&&seasonOpen()){e.preventDefault();e.stopPropagation();closeSeason(true);return}
       if(e.key==='Tab'&&seasonOpen())closeSeason(false)
     };
-    scheduleSeason()
   }
   function currentSeason(){const label=el.detailBody.querySelector('#seasonLabel')?.textContent||'';return String((label.match(/(\d+)/)||[])[1]||'')}
   function episodeStable(item,season,ep,index){return [standardProviderId(),String(item?.series_id??item?.id??''),String(season),String(ep?.id??ep?.stream_id??ep?.episode_num??index+1)].join(':')}
@@ -5361,7 +5345,7 @@ async function closeDetail(){
     art.classList.toggle('srh-art-fallback-compact',!!confirmed&&!art.classList.contains('is-playing'))
   }
   function installContent(type,item){detailModal()?.setAttribute('data-srh-ui-ready','1');syncFallbackArt();if(type==='series'){installSeason(item);decorateEpisodes()}if(type==='live')installLive(item)}
-  function consumeOutsidePointer(e){const s=ui.season;if(!s||!seasonOpen())return;if(s.menu.contains(e.target)||s.trigger.contains(e.target))return;e.preventDefault();e.stopImmediatePropagation();closeSeason(false);ui.consumeUntil=performance.now()+180}
+  function consumeOutsidePointer(e){const s=ui.season;if(!s||!seasonOpen())return;if(s.menu.contains(e.target)||s.trigger.contains(e.target))return;closeSeason(false)}
   function consumeClick(e){if(performance.now()>ui.consumeUntil)return;e.preventDefault();e.stopImmediatePropagation();ui.consumeUntil=0}
   function trapKeys(e){
     if(!ui.active||state.playerActive||srhFullscreenElement())return;
@@ -5373,12 +5357,12 @@ async function closeDetail(){
     const modal=detailModal();if(!modal)return;
     if(!ui.active){
       ui.active=true;ui.trigger=ui.trigger||captureReturn();ui.scrollX=scrollX;ui.scrollY=scrollY;isolateOutside(true);document.body.classList.add('srh-detail-modal-active');
-      add(window,'keydown',trapKeys,true);add(el.detailLayer,'pointerdown',consumeOutsidePointer,true);add(window,'click',consumeClick,true);add(window,'resize',scheduleSeason,{passive:true});add(window.visualViewport,'resize',scheduleSeason,{passive:true});add(el.detailScroll,'scroll',scheduleSeason,{passive:true});add(document,'playing',mediaEvent,true);add(document,'error',mediaEvent,true);add(document,'loadstart',mediaEvent,true);const resetLiveSelection=()=>setTimeout(()=>{const ctx=state.srhLiveUi;if(!ctx||el.detailLayer.classList.contains('is-hidden'))return;const stable=ensureLiveMap().get(ctx.groupKey);if(stable)paintLive(ctx.group,stable,'Selecionado')},0);add(el.playerClose,'click',resetLiveSelection,false);add(el.detailBody,'click',e=>{if(e.target?.closest?.('[data-inline-close]')&&state.currentMedia?.type==='live')resetLiveSelection()},true);add(modal,'keydown',e=>e.stopPropagation(),false)
+      add(window,'keydown',trapKeys,true);add(el.detailLayer,'pointerdown',consumeOutsidePointer,true);add(document,'playing',mediaEvent,true);add(document,'error',mediaEvent,true);add(document,'loadstart',mediaEvent,true);const resetLiveSelection=()=>setTimeout(()=>{const ctx=state.srhLiveUi;if(!ctx||el.detailLayer.classList.contains('is-hidden'))return;const stable=ensureLiveMap().get(ctx.groupKey);if(stable)paintLive(ctx.group,stable,'Selecionado')},0);add(el.playerClose,'click',resetLiveSelection,false);add(el.detailBody,'click',e=>{if(e.target?.closest?.('[data-inline-close]')&&state.currentMedia?.type==='live')resetLiveSelection()},true);add(modal,'keydown',e=>e.stopPropagation(),false)
     }
     modal.setAttribute('role','dialog');modal.setAttribute('aria-modal','true');modal.setAttribute('aria-label',String(title||state.currentDetail?.title||'Detalhes'));requestAnimationFrame(()=>{try{el.detailClose?.focus?.({preventScroll:true})}catch{try{el.detailClose?.focus?.()}catch{}}})
   }
   function deactivateModal(){
-    if(!ui.active)return;closeSeason(false);ui.season=null;ui.active=false;clearListeners();isolateOutside(false);document.body.classList.remove('srh-detail-modal-active');const modal=detailModal();modal?.removeAttribute('aria-modal');modal?.removeAttribute('role');modal?.removeAttribute('aria-label');try{scrollTo(ui.scrollX,ui.scrollY)}catch{}const returnTarget=ui.trigger;requestAnimationFrame(()=>restoreFocus(returnTarget));ui.trigger=null
+    if(!ui.active)return;closeSeason(false);ui.season=null;ui.active=false;clearListeners();isolateOutside(false);document.body.classList.remove('srh-detail-modal-active');const modal=detailModal();modal?.removeAttribute('aria-modal');modal?.removeAttribute('role');modal?.removeAttribute('aria-label');try{scrollTo(ui.scrollX,ui.scrollY)}catch{}const returnTarget=ui.trigger;requestAnimationFrame(()=>{restoreFocus(returnTarget);if(ui.trigger===returnTarget){ui.trigger=null;ui.triggerLabel=''}})
   }
   const openBase=openDetail;
   openDetail=async function(title){if(!ui.active)ui.trigger=captureReturn();const r=await openBase(title);if(r===false)return false;activateModal(title);return r};
