@@ -2196,7 +2196,7 @@ async function closeDetail(){
     const episode='<article class="episode srh-episode-skeleton" aria-hidden="true"><span class="episode__thumb srh-shimmer-block"></span><div class="srh-episode-skeleton__body"><span class="srh-shimmer-line"></span><span class="srh-shimmer-line"></span><span class="episode__progress"></span></div><span class="episode__play srh-shimmer-button"></span></article>';
     if(type==='live'){
       const quality='<button class="quality-row srh-shimmer-row" type="button" disabled></button>';
-      return '<div class="detail-content srh-modal-loading"><div class="detail-art srh-shimmer-block"></div>'+titleRow+'<div class="quality-list srh-skeleton-quality">'+quality+quality+quality+'</div></div>'
+      return '<div class="detail-content srh-modal-loading"><div class="detail-art srh-shimmer-block"></div><div class="detail-title-row">'+title+'<span class="srh-lite-action srh-shimmer-button" aria-hidden="true"></span></div><div class="quality-list srh-skeleton-quality">'+quality+quality+quality+'</div></div>'
     }
     if(type==='series'){
       return '<div class="detail-content srh-modal-loading"><div class="series-static"><div class="detail-art srh-shimmer-block">'+brand+'</div>'+titleRow+synopsis+'<div class="season-box srh-season-actions"><button class="season-trigger srh-shimmer-row" type="button" disabled></button><div class="srh-series-season-actions"><span class="srh-lite-action srh-shimmer-button"></span><span class="srh-lite-action srh-shimmer-button"></span></div></div></div><div class="episode-container"><div class="episode-list srh-skeleton-episodes">'+episode+episode+episode+'</div></div></div>'
