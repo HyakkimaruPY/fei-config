@@ -1341,13 +1341,14 @@ body.srh-main-stream-style.srh-detail-modal-active{overscroll-behavior:none}
   body.srh-main-stream-style .detail-content>.detail-title-row{grid-column:2!important;grid-row:1!important;margin-top:0!important}
   body.srh-main-stream-style .detail-content>.synopsis{grid-column:2!important;grid-row:2!important;margin-top:0!important;max-height:190px;overflow:auto}
   body.srh-main-stream-style .detail-content>.srh-lite-film-actions{grid-column:2!important;grid-row:3!important;margin:0!important}
-  body.srh-main-stream-style .detail-modal.is-series .series-static{display:contents!important}
-  body.srh-main-stream-style .detail-modal.is-series .series-static>.detail-art{grid-column:1!important;grid-row:1/5!important;align-self:start!important;position:sticky!important;top:0!important}
-  body.srh-main-stream-style .detail-modal.is-series .series-static>.detail-title-row{grid-column:2!important;grid-row:1!important;margin-top:0!important;padding-right:58px!important}
-  body.srh-main-stream-style .detail-modal.is-series .series-static>.synopsis{grid-column:2!important;grid-row:2!important;margin-top:0!important;max-height:128px;overflow:auto}
-  body.srh-main-stream-style .detail-modal.is-series .series-static>.season-box{grid-column:2!important;grid-row:3!important;margin-top:0!important}
-  body.srh-main-stream-style .detail-modal.is-series .episode-container{grid-column:2!important;grid-row:4!important;margin:0!important;height:auto!important;max-height:330px!important;min-height:0!important;overflow:auto!important}
-  body.srh-main-stream-style .detail-modal.is-series .srh-similar-panel{grid-column:2!important}
+  body.srh-main-stream-style .detail-modal.is-series .detail-content{display:block!important;max-width:920px!important}
+  body.srh-main-stream-style .detail-modal.is-series .series-static{display:grid!important;grid-template-columns:minmax(0,1fr) minmax(360px,1fr)!important;grid-template-rows:auto auto auto minmax(0,1fr)!important;gap:12px 20px!important;align-items:start!important;width:100%!important;min-width:0!important}
+  body.srh-main-stream-style .detail-modal.is-series .series-static>.detail-art{grid-column:1!important;grid-row:1/5!important;align-self:start!important;position:sticky!important;top:0!important;min-width:0!important;width:100%!important}
+  body.srh-main-stream-style .detail-modal.is-series .series-static>.detail-title-row{grid-column:2!important;grid-row:1!important;margin-top:0!important;padding-right:58px!important;min-width:0!important}
+  body.srh-main-stream-style .detail-modal.is-series .series-static>.synopsis{grid-column:2!important;grid-row:2!important;margin-top:0!important;max-height:128px;overflow:auto;min-width:0!important}
+  body.srh-main-stream-style .detail-modal.is-series .series-static>.season-box{grid-column:2!important;grid-row:3!important;margin-top:0!important;min-width:0!important;width:100%!important}
+  body.srh-main-stream-style .detail-modal.is-series .series-static>.episode-container{grid-column:2!important;grid-row:4!important;margin:0!important;height:auto!important;max-height:330px!important;min-height:0!important;min-width:0!important;overflow:auto!important}
+  body.srh-main-stream-style .detail-modal.is-series .srh-similar-panel{margin-inline:0!important}
   body.srh-main-stream-style .detail-modal.is-live .detail-art{grid-column:1!important;grid-row:1/4!important}
   body.srh-main-stream-style .detail-modal.is-live .detail-title-row{grid-column:2!important;grid-row:1!important;margin:0!important;padding-right:58px!important}
   body.srh-main-stream-style .detail-modal.is-live .quality-list{grid-column:2!important;grid-row:2/5!important;margin:0!important;max-height:390px!important;overflow:auto!important;padding:0!important}
@@ -1357,3 +1358,7 @@ body.srh-main-stream-style.srh-detail-modal-active{overscroll-behavior:none}
 @media(prefers-reduced-motion:reduce){body.srh-main-stream-style .season-menu.srh-season-overlay,body.srh-main-stream-style .srh-selection-state{transition:none!important}}
 body.srh-main-stream-style .detail-modal.is-vod .srh-lite-film-actions{display:flex!important;align-items:center!important;gap:8px!important}
 body.srh-main-stream-style .detail-modal.is-vod .srh-lite-film-actions .srh-lite-actions{display:flex!important;align-items:center!important;gap:8px!important}
+
+@media(min-width:900px){
+  body.srh-main-stream-style .season-menu.srh-season-overlay{width:min(320px,calc(100vw - 20px))!important;max-width:320px!important}
+}
