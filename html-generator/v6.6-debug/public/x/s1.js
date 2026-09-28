@@ -1801,17 +1801,8 @@ async function closeDetail(){
   function installPageZoomLock(){
     if(window.__srhZoomLock)return;
     window.__srhZoomLock=true;
-    const style=document.createElement('style');
-    style.textContent='html,body{touch-action:pan-x pan-y!important;-ms-touch-action:pan-x pan-y!important}';
-    document.head.appendChild(style);
-    const stop=e=>{e.preventDefault()};
-    ['gesturestart','gesturechange','gestureend'].forEach(type=>document.addEventListener(type,stop,{passive:false}));
-    document.addEventListener('touchmove',e=>{if(e.touches&&e.touches.length>1)e.preventDefault()},{passive:false});
-    document.addEventListener('wheel',e=>{if(e.ctrlKey||e.metaKey)e.preventDefault()},{passive:false});
-    document.addEventListener('keydown',e=>{
-      if(!(e.ctrlKey||e.metaKey))return;
-      if(['+','-','=','_','0'].includes(e.key))e.preventDefault();
-    },true);
+    const meta=document.querySelector('meta[name="viewport"]');
+    if(meta)meta.setAttribute('content','width=device-width, initial-scale=1, viewport-fit=cover');
   }
   installPageZoomLock();
   if(!document.getElementById('srhContinueFrameStyle')){
