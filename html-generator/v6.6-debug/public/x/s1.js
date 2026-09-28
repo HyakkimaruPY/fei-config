@@ -5283,7 +5283,7 @@ async function closeDetail(){
     const s=ui.season;if(!s)return[];
     const opts=[...s.menu.querySelectorAll('[data-season]')];
     opts.forEach((o,i)=>{if(!o.id)o.id='srh-season-option-'+state.detailToken+'-'+i;o.setAttribute('role','option');o.setAttribute('aria-selected',o.classList.contains('is-active')?'true':'false');o.tabIndex=-1});
-    s.active=Math.max(0,opts.findIndex(o=>o.getAttribute('aria-selected')==='true'));
+    const chosen=Math.max(0,opts.findIndex(o=>o.getAttribute('aria-selected')==='true'));if(!s.open||!Number.isInteger(s.active)||s.active<0||s.active>=opts.length)s.active=chosen;
     return opts
   }
   function setSeasonActive(index){
