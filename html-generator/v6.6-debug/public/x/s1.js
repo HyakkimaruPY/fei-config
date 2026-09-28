@@ -5239,8 +5239,8 @@ async function closeDetail(){
   const clearListeners=()=>{while(ui.listeners.length){try{ui.listeners.pop()()}catch{}}};
   const visibleFocusables=()=>[...detailModal()?.querySelectorAll?.(FOCUSABLE)||[]].filter(x=>!x.disabled&&x.getClientRects?.().length);
   const captureReturn=()=>{const pending=state.srhModalTrigger;state.srhModalTrigger=null;if(pending?.isConnected&&!el.detailLayer.contains(pending))return pending;const a=document.activeElement;return a&&a!==document.body&&a!==document.documentElement&&!el.detailLayer.contains(a)?a:null};
-  const restoreFocus=()=>{
-    let target=ui.trigger;
+  const restoreFocus=saved=>{
+    let target=saved||ui.trigger;
     if(!target?.isConnected){const label=target?.getAttribute?.('aria-label');target=label?[...document.querySelectorAll('[aria-label]')].find(x=>x.getAttribute('aria-label')===label):null}
     if(!target?.isConnected)target=el.bottomNav?.querySelector?.('.tab-button.is-active')||el.searchButton||el.settingsButton;
     try{target?.focus?.({preventScroll:true})}catch{try{target?.focus?.()}catch{}}
@@ -5387,7 +5387,7 @@ async function closeDetail(){
     modal.setAttribute('role','dialog');modal.setAttribute('aria-modal','true');modal.setAttribute('aria-label',String(title||state.currentDetail?.title||'Detalhes'));requestAnimationFrame(()=>{try{el.detailClose?.focus?.({preventScroll:true})}catch{try{el.detailClose?.focus?.()}catch{}}})
   }
   function deactivateModal(){
-    if(!ui.active)return;closeSeason(false);ui.season=null;ui.active=false;clearListeners();isolateOutside(false);document.body.classList.remove('srh-detail-modal-active');const modal=detailModal();modal?.removeAttribute('aria-modal');modal?.removeAttribute('role');modal?.removeAttribute('aria-label');try{scrollTo(ui.scrollX,ui.scrollY)}catch{}requestAnimationFrame(restoreFocus);ui.trigger=null
+    if(!ui.active)return;closeSeason(false);ui.season=null;ui.active=false;clearListeners();isolateOutside(false);document.body.classList.remove('srh-detail-modal-active');const modal=detailModal();modal?.removeAttribute('aria-modal');modal?.removeAttribute('role');modal?.removeAttribute('aria-label');try{scrollTo(ui.scrollX,ui.scrollY)}catch{}const returnTarget=ui.trigger;requestAnimationFrame(()=>restoreFocus(returnTarget));ui.trigger=null
   }
   const openBase=openDetail;
   openDetail=async function(title){if(!ui.active)ui.trigger=captureReturn();const r=await openBase(title);if(r===false)return false;activateModal(title);return r};
