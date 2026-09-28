@@ -1304,7 +1304,7 @@ body.srh-main-stream-style .continue-card__remove:before{content:"";position:abs
 body.srh-main-stream-style .continue-card__remove svg{position:relative;z-index:1;width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:1.8}
 body.srh-main-stream-style .modal-layer{overscroll-behavior:contain;touch-action:pan-y}
 body.srh-main-stream-style .detail-modal{width:min(960px,calc(100vw - 24px))!important;max-height:min(720px,calc(100vh - 28px))!important;max-height:min(720px,calc(100dvh - 28px))!important;border:1px solid var(--line)!important;border-radius:var(--modal-radius,16px)!important;box-shadow:0 18px 48px rgba(0,0,0,.28)!important;overflow:visible!important}
-body.srh-main-stream-style .detail-head{padding:10px 12px!important;background:var(--bg-elev);border-radius:inherit}
+body.srh-main-stream-style .detail-head{padding:0!important;background:transparent!important;border-radius:0!important;top:10px!important;right:10px!important}
 body.srh-main-stream-style .detail-head #detailClose{width:48px!important;height:48px!important;min-width:48px!important;border-radius:12px!important}
 body.srh-main-stream-style .detail-scroll{overscroll-behavior:contain!important;scrollbar-gutter:stable}
 body.srh-main-stream-style .detail-content{width:100%!important;max-width:920px!important}
@@ -1343,13 +1343,13 @@ body.srh-main-stream-style.srh-detail-modal-active{overscroll-behavior:none}
   body.srh-main-stream-style .detail-content>.srh-lite-film-actions{grid-column:2!important;grid-row:3!important;margin:0!important}
   body.srh-main-stream-style .detail-modal.is-series .series-static{display:contents!important}
   body.srh-main-stream-style .detail-modal.is-series .series-static>.detail-art{grid-column:1!important;grid-row:1/5!important;align-self:start!important;position:sticky!important;top:0!important}
-  body.srh-main-stream-style .detail-modal.is-series .series-static>.detail-title-row{grid-column:2!important;grid-row:1!important;margin-top:0!important}
+  body.srh-main-stream-style .detail-modal.is-series .series-static>.detail-title-row{grid-column:2!important;grid-row:1!important;margin-top:0!important;padding-right:58px!important}
   body.srh-main-stream-style .detail-modal.is-series .series-static>.synopsis{grid-column:2!important;grid-row:2!important;margin-top:0!important;max-height:128px;overflow:auto}
   body.srh-main-stream-style .detail-modal.is-series .series-static>.season-box{grid-column:2!important;grid-row:3!important;margin-top:0!important}
   body.srh-main-stream-style .detail-modal.is-series .episode-container{grid-column:2!important;grid-row:4!important;margin:0!important;height:auto!important;max-height:330px!important;min-height:0!important;overflow:auto!important}
   body.srh-main-stream-style .detail-modal.is-series .srh-similar-panel{grid-column:2!important}
   body.srh-main-stream-style .detail-modal.is-live .detail-art{grid-column:1!important;grid-row:1/4!important}
-  body.srh-main-stream-style .detail-modal.is-live .detail-title-row{grid-column:2!important;grid-row:1!important;margin:0!important}
+  body.srh-main-stream-style .detail-modal.is-live .detail-title-row{grid-column:2!important;grid-row:1!important;margin:0!important;padding-right:58px!important}
   body.srh-main-stream-style .detail-modal.is-live .quality-list{grid-column:2!important;grid-row:2/5!important;margin:0!important;max-height:390px!important;overflow:auto!important;padding:0!important}
   body.srh-main-stream-style .srh-modal-loading .detail-art{align-self:start!important}
 }
