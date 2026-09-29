@@ -1587,3 +1587,20 @@ body.srh-main-stream-style .detail-modal .srh-art-brand img{
   overscroll-behavior-y:contain!important;-webkit-overflow-scrolling:touch!important;
   scroll-behavior:auto!important;
 }
+
+/* R122: restore mobile modal breathing room and align clean branding with synopsis. */
+@media(max-width:899px){
+  body.srh-main-stream-style .modal-layer{
+    padding:max(12px,env(safe-area-inset-top)) max(16px,env(safe-area-inset-right)) max(12px,env(safe-area-inset-bottom)) max(16px,env(safe-area-inset-left))!important;
+  }
+  body.srh-main-stream-style .detail-modal{
+    width:100%!important;
+    max-height:calc(100dvh - max(24px,env(safe-area-inset-top) + env(safe-area-inset-bottom)))!important;
+  }
+  body.srh-main-stream-style .detail-modal .detail-art .srh-art-brand{
+    left:clamp(18px,3vw,22px)!important;
+    width:calc(50% - clamp(18px,3vw,22px))!important;
+    padding-left:0!important;
+    box-sizing:border-box!important;
+  }
+}
