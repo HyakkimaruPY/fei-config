@@ -1517,7 +1517,7 @@ body.srh-main-stream-style .detail-modal.is-series .season-box.srh-season-action
 /* SRHELL DEBUG R118 — modal art, integrated season selector and uniform actions */
 body.srh-main-stream-style .detail-modal .detail-scroll .detail-content>.detail-art,
 body.srh-main-stream-style .detail-modal .detail-scroll .series-static>.detail-art{
-  margin:-20px -20px 0!important;width:calc(100% + 40px)!important;max-width:none!important;
+  margin:0!important;width:100%!important;max-width:none!important;
   border:0!important;border-radius:var(--modal-radius,16px) var(--modal-radius,16px) 14px 14px!important;overflow:hidden!important;
 }
 body.srh-main-stream-style .detail-modal.is-series .detail-scroll .series-static>.detail-art,
@@ -1548,13 +1548,12 @@ body.srh-main-stream-style .srh-series-season-actions .srh-lite-action.srh-lite-
   box-sizing:border-box!important;height:48px!important;min-height:48px!important;padding-block:0!important;
   line-height:1!important;align-self:center!important;margin-block:0!important;font-weight:600!important;
 }
-@media(min-width:900px){
+@media(min-width:900px) and (min-height:600px){
   body.srh-main-stream-style .detail-modal .detail-scroll .detail-content>.detail-art,
   body.srh-main-stream-style .detail-modal .detail-scroll .series-static>.detail-art{
-    margin:-20px 0 0 -20px!important;width:calc(100% + 20px)!important;
+    margin:0!important;width:100%!important;
   }
 }
-
 
 /* R120: restore the R112 art finish while keeping full-bleed placement. */
 body.srh-main-stream-style .detail-modal .detail-scroll .detail-content>.detail-art,
@@ -1604,3 +1603,20 @@ body.srh-main-stream-style .detail-modal .srh-art-brand img{
     box-sizing:border-box!important;
   }
 }
+
+/* Keep the R112 mobile art and text on one shared inset. Desktop grid
+   children must include their margins in the available column width. */
+@media(max-width:899px), (min-width:900px) and (max-height:599px){
+  body.srh-main-stream-style .detail-modal .detail-scroll{padding:0!important;scrollbar-gutter:auto}
+  body.srh-main-stream-style .detail-modal .synopsis{background:transparent!important;border:0!important;padding:4px 0 9px!important;margin-inline:var(--srh-detail-inline)!important}
+  body.srh-main-stream-style .detail-modal .detail-art .srh-art-brand{left:var(--srh-detail-inline)!important;width:calc(50% - var(--srh-detail-inline))!important;padding-left:0!important}
+  body.srh-main-stream-style .detail-modal .season-box{margin-inline:var(--srh-detail-inline)!important;width:auto!important}
+  body.srh-main-stream-style .detail-modal .episode-container{margin-inline:var(--srh-detail-inline)!important}
+}
+@media(min-width:900px) and (min-height:600px){
+  body.srh-main-stream-style .detail-modal .detail-content>.synopsis,
+  body.srh-main-stream-style .detail-modal.is-series .series-static>.synopsis,
+  body.srh-main-stream-style .detail-modal.is-series .series-static>.season-box{margin-inline:0!important;width:auto!important}
+}
+
+
