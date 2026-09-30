@@ -1620,3 +1620,14 @@ body.srh-main-stream-style .detail-modal .srh-art-brand img{
 }
 
 
+
+/* Debug desktop: let the final series grid determine the modal height. */
+body.srh-main-stream-style .srh-series-season-actions .srh-lite-action{width:48px!important;height:48px!important;min-width:48px!important}
+@media(min-width:900px) and (min-height:600px){
+ body.srh-main-stream-style .detail-modal.is-series{height:auto!important}
+ body.srh-main-stream-style .detail-modal.is-series .detail-scroll,
+ body.srh-main-stream-style .detail-modal.is-series #detailBody,
+ body.srh-main-stream-style .detail-modal.is-series .detail-content{flex:0 1 auto!important;height:auto!important;overflow:visible!important}
+ body.srh-main-stream-style .detail-modal.is-series .detail-scroll{overflow:auto!important}
+ body.srh-main-stream-style .detail-modal .synopsis{box-sizing:border-box!important;padding-right:58px!important}
+}
